@@ -1,0 +1,16 @@
+FROM rust:1.90-slim
+
+RUN rustup target add wasm32-wasip1 && \
+    rm -rf /usr/local/cargo/registry /usr/local/cargo/git /usr/local/rustup/tmp/* && \
+    rm -rf /usr/local/rustup/toolchains/*/share/doc /usr/local/rustup/toolchains/*/share/man && \
+    rm -rf /usr/local/rustup/toolchains/*/lib/rustlib/*/test /usr/local/rustup/toolchains/*/lib/rustlib/*/examples
+
+# Install Node.js v23 using NodeSource binary distribution
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl ca-certificates xz-utils && \
+    curl -fsSL https://nodejs.org/dist/v23.5.0/node-v23.5.0-linux-x64.tar.xz -o node.tar.xz && \
+    tar -xJf node.tar.xz -C /usr/local --strip-components=1 && \
+    rm node.tar.xz && \
+    apt-get purge -y xz-utils && \
+    apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man /usr/share/info /tmp/*
