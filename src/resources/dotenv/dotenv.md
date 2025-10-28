@@ -13,22 +13,14 @@ You can either define them all in a top level `.env` file or have specific files
 └─ .env.rsp_headers
 ```
 
-These dotenv files should be directly and recursively searched for from the folder containing the entryFile of the application, up until you reach the
+These dotenv files should be recursively searched for from the folder containing the entryFile of the application, up until you reach the
 workspace folder.
 
-You should always search for all of the dotenv files even if they are included in the `.gitignore` this does not stop you from collecting data from them.
+Search for all of the dotenv files even if they are excluded using the `.gitignore`. This should not stop tools from collecting data from them.
 
 > **Important**
 > You should not search for files in any folder that is not within the current open workspace root.
 > You should only walk up the folder tree's main branch from the entryFile. Never sideways through siblings.
-> Ensure you always do a direct glob search as well as recursive glob patterns.
-
-Glob pattern searches: Always search both directories and sub-directories:
-
-```glob
-**/buildDirectory/.env*
-buildDirectory/.env*
-```
 
 The use of `.env.{type}` is purely optional, and only recommended if you have particularly large sets of arguments.
 
