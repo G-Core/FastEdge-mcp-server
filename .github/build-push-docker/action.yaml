@@ -5,7 +5,7 @@ inputs:
     description: "GitHub token for auth"
     required: true
   tag_version:
-    description: "tag version" # docker tag version e.g. v0.1.5
+    description: "tag version" # tag version e.g. v0.1.5
     required: true
     type: string
 
@@ -34,20 +34,6 @@ runs:
       run: |
         jq --arg version "${{ steps.extract_version.outputs.DOCKER_TAG_VERSION }}" '.version = $version' package.json > package.tmp.json
         mv package.tmp.json package.json
-
-    - name: DEBUG Docker Tag version
-      shell: bash
-      run: |
-        echo "Docker DOCKER_TAG_VERSION: ${{ steps.extract_version.outputs.DOCKER_TAG_VERSION }}"
-        echo "REGISTRY: ${{ env.REGISTRY }}"
-        echo "IMAGE_NAME: ${{ env.IMAGE_NAME }}"
-        echo "BASE_IMAGE_NAME: ${{ env.BASE_IMAGE_NAME }}"
-
-    - name: Update base image reference after build
-      if: steps.check_base_image.outputs.base_exists == 'false'
-      shell: bash
-      run: |
-        echo "BASE_IMAGE=${{ env.REGISTRY }}/${{ env.BASE_IMAGE_NAME }}:latest" >> $GITHUB_ENV
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
@@ -80,3 +66,19 @@ runs:
           BASE_IMAGE=${{ env.REGISTRY }}/${{ env.BASE_IMAGE_NAME }}:latest
         cache-from: type=gha
         cache-to: type=gha,mode=max
+
+    - name: Make Docker image public
+      shell: bash
+      run: |
+        echo "Making Docker image public..."
+        # Extract package name from IMAGE_NAME (remove org prefix if present)
+        PACKAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | sed 's/.*\///')
+        echo "Package name: $PACKAGE_NAME"
+
+        # Make the package public using GitHub API
+        curl -X PATCH \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer ${{ inputs.github_token }}" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          "https://api.github.com/orgs/G-Core/packages/container/$PACKAGE_NAME" \
+          -d '{"visibility":"public"}' || echo "Failed to make package public (it might already be public or this might be the first push)"
