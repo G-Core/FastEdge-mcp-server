@@ -71,4 +71,4 @@ jobs:
         uses: ./.github/build-push-docker
         with:
           tag_version: ${{ env.TAG_VERSION }}
-          github_token: ${{ github.token  }}
+          github_token: ${{ github.token }}

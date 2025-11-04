@@ -11,7 +11,7 @@ This project provides MCP (Model Context Protocol) tools for building, deploying
 ### FastEdge Application Development
 
 - **get-fastedge-context** - Get comprehensive FastEdge development context and patterns for coding assistance
-- **scaffold-fastedge-project** - Create a new FastEdge project from templates (http-base, http-react, http-react-hono, cdn-base)
+- **scaffold-fastedge-project** - Create a new FastEdge project from templates.
 - **list-fastedge-templates** - List all available FastEdge templates with descriptions, languages, and application types
 
 ### FastEdge Binary Management
@@ -22,7 +22,6 @@ This project provides MCP (Model Context Protocol) tools for building, deploying
 ### FastEdge Application Deployment
 
 - **update-or-create-app** - Update an existing FastEdge application or create a new one using a binary ID
-- **get-secret-id** - Get the ID of a FastEdge secret by name for configuration management
 
 ### Documentation & Magic Comments
 
@@ -61,17 +60,13 @@ Get FastEdge context for building edge applications
 
 To scaffold a new FastEdge project using the interactive prompt:
 
-```
-Create a new FastEdge application
-```
-
-Or use the tool directly:
-
-```
-List available FastEdge templates
+```prompt
+/createFastEdgeApp
 ```
 
-```
+OR
+
+```prompt
 Create a TypeScript HTTP application in ./my-app using the http-base template
 ```
 
@@ -118,7 +113,7 @@ Make sure to set the following environment variables:
 
 - `WORKSPACE_ROOT` - Root path of the workspace
 - `FASTEDGE_API_KEY` - Your FastEdge API key for authentication
-- `FASTEDGE_API_URL` - FastEdge API endpoint URL
+- `FASTEDGE_API_URL` - FastEdge API endpoint URL ( Optional )
 
 ## Supported FastEdge Templates
 

@@ -36,6 +36,13 @@ module.exports = async ({ github, context, core }) => {
     return;
   }
 
+  const { execSync } = require("child_process");
+  const fs = require("fs");
+
+  // Ensure output directory exists
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  // Download the assets
   const downloadAsset = (asset) => {
     const downloadUrl = `https://api.github.com/repos/G-Core/fastedge-start-kits/releases/assets/${asset.id}`;
     core.info(`Assets download URL: ${downloadUrl}`);
@@ -45,13 +52,6 @@ module.exports = async ({ github, context, core }) => {
     );
   };
 
-  const { execSync } = require("child_process");
-  const fs = require("fs");
-
-  // Ensure output directory exists
-  fs.mkdirSync(outputDir, { recursive: true });
-
-  // Download the assets
   downloadAsset(resource);
   downloadAsset(resourceSha);
 
