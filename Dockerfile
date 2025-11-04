@@ -1,5 +1,8 @@
+# Build argument for base image
+ARG BASE_IMAGE=ghcr.io/g-core/fastedge-mcp-server-base:latest
+
 # Build stage
-FROM viridiscomms/fastedge-base:latest AS builder
+FROM ${BASE_IMAGE} AS builder
 
 WORKDIR /app
 
@@ -14,7 +17,7 @@ COPY . .
 RUN npm run build
 
 # Production stage
-FROM viridiscomms/fastedge-base:latest
+FROM ${BASE_IMAGE}
 
 WORKDIR /app
 

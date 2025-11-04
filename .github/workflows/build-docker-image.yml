@@ -1,0 +1,80 @@
+name: Build and Publish MCP Server
+
+on:
+  workflow_call:
+    inputs:
+      tag_version:
+        description: "tag version" # docker tag version e.g. v0.1.5
+        required: true
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  BASE_IMAGE_NAME: g-core/fastedge-mcp-server-base
+  IMAGE_NAME: g-core/fastedge-mcp-server
+
+jobs:
+  build_and_push:
+    runs-on: [self-hosted, ubuntu-22-04, regular]
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Download fastedge-start-kit Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: fastedge-start-kit-artifact
+          path: fastedge-start-kit
+
+      - name: Copy fastedge-start-kit resources
+        run: |
+          cp fastedge-start-kit/resources.ts src/tools/scaffolding/
+
+      - name: Extract tag version
+        id: extract_version
+        run: |
+          TAG_VERSION=${{ inputs.tag_version }}
+          TAG_VERSION=${TAG_VERSION#v}  # Remove the 'v' prefix
+          echo "TAG_VERSION: $TAG_VERSION"
+          echo "TAG_VERSION=$TAG_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update package.json version
+        run: |
+          jq --arg version "$TAG_VERSION" '.version = $version' package.json > package.tmp.json
+          mv package.tmp.json package.json
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ steps.extract_version.outputs.TAG_VERSION }}
+            type=raw,value=latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            BASE_IMAGE=${{ env.REGISTRY }}/${{ env.BASE_IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

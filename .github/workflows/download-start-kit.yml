@@ -1,0 +1,93 @@
+name: Get FastEdge-start-kit Assets
+
+on:
+  workflow_call:
+    inputs:
+      start_kit_version:
+        description: "FastEdge-start-kit version"
+        required: false
+        type: string
+        default: "latest"
+    secrets:
+      release_token:
+        description: "GitHub token for authentication - needs to come from VAULT"
+        required: true
+
+jobs:
+  determine-start-kit-version:
+    runs-on: [self-hosted, ubuntu-latest, regular]
+    outputs:
+      version: ${{ steps.determine-version.outputs.version }}
+    steps:
+      - name: Determine version
+        id: determine-version
+        run: |
+          echo "Determining FastEdge-start-kit version... ${{ inputs.start_kit_version }}"
+          if [ "${{ inputs.start_kit_version }}" == "latest" ] || [ -z "${{ inputs.start_kit_version }}" ]; then
+            echo "Fetching latest release version..."
+
+            # Debug: Check the raw API response
+            echo "Debug: Making API call to GitHub..."
+            API_RESPONSE=$(curl -L -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${{ secrets.release_token }}" -H "X-GitHub-Api-Version: 2022-11-28" https://api.github.com/repos/G-Core/fastedge-start-kits/releases/latest)
+            echo "Debug: API Response: $API_RESPONSE"
+
+            # Check if jq is available
+            if ! command -v jq &> /dev/null; then
+              echo "Error: jq is not installed"
+              exit 1
+            fi
+
+            # Extract tag_name with error checking
+            LATEST_VERSION=$(echo "$API_RESPONSE" | jq -r '.tag_name // empty')
+
+            if [ -z "$LATEST_VERSION" ] || [ "$LATEST_VERSION" == "null" ]; then
+              echo "Error: Could not extract tag_name from API response"
+              echo "API Response: $API_RESPONSE"
+              exit 1
+            fi
+
+            echo "Latest version is $LATEST_VERSION"
+            echo "version=$LATEST_VERSION"  >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ inputs.start_kit_version }}" >> $GITHUB_OUTPUT
+          fi
+
+  download-and-verify:
+    runs-on: [self-hosted, ubuntu-latest, regular]
+    needs: determine-start-kit-version
+
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v5
+
+      - name: Use version from determine-start-kit-version job
+        id: used-start-kit-version
+        run: |
+          echo "Using FastEdge-start-kit version from previous job...${{ needs.determine-start-kit-version.outputs.version }}"
+          echo "VERSION=${{ needs.determine-start-kit-version.outputs.version }}" >> $GITHUB_ENV
+
+      - name: Download FastEdge-start-kit assets
+        run: |
+          echo "Downloading FastEdge-start-kit version $VERSION"
+          curl -L -H "Authorization: token ${{ secrets.release_token }}" -o resources.ts https://github.com/G-Core/FastEdge-start-kits/releases/download/$VERSION/resources.ts
+          curl -L -H "Authorization: token ${{ secrets.release_token }}" -o resources.ts.sha256 https://github.com/G-Core/FastEdge-start-kits/releases/download/$VERSION/resources.ts.sha256
+
+      - name: Verify checksum
+        run: |
+          sha256sum -c resources.ts.sha256
+
+      - name: Extract fastedge-run
+        run: |
+          if [[ ${{ matrix.os }} == 'windows-latest' ]]; then
+            unzip fastedge-run-$VERSION-${{ matrix.file_name }}.${{ matrix.file_ext }}
+          else
+            tar -xzf fastedge-run-$VERSION-${{ matrix.file_name }}.${{ matrix.file_ext }}
+          fi
+
+      - name: Upload fastedge-run Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fastedge-start-kit-artifact
+          retention-days: 1
+          path: |
+            fastedge-start-kit/

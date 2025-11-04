@@ -1,0 +1,77 @@
+name: "Download FastEdge-start-kit Release"
+description: "Download the release assets for FastEdge-start-kit"
+inputs:
+  github_token:
+    description: "GitHub token for auth"
+    required: true
+  start_kit_version:
+    description: "FastEdge-start-kit version if provided from workflow_dispatch"
+    required: false
+  build_directory:
+    description: "Directory to store downloaded assets"
+    required: false
+    default: "start-kit-assets"
+
+outputs:
+  START_KIT_RELEASE_VERSION:
+    description: "Release version that was downloaded"
+    value: ${{ steps.download-assets.outputs.RELEASE_ASSET_VERSION }}
+
+runs:
+  using: "composite"
+
+  steps:
+    - name: Ensure release folder is empty
+      shell: bash
+      run: |
+        rm -rf ./${{ inputs.build_directory }}
+        mkdir ./${{ inputs.build_directory }}
+
+    - name: Set Start-kit Version to use
+      id: set-start-kit-version
+      shell: bash
+      run: |
+        if [ -z "${{ inputs.start_kit_version }}" ]; then
+          echo "START_KIT_VERSION=latest" >> $GITHUB_ENV
+          echo "start_kit_version=latest" >> $GITHUB_OUTPUT
+        else
+          echo "START_KIT_VERSION=${{ inputs.start_kit_version }}" >> $GITHUB_ENV
+          echo "start_kit_version=${{ inputs.start_kit_version }}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: debug start-kit version
+      shell: bash
+      run: |
+        echo "Start-kit version: $START_KIT_VERSION"
+        if [ -z "$START_KIT_VERSION" ]; then
+          echo "Start-kit version is empty"
+          exit 1
+        fi
+
+    - name: Download Start-kit Assets
+      id: download-assets
+      uses: actions/github-script@v7
+      env:
+        START_KIT_VERSION: "${{ env.START_KIT_VERSION }}"
+        BUILD_DIRECTORY: "${{ inputs.build_directory }}"
+        PAT_GITHUB: "${{ inputs.github_token }}"
+      with:
+        github-token: ${{ inputs.github_token }}
+        script: |
+          const script = require('./.github/scripts/download-start-kit-release.cjs');
+          await script({github, context, core});
+
+    - name: debug start-kit assets
+      shell: bash
+      run: |
+        cd ${{ inputs.build_directory }} && ls -la
+
+    - name: Verify checksum
+      shell: bash
+      run: |
+        cd ${{ inputs.build_directory }} && sha256sum -c resources.ts.sha256
+
+    - name: Copy assets to tools/scaffolding
+      shell: bash
+      run: |
+        cp ./${{ inputs.build_directory }}/resources.ts ./src/tools/scaffolding/
