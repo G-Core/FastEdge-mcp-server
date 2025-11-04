@@ -1,0 +1,74 @@
+name: Create a versioned release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.*"
+
+  workflow_dispatch: # trigger manually
+    inputs:
+      start_kit_version:
+        description: "FastEdge-start-kit version"
+        required: true
+        default: "latest"
+      tag_version:
+        description: "Release tag e.g. v1.0.1"
+        required: true
+        default: ""
+
+jobs:
+  create_docker_release:
+    runs-on: [self-hosted, ubuntu-22-04, regular]
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v5
+
+      - name: Create release tag
+        id: determine-tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag_version }}" ]; then
+            TAG_VERSION="${{ github.event.inputs.tag_version }}"
+            if [[ ! "$TAG_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9]+)?$ ]]; then
+              echo "Invalid tag format: $TAG_VERSION"
+              exit 1
+            fi
+            echo "Creating new release tag: $TAG_VERSION"
+            git tag -a "$TAG_VERSION" -m "Release $TAG_VERSION"
+            git push origin "$TAG_VERSION"
+            echo "has_tag=true" >> $GITHUB_OUTPUT
+            echo "TAG_VERSION=$TAG_VERSION" >> $GITHUB_ENV
+          else
+            TAG_VERSION=${GITHUB_REF#refs/tags/}
+            if [[ ! "$TAG_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9]+)?$ ]]; then
+              echo "Invalid tag format: $TAG_VERSION"
+              exit 1
+            fi
+            echo "has_tag=true" >> $GITHUB_OUTPUT
+            echo "TAG_VERSION=$TAG_VERSION" >> $GITHUB_ENV
+          fi
+
+      - name: Debug release tag
+        if: ${{ steps.determine-tag.outputs.has_tag == 'true' }}
+        run: |
+          echo "Release tag created successfully: ${{ env.TAG_VERSION }}"
+
+      - name: Download Start-Kit Resources
+        if: ${{ steps.determine-tag.outputs.has_tag == 'true' }}
+        id: download-start-kit
+        uses: ./.github/download-start-kit-release
+        with:
+          start_kit_version: ${{ github.event.inputs.start_kit_version }}
+          github_token: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Build and push Docker Image
+        if: ${{ steps.determine-tag.outputs.has_tag == 'true' }}
+        id: build-and-push
+        uses: ./.github/build-push-docker
+        with:
+          tag_version: ${{ env.TAG_VERSION }}
+          github_token: ${{ github.token }}

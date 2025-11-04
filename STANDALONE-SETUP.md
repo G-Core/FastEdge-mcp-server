@@ -16,7 +16,7 @@ Create a file called `.vscode/mcp.json` in your workspace with the following con
       "command": "bash",
       "args": [
         "-c",
-        "docker run --user $(id -u):$(id -g) --rm -i -v \"$WORKSPACE_ROOT:/workspace\" -e \"WORKSPACE_ROOT=/workspace\" -e \"FASTEDGE_API_KEY=$FASTEDGE_API_KEY\" -e \"FASTEDGE_API_URL=$FASTEDGE_API_URL\" viridiscomms/fastedge-mcp-server:latest"
+        "docker run --user $(id -u):$(id -g) --rm -i -v \"$WORKSPACE_ROOT:/workspace\" -e \"WORKSPACE_ROOT=/workspace\" -e \"FASTEDGE_API_KEY=$FASTEDGE_API_KEY\" -e \"FASTEDGE_API_URL=$FASTEDGE_API_URL\" ghcr.io/g-core/fastedge-mcp-server:latest"
       ],
       "env": {
         "WORKSPACE_ROOT": "${workspaceFolder}",
@@ -36,7 +36,7 @@ Create a file called `.vscode/mcp.json` in your workspace with the following con
 
 ## What This Does
 
-- Pulls `viridiscomms/fastedge-mcp-server:latest` from DockerHub
+- Pulls `ghcr.io/g-core/fastedge-mcp-server:latest` from GitHub Container Registry
 - Mounts your current workspace as `/workspace` in the container
 - Runs the MCP server with stdio transport
 - Automatically handles file permissions with your user ID
@@ -50,7 +50,7 @@ docker run --rm -i \
   -v "$(pwd):/workspace" \
   -e "WORKSPACE_ROOT=/workspace" \
   -e "FASTEDGE_API_KEY=your_api_key" \
-  viridiscomms/fastedge-mcp-server:latest
+  ghcr.io/g-core/fastedge-mcp-server:latest
 ```
 
 ## Requirements
