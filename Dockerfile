@@ -13,6 +13,12 @@ RUN npm ci
 # Copy source code
 COPY . .
 
+# Accept CONTEXT7_APIKEY as build argument
+ARG CONTEXT7_APIKEY
+
+# Set environment variable for build process
+ENV CONTEXT7_APIKEY=${CONTEXT7_APIKEY}
+
 # Build TypeScript
 RUN npm run build
 

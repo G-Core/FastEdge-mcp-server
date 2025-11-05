@@ -20,8 +20,7 @@ Create a file called `.vscode/mcp.json` in your workspace with the following con
       ],
       "env": {
         "WORKSPACE_ROOT": "${workspaceFolder}",
-        "FASTEDGE_API_KEY": "your_api_key_here",
-        "FASTEDGE_API_URL": "https://api.preprod.world" # Optional
+        "FASTEDGE_API_KEY": "your_api_key_here"
       }
     }
   }

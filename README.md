@@ -113,7 +113,6 @@ Make sure to set the following environment variables:
 
 - `WORKSPACE_ROOT` - Root path of the workspace
 - `FASTEDGE_API_KEY` - Your FastEdge API key for authentication
-- `FASTEDGE_API_URL` - FastEdge API endpoint URL ( Optional )
 
 ## Supported FastEdge Templates
 
