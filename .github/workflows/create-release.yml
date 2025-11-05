@@ -72,3 +72,4 @@ jobs:
         with:
           tag_version: ${{ env.TAG_VERSION }}
           github_token: ${{ github.token }}
+          context7_apikey: ${{ secrets.CONTEXT7_APIKEY }}

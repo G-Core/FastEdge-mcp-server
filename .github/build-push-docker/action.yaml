@@ -8,6 +8,10 @@ inputs:
     description: "tag version" # tag version e.g. v0.1.5
     required: true
     type: string
+  context7_apikey:
+    description: "Context7 API key for documentation generation"
+    required: false
+    type: string
 
 runs:
   using: "composite"
@@ -64,6 +68,7 @@ runs:
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
           BASE_IMAGE=${{ env.REGISTRY }}/${{ env.BASE_IMAGE_NAME }}:latest
+          CONTEXT7_APIKEY=${{ inputs.context7_apikey }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
 

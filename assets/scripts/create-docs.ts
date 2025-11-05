@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const CONTEXT7_APIKEY = "ctx7sk-1fa70e70-cc5f-4d71-863c-3a7cf1777c7f"; // todo: Farq: Move to .env files..
+const CONTEXT7_APIKEY = process.env.CONTEXT7_APIKEY || "none";
 
 /**
  * Script to automatically update FastEdge documentation by:
@@ -21,7 +21,7 @@ const CONTEXT7_APIKEY = "ctx7sk-1fa70e70-cc5f-4d71-863c-3a7cf1777c7f"; // todo: 
  * Fetch Context7 content
  */
 async function fetchContext7Content(context7Key: string): Promise<string> {
-  console.log("🔍 Fetching Context7 content...");
+  console.log("🔍 Fetching Context7 content...", context7Key);
 
   try {
     // Use GitHub API to fetch repository contents
@@ -31,6 +31,11 @@ async function fetchContext7Content(context7Key: string): Promise<string> {
         Authorization: `Bearer ${CONTEXT7_APIKEY}`,
       },
     });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch context7 content: ${response.status} ${response.statusText}`
+      );
+    }
     return await response.text();
   } catch (error) {
     console.error("Failed to fetch context7Key:", context7Key, error);
@@ -55,7 +60,7 @@ async function writeResourceFile(
   content: string
 ): Promise<void> {
   try {
-    console.log("📝 Writing resource file...", dir, outputName);
+    console.log("📝 Writing resource file...", `${dir}${outputName}`);
     const resourceDir = path.join(__dirname, dir);
     const resourceMdFile = path.join(resourceDir, `${outputName}.md`);
     const resourceTSFile = path.join(resourceDir, `${outputName}.ts`);

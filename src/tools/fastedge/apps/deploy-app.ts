@@ -89,7 +89,6 @@ export function registerDeployAppTool(server: McpServer, apiConfig: ApiConfig) {
             rsp_headers: {},
             secrets: {},
           });
-          console.error("Farq: createdApp", createdApp);
           return {
             content: [
               {
