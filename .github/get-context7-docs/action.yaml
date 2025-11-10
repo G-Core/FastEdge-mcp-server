@@ -22,5 +22,5 @@ runs:
     - name: Generate Context7 Docs
       shell: bash
       run: |
-        export CONTEXT7_APIKEY=${{ inputs.context7_apikey }} &&
+        export CONTEXT7_APIKEY=${{ inputs.context7_apikey }}
         npm run create:docs
