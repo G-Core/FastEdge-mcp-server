@@ -65,6 +65,12 @@ jobs:
           start_kit_version: ${{ github.event.inputs.start_kit_version }}
           github_token: ${{ secrets.RELEASE_TOKEN }}
 
+      - name: Get Context7 Docs
+        if: ${{ steps.determine-tag.outputs.has_tag == 'true' }}
+        uses: ./.github/get-context7-docs
+        with:
+          context7_apikey: ${{ secrets.CONTEXT7_APIKEY }}
+
       - name: Build and push Docker Image
         if: ${{ steps.determine-tag.outputs.has_tag == 'true' }}
         id: build-and-push
@@ -72,4 +78,3 @@ jobs:
         with:
           tag_version: ${{ env.TAG_VERSION }}
           github_token: ${{ github.token }}
-          context7_apikey: ${{ secrets.CONTEXT7_APIKEY }}
