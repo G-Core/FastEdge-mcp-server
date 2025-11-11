@@ -1,10 +1,22 @@
 import {
   ApiType,
-  AppSecrets,
   GetBinaryResponse,
   OrderingParams,
   PaginationParams,
 } from "../types.js";
+
+/**
+ // * App secrets / stores type used in the application resource.
+ * Generic binding of resource name to its ID.
+ */
+
+interface ResourceBinding {
+  id: number;
+}
+
+interface AppResourceBinding {
+  [name: string]: ResourceBinding;
+}
 
 /**
 // * Apps Base Resource
@@ -22,8 +34,9 @@ interface AppResource {
   plan: string;
   plan_id: number;
   rsp_headers: Record<string, string>;
-  secrets: AppSecrets;
+  secrets: AppResourceBinding;
   status: number;
+  stores: AppResourceBinding;
   template: number;
   template_name: string;
   url: string;
@@ -48,6 +61,7 @@ type GetAppResponse = Pick<
   | "rsp_headers"
   | "secrets"
   | "status"
+  | "stores"
   | "url"
 > &
   Partial<Pick<AppResource, "template" | "template_name">>;
@@ -101,7 +115,7 @@ type GetAppsResponse = Array<GetAppsResponseItem>;
 
 type CreateAppBase = Pick<
   AppResource,
-  "status" | "env" | "rsp_headers" | "secrets" | "comment"
+  "status" | "env" | "rsp_headers" | "secrets" | "comment" | "stores"
 > &
   Partial<Pick<AppResource, "name">>;
 
@@ -125,7 +139,7 @@ type UpdateAppResource = Pick<
   | "env"
   | "rsp_headers"
   | "secrets"
-  | "comment"
+  | "stores"
 > &
   Partial<Pick<AppResource, "name">>;
 

@@ -66,9 +66,10 @@ export function registerDeployAppTool(server: McpServer, apiConfig: ApiConfig) {
             name: appName || app.name,
             comment: app.comment,
             status: app.status,
-            env: app.env,
-            rsp_headers: app.rsp_headers,
-            secrets: app.secrets,
+            env: app.env ?? {},
+            rsp_headers: app.rsp_headers ?? {},
+            secrets: app.secrets ?? {},
+            stores: app.stores ?? {},
           });
           return {
             content: [
@@ -88,6 +89,7 @@ export function registerDeployAppTool(server: McpServer, apiConfig: ApiConfig) {
             env: {},
             rsp_headers: {},
             secrets: {},
+            stores: {},
           });
           return {
             content: [

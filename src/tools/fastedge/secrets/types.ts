@@ -31,17 +31,7 @@ type GetSecretsResponseItem = Pick<
 
 type GetSecretsResponse = Array<GetSecretsResponseItem>;
 
-/**
- // * App secrets type used in the application resource.
- */
-
-type AppSecrets = Record<
-  string,
-  Pick<Secret, "id"> & Partial<Pick<Secret, "name" | "comment">>
->;
-
 export type {
-  AppSecrets,
   GetSecretsQueryParams,
   GetSecretsResponse,
   GetSecretsResponseItem,
