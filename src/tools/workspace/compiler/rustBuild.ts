@@ -2,10 +2,7 @@ import { spawn } from "child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as toml from "toml";
-import {
-  wasmOutputPermissions,
-  setupCrossPlatformEnvironment,
-} from "./utils.js";
+import { wasmOutputPermissions } from "./utils.js";
 
 function findCargoConfig(startDir: string): string | null {
   let dir = startDir;
