@@ -8,13 +8,17 @@ on:
         required: true
         default: ""
 
+# env:
+#   REGISTRY: ghcr.io
+#   IMAGE_NAME: g-core/fastedge-mcp-server-base
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: g-core/fastedge-mcp-server-base
+  REGISTRY: docker.io
+  IMAGE_NAME: viridiscomms/fastedge-mcp-server-base
 
 jobs:
   build_and_push:
-    runs-on: [self-hosted, ubuntu-22-04, regular]
+    # runs-on: [self-hosted, ubuntu-22-04, regular]
+    runs-on: "ubuntu-latest"
     permissions:
       contents: read
       packages: write
@@ -30,8 +34,8 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: "godronus@gmail.com"
+          password: ${{ secrets.DOCKER }}
 
       - name: Extract metadata
         id: meta

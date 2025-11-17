@@ -5,8 +5,7 @@
 
 # Set default tag if not provided
 TAG=${1:-latest}
-# IMAGE_NAME="ghcr.io/g-core/fastedge-mcp-server"  # Replace with your DockerHub username
-IMAGE_NAME="viridiscomms/fastedge-mcp-server"  # Replace with your DockerHub username
+IMAGE_NAME="ghcr.io/g-core/fastedge-mcp-server"  # Replace with your DockerHub username
 
 echo "Building Docker image: $IMAGE_NAME:$TAG"
 

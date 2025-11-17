@@ -63,17 +63,35 @@ The main application image is built using the multi-architecture base:
 
 ### Local Multi-Architecture Building
 
-To build multi-architecture images locally:
+#### Full Multi-Architecture Build (Requires Network Connectivity)
+
+For environments with proper network connectivity and ARM64 emulation:
 
 ```bash
-# Set up buildx (one-time setup)
-docker buildx create --name multiarch --use
+# Set up buildx with docker-container driver (one-time setup)
+docker buildx create --name multiarch --driver docker-container --use
+docker buildx inspect --bootstrap
 
 # Build base image for multiple architectures
-docker buildx build --platform linux/amd64,linux/arm64 -f Dockerfile-base -t fastedge-mcp-server-base:latest .
+docker buildx build --platform linux/amd64,linux/arm64 -f Dockerfile-base -t fastedge-mcp-server-base:latest --load .
 
 # Build main image for multiple architectures
-docker buildx build --platform linux/amd64,linux/arm64 --build-arg BASE_IMAGE=fastedge-mcp-server-base:latest -t fastedge-mcp-server:latest .
+docker buildx build --platform linux/amd64,linux/arm64 --build-arg BASE_IMAGE=fastedge-mcp-server-base:latest -t fastedge-mcp-server:latest --load .
+```
+
+#### Single Architecture Build (Recommended for Local Development)
+
+If you encounter network issues or want faster builds:
+
+```bash
+# Use default driver (no special setup required)
+docker buildx use default
+
+# Build base image for current platform only
+docker build -f Dockerfile-base -t fastedge-mcp-server-base:latest .
+
+# Build main image for current platform
+docker build --build-arg BASE_IMAGE=fastedge-mcp-server-base:latest -t fastedge-mcp-server:latest .
 ```
 
 ### Architecture-Specific Considerations
@@ -104,8 +122,68 @@ docker run --platform linux/arm64 ghcr.io/g-core/fastedge-mcp-server:latest
 
 ### Build Issues
 
-If multi-architecture builds fail:
+Common issues and solutions when building multi-architecture images:
 
-1. Ensure Docker Buildx is properly set up
-2. Check that the base image supports the target architectures
-3. Verify all dependencies have cross-platform support
+#### 1. "Multi-platform build is not supported for the docker driver"
+
+**Problem**: Using the default Docker driver which doesn't support multi-platform builds.
+
+**Solution**:
+
+```bash
+# Create and use a docker-container builder
+docker buildx create --name multiarch --driver docker-container --use
+docker buildx inspect --bootstrap
+```
+
+**Alternative**: Use single-platform builds with the default driver:
+
+```bash
+docker buildx use default
+docker build -f Dockerfile-base -t fastedge-mcp-server-base:latest .
+```
+
+#### 2. Network connectivity issues (IPv6)
+
+**Problem**: `dial tcp [IPv6]:443: connect: network is unreachable`
+
+**Solutions**:
+
+```bash
+# Option 1: Use default driver (often has better network compatibility)
+docker buildx use default
+docker build -f Dockerfile-base -t fastedge-mcp-server-base:latest .
+
+# Option 2: Configure Docker daemon to prefer IPv4
+# Edit /etc/docker/daemon.json:
+# {
+#   "ipv6": false,
+#   "dns": ["8.8.8.8", "8.8.4.4"]
+# }
+# Then: sudo systemctl restart docker
+
+# Option 3: Use Docker registry mirrors
+# Add --registry-mirror flag or configure in daemon.json
+```
+
+#### 3. "No output specified with docker-container driver"
+
+**Problem**: Warning about build results only staying in cache.
+
+**Solution**: Always specify output with `--load` or `--push`:
+
+```bash
+# Load into local Docker images
+docker buildx build --platform linux/amd64,linux/arm64 -f Dockerfile-base -t fastedge-mcp-server-base:latest --load .
+
+# Push to registry (for CI/CD)
+docker buildx build --platform linux/amd64,linux/arm64 -f Dockerfile-base -t fastedge-mcp-server-base:latest --push .
+```
+
+#### 4. General troubleshooting
+
+- Check buildx status: `docker buildx ls`
+- Verify builder capabilities: `docker buildx inspect`
+- Ensure base images support target architectures
+- Test single-platform builds first
+- Use `--progress=plain` for detailed build output
