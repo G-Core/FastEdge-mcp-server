@@ -42,9 +42,10 @@ function setupCrossPlatformEnvironment(): void {
       mkdirSync(workspaceNodeModules, { recursive: true });
     }
 
-    // Source path for Linux x64 wizer binary
-    const sourceWizerPath = join(containerNodeModules, "wizer-linux-x64");
-    const destWizerPath = join(workspaceNodeModules, "wizer-linux-x64");
+    // Detect architecture and set source/destination paths for wizer binary
+    const arch = process.arch === "arm64" ? "arm64" : "x64";
+    const sourceWizerPath = join(containerNodeModules, `wizer-linux-${arch}`);
+    const destWizerPath = join(workspaceNodeModules, `wizer-linux-${arch}`);
 
     // Check if source exists and destination doesn't already exist
     if (existsSync(sourceWizerPath) && !existsSync(destWizerPath)) {
