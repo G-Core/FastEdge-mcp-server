@@ -1,4 +1,8 @@
-import { spawnSync } from "child_process";
+import { spawn } from "child_process";
+import {
+  wasmOutputPermissions,
+  setupCrossPlatformEnvironment,
+} from "./utils.js";
 
 export function compileJavascriptBinary(
   entryFilePath: string,
@@ -7,29 +11,48 @@ export function compileJavascriptBinary(
   tsconfigPath?: string
 ) {
   return new Promise<string>(async (resolve, reject) => {
-    const jsBuild = spawnSync(
-      "npx",
-      [
-        "fastedge-build",
-        "--input",
-        entryFilePath,
-        "--output",
-        wasmBinaryPath,
-        ...(tsconfigPath ? ["--tsconfig", tsconfigPath] : []),
-      ],
-      {
-        shell: true,
-        stdio: ["ignore", "pipe", "pipe"],
-        cwd,
-      }
-    );
+    try {
+      setupCrossPlatformEnvironment();
 
-    if (jsBuild.error) {
-      reject(jsBuild.error);
-    } else if (jsBuild.status !== 0) {
-      reject(`Build failed with status ${jsBuild.status}`);
-    } else {
-      resolve(wasmBinaryPath);
+      const jsBuild = spawn(
+        "npx",
+        [
+          "fastedge-build",
+          "--input",
+          entryFilePath,
+          "--output",
+          wasmBinaryPath,
+          ...(tsconfigPath ? ["--tsconfig", tsconfigPath] : []),
+        ],
+        {
+          shell: true,
+          stdio: ["ignore", "pipe", "pipe"],
+          cwd,
+          env: { ...process.env },
+        }
+      );
+
+      let stdout = "";
+      let stderr = "";
+
+      jsBuild.stdout?.on("data", (data: Buffer) => {
+        stdout += data;
+      });
+
+      jsBuild.stderr?.on("data", (data: Buffer) => {
+        stderr += data;
+      });
+
+      jsBuild.on("close", (code: number) => {
+        if (code !== 0) {
+          reject(new Error(`build exited with code ${code}: ${stderr}`));
+          return;
+        }
+        wasmOutputPermissions(wasmBinaryPath, cwd);
+        resolve(wasmBinaryPath);
+      });
+    } catch (err) {
+      reject(err);
     }
   });
 }

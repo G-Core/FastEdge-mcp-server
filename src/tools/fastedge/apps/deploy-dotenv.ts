@@ -3,7 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { getApp, getAppByName, updateApp } from "./api.js";
 
-import type { ApiConfig } from "../types.js";
+import type { ApiConfig, GetAppResponse } from "../types.js";
 
 /**
  * Register update-app-env-variables tool to the MCP server
@@ -45,10 +45,16 @@ export function registerDeployDotEnvTool(
         .describe(
           "Secrets for the FastEdge application, if provided (JSON format)"
         ),
+      stores: z
+        .string()
+        .optional()
+        .describe(
+          "Stores for the FastEdge application, if provided (JSON format)"
+        ),
     },
     {
       title:
-        'Update "Environment Variables", "Secrets" and/or "Response Headers" for FastEdge Application',
+        'Update "Environment Variables", "Secrets", "Stores" and/or "Response Headers" for FastEdge Application',
       readOnlyHint: false,
       destructiveHint: true,
       idempotentHint: true,
@@ -74,9 +80,10 @@ export function registerDeployDotEnvTool(
             name: app.name,
             comment: app.comment,
             status: app.status,
-            env: JSON.parse(params.envVars || "{}"),
-            rsp_headers: JSON.parse(params.rspHeaders || "{}"),
-            secrets: parseSecretsJson(params.secrets),
+            env: mergeDictionaryWithExisting(app, params.envVars),
+            rsp_headers: mergeDictionaryWithExisting(app, params.rspHeaders),
+            secrets: mergeResourceBindingWithExisting(app, params.secrets),
+            stores: mergeResourceBindingWithExisting(app, params.stores),
           });
           return {
             content: [
@@ -105,19 +112,39 @@ export function registerDeployDotEnvTool(
   );
 }
 
-function parseSecretsJson(secretsParam = "{}"): Record<string, { id: number }> {
+function mergeDictionaryWithExisting(
+  app: GetAppResponse,
+  newVarsStr: string = "{}"
+): Record<string, string> {
   try {
-    const secrets = JSON.parse(secretsParam);
-    return Object.entries(secrets).reduce((acc, [key, value]) => {
-      if (!value) return acc;
-      if (typeof value === "object" && "id" in value) {
-        acc[key] = { id: Number(value.id) };
-      } else {
-        acc[key] = { id: Number(value) };
-      }
-      return acc;
-    }, {} as Record<string, { id: number }>);
+    const newVars = JSON.parse(newVarsStr);
+    const mergedVars = { ...app.env, ...newVars };
+    return mergedVars;
   } catch {
-    return {};
+    return app.env;
+  }
+}
+
+function mergeResourceBindingWithExisting(
+  app: GetAppResponse,
+  resourceBindings = "{}"
+): Record<string, { id: number }> {
+  try {
+    const resources = JSON.parse(resourceBindings);
+    const newBindings = Object.entries(resources).reduce(
+      (acc, [key, value]) => {
+        if (!value) return acc;
+        if (typeof value === "object" && "id" in value) {
+          acc[key] = { id: Number(value.id) };
+        } else {
+          acc[key] = { id: Number(value) };
+        }
+        return acc;
+      },
+      {} as Record<string, { id: number }>
+    );
+    return { ...app.stores, ...newBindings };
+  } catch {
+    return app.stores ?? {};
   }
 }

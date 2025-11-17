@@ -19,8 +19,11 @@ workspace folder.
 Search for all of the dotenv files even if they are excluded using the `.gitignore`. This should not stop tools from collecting data from them.
 
 > **Important**
-> You should not search for files in any folder that is not within the current open workspace root.
-> You should only walk up the folder tree's main branch from the entryFile. Never sideways through siblings.
+>
+> 1. You should not search for files in any folder that is not within the current open workspace root.
+> 2. You should only walk up the folder tree's main branch from the entryFile. Never sideways through siblings.
+> 3. You should only read content from .env files that match the heirarchy naming convention. Any other .env files should be ignored.
+>    e.g. `.env.dev` or `.env.sample` like files should be > ignored.
 
 The use of `.env.{type}` is purely optional, and only recommended if you have particularly large sets of arguments.
 

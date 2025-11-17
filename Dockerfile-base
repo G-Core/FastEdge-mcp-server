@@ -6,11 +6,30 @@ RUN rustup target add wasm32-wasip1 && \
     rm -rf /usr/local/rustup/toolchains/*/lib/rustlib/*/test /usr/local/rustup/toolchains/*/lib/rustlib/*/examples
 
 # Install Node.js v23 using NodeSource binary distribution
+# Support multiple architectures
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl ca-certificates xz-utils && \
-    curl -fsSL https://nodejs.org/dist/v23.5.0/node-v23.5.0-linux-x64.tar.xz -o node.tar.xz && \
+    apt-get install -y --no-install-recommends curl ca-certificates xz-utils bash && \
+    ARCH=$(dpkg --print-architecture) && \
+    case "$ARCH" in \
+        amd64) NODE_ARCH="x64" ;; \
+        arm64) NODE_ARCH="arm64" ;; \
+        *) echo "Unsupported architecture: $ARCH" && exit 1 ;; \
+    esac && \
+    curl -fsSL https://nodejs.org/dist/v23.5.0/node-v23.5.0-linux-${NODE_ARCH}.tar.xz -o node.tar.xz && \
     tar -xJf node.tar.xz -C /usr/local --strip-components=1 && \
     rm node.tar.xz && \
     apt-get purge -y xz-utils && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man /usr/share/info /tmp/*
+
+# Ensure bash is the default shell and set up proper shell environment for Windows Docker Desktop
+RUN ln -sf /bin/bash /bin/sh && \
+    echo 'export PS1="\u@\h:\w\$ "' >> /etc/bash.bashrc && \
+    echo 'export PATH=$PATH:/usr/local/bin' >> /etc/bash.bashrc
+
+# Set default shell to bash for better Windows Docker Desktop compatibility
+SHELL ["/bin/bash", "-c"]
+
+# Set environment variables for better shell experience
+ENV SHELL=/bin/bash
+ENV TERM=xterm-256color

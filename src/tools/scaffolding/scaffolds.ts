@@ -7,6 +7,7 @@ import { z } from "zod";
 import { ToolOptions } from "../index.js";
 import { FastEdgeTemplates } from "./resources.js";
 import { availableFastEdgeTemplates } from "./index.js";
+import { normalizePath, INVALID_PATH } from "../../utils/index.js";
 
 import type { Language, ScaffoldTemplateType } from "./types.js";
 
@@ -106,7 +107,15 @@ export function registerCreateBoilerPlateCode(
         }
 
         // Create output directory
-        const outputPath = path.join(options.workspaceRoot, params.outputDir);
+        const outputPath = normalizePath(
+          options.workspaceRoot,
+          params.outputDir
+        );
+        if (outputPath === INVALID_PATH) {
+          throw new Error(
+            "Invalid output directory: Must be relative to workspace"
+          );
+        }
         await fs.mkdir(outputPath, { recursive: true });
 
         // Create project files with proper directory structure

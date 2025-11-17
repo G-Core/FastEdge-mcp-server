@@ -4,45 +4,21 @@ This project provides MCP (Model Context Protocol) tools for building, deploying
 
 ## Getting Started
 
+#### Step 1
+
 [Setting up your own MCP Server](./STANDALONE-SETUP.md)
 
-## Available Tools
+#### Step 2
 
-### FastEdge Application Development
+Setup a basic repo and project with:
 
-- **get-fastedge-context** - Get comprehensive FastEdge development context and patterns for coding assistance
-- **scaffold-fastedge-project** - Create a new FastEdge project from templates.
-- **list-fastedge-templates** - List all available FastEdge templates with descriptions, languages, and application types
+```prompt
+/createFastEdgeApp
+```
 
-### FastEdge Binary Management
+Follow the prompts and get started coding with AI Agent support.
 
-- **build-wasm** - Build a FastEdge WASM binary from source code within the workspace.
-- **upload-binary** - Upload a WASM binary to the FastEdge API for deployment
-
-### FastEdge Application Deployment
-
-- **update-or-create-app** - Update an existing FastEdge application or create a new one using a binary ID
-
-### Documentation & Magic Comments
-
-- **deployment-comments** - Generate "Magic Comments" for tracking deployment information within code files
-
-## Available Resources
-
-- **fastedge-context** - Comprehensive FastEdge development documentation including:
-  - FastEdge Core concepts and patterns
-  - JavaScript SDK documentation and examples
-  - Real-world examples from the FastEdge examples repository
-  - Environment variables and secrets management patterns
-
-## Available Prompts
-
-- **createFastEdgeApp** - Interactive guided creation of new FastEdge applications with template selection
-- **deployFastEdgeApp** - Automated workflow to build, upload, and deploy a FastEdge application
-- **setEnvironmentVariables** - Automated workflow to collect "Environment Variables", "Secrets" or "Response Headers" and deploy to a FastEdge application.
-- **insertMagicComments** - Generate Magic Comments for deployment tracking
-
-## Usage Examples
+# Usage Examples
 
 ### Get FastEdge Documentation and Context
 
@@ -64,18 +40,12 @@ To scaffold a new FastEdge project using the interactive prompt:
 /createFastEdgeApp
 ```
 
-OR
-
-```prompt
-Create a TypeScript HTTP application in ./my-app using the http-base template
-```
-
 ### Build and Deploy a FastEdge Application
 
 For a complete deployment workflow using the prompt:
 
-```
-Deploy my current FastEdge application
+```prompt
+/deployFastEdgeApp
 ```
 
 This automated workflow will:
@@ -91,27 +61,85 @@ If you prefer to execute steps individually:
 
 **Build WASM binary:**
 
-```
+```prompt
 Build my current file into a WASM binary
 ```
 
 **Upload binary:**
 
-```
+```prompt
 Upload the generated WASM binary to FastEdge
 ```
 
 **Deploy application:**
 
-```
+```prompt
 Create a FastEdge application using binary ID 12345 with name "my-app"
 ```
+
+### Generate Magic Comments
+
+To manually add "Magic Comments" use:
+
+```prompt
+/insertMagicComments
+```
+
+### Deploy Environment Variables
+
+To manually deploy environment variables from `dotenv` files use:
+
+```prompt
+/setEnvironmentVariables
+```
+
+For more information on how Environment Variables work in `dotenv` files read [here](./assets/context/dotenv.md)
+
+# Available Tools
+
+### FastEdge Application Development
+
+- **get-fastedge-context** - Get comprehensive FastEdge development context and patterns for coding assistance
+- **scaffold-fastedge-project** - Create a new FastEdge project from templates.
+- **list-fastedge-templates** - List all available FastEdge templates with descriptions, languages, and application types
+
+### FastEdge Binary Management
+
+- **build-wasm** - Build a FastEdge WASM binary from source code within the workspace.
+- **upload-binary** - Upload a WASM binary to the FastEdge API for deployment
+
+### FastEdge Application Deployment
+
+- **update-or-create-app** - Update an existing FastEdge application or create a new one using a binary ID
+
+### FastEdge Environment Variable Deployment
+
+- **update-env-vars-app** - Update an existing FastEdge application with "Environment Variables", "Secrets" and "Response Headers"
+- **get-secret-id** - Get a secrets id from its name
+
+### Documentation & Magic Comments
+
+- **deployment-comments** - Generate "Magic Comments" for tracking deployment information within code files
+
+# Available Resources
+
+- **fastedge-context** - Comprehensive FastEdge development documentation including:
+  - FastEdge Core concepts and patterns
+  - JavaScript SDK documentation and examples
+  - Real-world examples from the FastEdge examples repository
+  - Environment variables and secrets management patterns
+
+# Available Prompts
+
+- **createFastEdgeApp** - Interactive guided creation of new FastEdge applications with template selection
+- **deployFastEdgeApp** - Automated workflow to build, upload, and deploy a FastEdge application
+- **setEnvironmentVariables** - Automated workflow to collect "Environment Variables", "Secrets" or "Response Headers" and deploy to a FastEdge application.
+- **insertMagicComments** - Generate Magic Comments for deployment tracking
 
 ## Environment Setup
 
 Make sure to set the following environment variables:
 
-- `WORKSPACE_ROOT` - Root path of the workspace
 - `FASTEDGE_API_KEY` - Your FastEdge API key for authentication
 
 ## Supported FastEdge Templates
