@@ -82,8 +82,16 @@ export function registerDeployDotEnvTool(
             status: app.status,
             env: mergeDictionaryWithExisting(app, params.envVars),
             rsp_headers: mergeDictionaryWithExisting(app, params.rspHeaders),
-            secrets: mergeResourceBindingWithExisting(app, params.secrets),
-            stores: mergeResourceBindingWithExisting(app, params.stores),
+            secrets: mergeResourceBindingWithExisting(
+              app,
+              "secrets",
+              params.secrets
+            ),
+            stores: mergeResourceBindingWithExisting(
+              app,
+              "stores",
+              params.stores
+            ),
           });
           return {
             content: [
@@ -127,6 +135,7 @@ function mergeDictionaryWithExisting(
 
 function mergeResourceBindingWithExisting(
   app: GetAppResponse,
+  key: "stores" | "secrets",
   resourceBindings = "{}"
 ): Record<string, { id: number }> {
   try {
@@ -143,8 +152,8 @@ function mergeResourceBindingWithExisting(
       },
       {} as Record<string, { id: number }>
     );
-    return { ...app.stores, ...newBindings };
+    return { ...app[key], ...newBindings };
   } catch {
-    return app.stores ?? {};
+    return app[key] ?? {};
   }
 }

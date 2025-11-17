@@ -4,7 +4,7 @@ This is how to provide "Environment Variables", "Secrets" and "Response Headers"
 
 You can either define them all in a top level `.env` file or have specific files for each type and group them that way.
 
-#### Heirarchy of precedence
+#### Hierarchy of precedence
 
 ```
 .env
@@ -22,7 +22,7 @@ Search for all of the dotenv files even if they are excluded using the `.gitigno
 >
 > 1. You should not search for files in any folder that is not within the current open workspace root.
 > 2. You should only walk up the folder tree's main branch from the entryFile. Never sideways through siblings.
-> 3. You should only read content from .env files that match the heirarchy naming convention. Any other .env files should be ignored.
+> 3. You should only read content from .env files that match the hierarchy naming convention. Any other .env files should be ignored.
 >    e.g. `.env.dev` or `.env.sample` like files should be > ignored.
 
 The use of `.env.{type}` is purely optional, and only recommended if you have particularly large sets of arguments.
@@ -56,7 +56,7 @@ The final format for saving secrets is:
 > **Note:**
 > Any `.env.req_header` files should be ignored, as well
 > as any `FASTEDGE_VAR_REQ_HEADER_` prefixed variables.
-> These are NOT supported in this envirnment.
+> These are NOT supported in this environment.
 
 ```
 
