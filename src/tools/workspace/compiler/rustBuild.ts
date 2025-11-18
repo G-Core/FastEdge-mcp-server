@@ -1,8 +1,8 @@
 import { spawn } from "child_process";
-import * as os from "os";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as toml from "toml";
+import { wasmOutputPermissions } from "./utils.js";
 
 function findCargoConfig(startDir: string): string | null {
   let dir = startDir;
@@ -43,8 +43,8 @@ export function compileRustAndFindBinary(
   cwd: string
 ) {
   return new Promise<string>(async (resolve, reject) => {
-    const isWindows = os.platform() === "win32";
-    const shell = isWindows ? "cmd.exe" : "sh";
+    // Inside Docker container, always use bash regardless of host OS
+    const shell = "/bin/bash";
 
     const target = rustConfigWasiTarget(entryFilePath);
     const cargoBuild = spawn(
@@ -54,6 +54,7 @@ export function compileRustAndFindBinary(
         shell,
         stdio: ["ignore", "pipe", "pipe"],
         cwd,
+        env: { ...process.env },
       }
     );
 
@@ -100,6 +101,7 @@ export function compileRustAndFindBinary(
             fs.mkdirSync(path.dirname(wasmBinaryPath), { recursive: true });
             fs.copyFileSync(message.filenames[0], wasmBinaryPath);
             fs.unlinkSync(message.filenames[0]);
+            wasmOutputPermissions(wasmBinaryPath, cwd);
             return resolve(wasmBinaryPath);
           }
         }

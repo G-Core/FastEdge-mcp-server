@@ -4,6 +4,10 @@
 
 You can run the FastEdge MCP Server with just Docker and a single configuration file.
 
+If you have the FastEdge VSCode Extension installed, use: `Ctrl + Shift + P` & `FastEdge (Generate mcp.json)`
+
+Otherwise follow on:
+
 ### Step 1: Create MCP Configuration
 
 Create a file called `.vscode/mcp.json` in your workspace with the following content:
@@ -16,10 +20,9 @@ Create a file called `.vscode/mcp.json` in your workspace with the following con
       "command": "bash",
       "args": [
         "-c",
-        "docker run --user $(id -u):$(id -g) --rm -i -v \"$WORKSPACE_ROOT:/workspace\" -e \"WORKSPACE_ROOT=/workspace\" -e \"FASTEDGE_API_KEY=$FASTEDGE_API_KEY\" -e \"FASTEDGE_API_URL=$FASTEDGE_API_URL\" ghcr.io/g-core/fastedge-mcp-server:latest"
+        "docker run --rm -i -v ${workspaceFolder}:/workspace -e WORKSPACE_ROOT=/workspace -e \"FASTEDGE_API_KEY=$FASTEDGE_API_KEY\" -e \"FASTEDGE_API_URL=$FASTEDGE_API_URL\" ghcr.io/g-core/fastedge-mcp-server:latest"
       ],
       "env": {
-        "WORKSPACE_ROOT": "${workspaceFolder}",
         "FASTEDGE_API_KEY": "your_api_key_here"
       }
     }

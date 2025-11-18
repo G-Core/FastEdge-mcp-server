@@ -5,9 +5,16 @@ export const INVALID_PATH = "Invalid path: Must be relative to workspace";
 
 export function normalizePath(workspaceRoot: string, filePath: string): string {
   // Security: Ensure the path doesn't escape the workspace
-  const normalizedPath = path.normalize(filePath);
+  // Convert Windows-style paths to POSIX-style for cross-platform compatibility
+  const posixPath = filePath.replace(/\\/g, "/");
+  const normalizedPath = path.normalize(posixPath);
 
-  if (normalizedPath.startsWith("..") || path.isAbsolute(normalizedPath)) {
+  // Check for path traversal attempts or absolute paths (including Windows drive letters)
+  if (
+    normalizedPath.startsWith("..") ||
+    path.isAbsolute(normalizedPath) ||
+    /^[a-zA-Z]:/.test(posixPath)
+  ) {
     return INVALID_PATH;
   }
 

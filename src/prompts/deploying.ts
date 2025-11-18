@@ -22,13 +22,16 @@ export function registerDeploymentPrompts(server: McpServer) {
               type: "text",
               text: dedent`
                 Build the current code into a wasm binary and deploy to the FastEdge network.
-                ( Use any "Magic Comments" provided as inputs for all steps )
+                ( Read the entry file and use any "Magic Comments" provided as inputs for all steps )
                 PROCESS:
-                1. Use build-wasm tool to create a wasm binary.
-                2. Upload the wasm binary to the FastEdge network using the upload-binary tool. Keep track of the new binary id.
-                3. Use the update-or-create-app tool to deploy this application to FastEdge.
-                4. Check if the user wants to save the application data in Magic Comments?
-                5. If so, use the deployment-comment tool to create them and insert them into the top of the active file (i.e. the entryFile from building).
+                1. Prompt the user for the outputFile location if it was not provided already in "Magic Comments" or chat.
+                2. Use build-wasm tool to create a wasm binary.
+                3. Upload the wasm binary to the FastEdge network using the upload-binary tool. Keep track of the new binary id.
+                4. Use the update-or-create-app tool to deploy this application to FastEdge.
+                5. Check if the user wants to save the application data in "Magic Comments"?
+                6. If so, use the deployment-comment tool to create them and insert them into the top of the active file (i.e. the entryFile from building).
+                7. Validate that the "Magic Comments" were inserted correctly, if they were requested.
+                8. Finally, provide a summary of the deployment with relevant details ( app name, id, url, etc. ).
               `,
             },
           },
