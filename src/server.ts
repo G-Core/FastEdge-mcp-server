@@ -8,17 +8,6 @@ import { registerAllTools } from "./tools/index.js";
 const server = new McpServer({
   name: "FastEdge Vibe Agent",
   version: "1.0.0",
-  capabilities: {
-    resources: {
-      listChanged: true,
-    },
-    tools: {
-      listChanged: true,
-    },
-    prompts: {
-      listChanged: true,
-    },
-  },
 });
 
 // Workspace root path - for Docker, this can be mounted volume

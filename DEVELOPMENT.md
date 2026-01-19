@@ -22,3 +22,17 @@ Edit your `.vscode/mcp.json` in your workspace with the following FASTEDGE_API_U
   }
 }
 ```
+
+## Building and running locally.
+
+1. Build the MCP Server code
+
+```sh
+pnpm build
+```
+
+2. Build the docker image
+
+```sh
+./build-local.sh
+```

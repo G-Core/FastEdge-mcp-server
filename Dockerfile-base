@@ -15,12 +15,15 @@ RUN apt-get update && \
         arm64) NODE_ARCH="arm64" ;; \
         *) echo "Unsupported architecture: $ARCH" && exit 1 ;; \
     esac && \
-    curl -fsSL https://nodejs.org/dist/v23.5.0/node-v23.5.0-linux-${NODE_ARCH}.tar.xz -o node.tar.xz && \
+    curl -fsSL https://nodejs.org/dist/v24.12.0/node-v24.12.0-linux-${NODE_ARCH}.tar.xz -o node.tar.xz && \
     tar -xJf node.tar.xz -C /usr/local --strip-components=1 && \
     rm node.tar.xz && \
     apt-get purge -y xz-utils && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man /usr/share/info /tmp/*
+
+# Install pnpm
+RUN npm install -g pnpm
 
 # Ensure bash is the default shell and set up proper shell environment for Windows Docker Desktop
 RUN ln -sf /bin/bash /bin/sh && \
