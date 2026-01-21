@@ -8,20 +8,20 @@ module.exports = async ({ github, context, core }) => {
   if (releaseVersion === "latest") {
     const { data: latestRelease } = await github.rest.repos.getLatestRelease({
       owner: "G-Core",
-      repo: "fastedge-start-kits",
+      repo: "create-fastedge-app",
     });
     release = latestRelease;
   } else {
     const { data: specificRelease } = await github.rest.repos.getReleaseByTag({
       owner: "G-Core",
-      repo: "fastedge-start-kits",
+      repo: "create-fastedge-app",
       tag: releaseVersion,
     });
     release = specificRelease;
   }
 
   const resource = release.assets.find((asset) =>
-    asset.name.endsWith("resources.ts")
+    asset.name.endsWith("resources.ts"),
   );
   if (!resource) {
     core.setFailed("No resources.ts asset found in the release.");
@@ -29,7 +29,7 @@ module.exports = async ({ github, context, core }) => {
   }
 
   const resourceSha = release.assets.find((asset) =>
-    asset.name.endsWith("resources.ts.sha256")
+    asset.name.endsWith("resources.ts.sha256"),
   );
   if (!resourceSha) {
     core.setFailed("No resources.ts.sha256 asset found in the release.");
@@ -44,11 +44,11 @@ module.exports = async ({ github, context, core }) => {
 
   // Download the assets
   const downloadAsset = (asset) => {
-    const downloadUrl = `https://api.github.com/repos/G-Core/fastedge-start-kits/releases/assets/${asset.id}`;
+    const downloadUrl = `https://api.github.com/repos/G-Core/create-fastedge-app/releases/assets/${asset.id}`;
     core.info(`Assets download URL: ${downloadUrl}`);
 
     execSync(
-      `curl -L "${downloadUrl}" -H "Authorization: Bearer ${github_token}" -H "Accept: application/octet-stream" -H "X-GitHub-Api-Version: 2022-11-28" -o ./${outputDir}/${asset.name}`
+      `curl -L "${downloadUrl}" -H "Authorization: Bearer ${github_token}" -H "Accept: application/octet-stream" -H "X-GitHub-Api-Version: 2022-11-28" -o ./${outputDir}/${asset.name}`,
     );
   };
 

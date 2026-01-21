@@ -7,8 +7,8 @@ on:
 
   workflow_dispatch: # trigger manually
     inputs:
-      start_kit_version:
-        description: "FastEdge-start-kit version"
+      start_kit_version: # these should map directly to a create-fastedge-app release tag
+        description: "create-fastedge-app release version"
         required: true
         default: "latest"
       tag_version:
@@ -57,7 +57,7 @@ jobs:
         run: |
           echo "Release tag created successfully: ${{ env.TAG_VERSION }}"
 
-      - name: Download Start-Kit Resources
+      - name: Download create-fastedge-app Start Kit Resources
         if: ${{ steps.determine-tag.outputs.has_tag == 'true' }}
         id: download-start-kit
         uses: ./.github/download-start-kit-release
