@@ -48,7 +48,7 @@ module.exports = async ({ github, context, core }) => {
     core.info(`Assets download URL: ${downloadUrl}`);
 
     execSync(
-      `curl -L "${downloadUrl}" -H "Authorization: Bearer ${github_token}" -H "Accept: application/octet-stream" -H "X-GitHub-Api-Version: 2022-11-28" -o ./${outputDir}/${asset.name}`,
+      `curl -L "${downloadUrl}" -H "Authorization: Bearer ${github_token}" -H "Accept: application/octet-stream" -H "X-GitHub-Api-Version: 2022-11-28" -o "./${outputDir}/${asset.name}"`,
     );
   };
 
