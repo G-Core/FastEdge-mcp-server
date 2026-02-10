@@ -7,10 +7,6 @@ on:
 
   workflow_dispatch: # trigger manually
     inputs:
-      start_kit_version: # these should map directly to a create-fastedge-app release tag
-        description: "create-fastedge-app release version"
-        required: true
-        default: "latest"
       tag_version:
         description: "Release tag e.g. v1.0.1"
         required: true
@@ -56,20 +52,6 @@ jobs:
         if: ${{ steps.determine-tag.outputs.has_tag == 'true' }}
         run: |
           echo "Release tag created successfully: ${{ env.TAG_VERSION }}"
-
-      - name: Download create-fastedge-app Start Kit Resources
-        if: ${{ steps.determine-tag.outputs.has_tag == 'true' }}
-        id: download-start-kit
-        uses: ./.github/download-start-kit-release
-        with:
-          start_kit_version: ${{ github.event.inputs.start_kit_version }}
-          github_token: ${{ secrets.RELEASE_TOKEN }}
-
-      - name: Get Context7 Docs
-        if: ${{ steps.determine-tag.outputs.has_tag == 'true' }}
-        uses: ./.github/get-context7-docs
-        with:
-          context7_apikey: ${{ secrets.CONTEXT7_APIKEY }}
 
       - name: Build and push Docker Image
         if: ${{ steps.determine-tag.outputs.has_tag == 'true' }}

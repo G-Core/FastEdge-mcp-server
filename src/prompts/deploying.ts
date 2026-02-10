@@ -84,7 +84,11 @@ export function registerDeploymentPrompts(server: McpServer) {
               type: "text",
               text: dedent`
                 I want to collect all the dotenv variables required for my FastEdge application.
-                Please read the "# FastEdge DotEnv Variables" section in the FastEdge context (get-fastedge-context) to understand what variables are available and how to use them.
+
+                FastEdge supports three types of dotenv files:
+                - .env.variables: Environment variables (key=value)
+                - .env.secrets: Secrets (key=secret_name where secret_name is the FastEdge secret name)
+                - .env.rsp_headers: Response headers (key=value)
 
                 For each Secret found in a dotenv file, please use the get-secret-id tool to retrieve the secret's ID using the the secret_name ( value of the pair ).
                 ( The update-env-vars-app tool requires id's for secrets, not the values. )

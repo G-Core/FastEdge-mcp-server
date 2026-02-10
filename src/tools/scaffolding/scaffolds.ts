@@ -1,15 +1,16 @@
 import dedent from "dedent";
-import fs from "node:fs/promises";
-import path from "node:path";
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { ToolOptions } from "../index.js";
-import { FastEdgeTemplates } from "./resources.js";
 import { availableFastEdgeTemplates } from "./index.js";
 import { normalizePath, INVALID_PATH } from "../../utils/index.js";
 
 import type { Language, ScaffoldTemplateType } from "./types.js";
+
+const execAsync = promisify(exec);
 
 export function registerListAvailableTemplates(
   server: McpServer,
@@ -18,40 +19,51 @@ export function registerListAvailableTemplates(
   // Tool to list available templates
   server.tool(
     "list-fastedge-templates",
-    "List all available FastEdge templates with descriptions, languages, and application types",
+    "List all available FastEdge templates with descriptions, languages, and application types. Fetches the latest template list from create-fastedge-app.",
     {},
     {
       title: "List FastEdge Templates",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
-      openWorldHint: false,
+      openWorldHint: true, // Changed to true since we're calling external command
     },
     async () => {
-      const templates = Object.entries(FastEdgeTemplates).map(
-        ([key, value]) => ({
-          name: key,
-          description: value[0]?.description,
-          languages: value.map((scaffold) => scaffold.language).join(", "),
-          applicationType: (value as any).applicationType || "http",
-        })
-      );
+      try {
+        // Fetch templates from create-fastedge-app CLI
+        const { stdout } = await execAsync("npx create-fastedge-app --list-templates");
+        const templates = JSON.parse(stdout) as Array<{
+          name: string;
+          description: string;
+          languages: string[];
+          applicationType: string;
+        }>;
 
-      const templateList = templates
-        .map(
-          (t) =>
-            `- **${t.name}**: ${t.description}\n  Languages: ${t.languages} | Type: ${t.applicationType}`
-        )
-        .join("\n");
+        const templateList = templates
+          .map(
+            (t) =>
+              `- **${t.name}**: ${t.description}\n  Languages: ${t.languages.join(", ")} | Type: ${t.applicationType}`
+          )
+          .join("\n");
 
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Available FastEdge Templates: \n ${templateList}`,
-          },
-        ],
-      };
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Available FastEdge Templates:\n\n${templateList}\n\nNote: All templates include .claude/skills/ directory with:\n- fastedge-development: Core development patterns\n- fastedge-debugging: Local testing with debugger\n- fastedge-deployment: Production deployment\n- fastedge-examples: Example applications`,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed to fetch templates from create-fastedge-app: ${error instanceof Error ? error.message : String(error)}\n\nMake sure create-fastedge-app is available via npx.`,
+            },
+          ],
+        };
+      }
     }
   );
 }
@@ -88,25 +100,16 @@ export function registerCreateBoilerPlateCode(
       outputDir: string;
     }) => {
       try {
-        let template = undefined;
-
+        // Validate template type
         const templateType = availableFastEdgeTemplates.find(
           (t) => t === params.template
         );
 
         if (!templateType) {
-          throw new Error("Invalid template/language selected");
+          throw new Error(`Invalid template: ${params.template}`);
         }
 
-        template = FastEdgeTemplates[templateType].find(
-          (t) => t.language === params.language
-        );
-
-        if (!template) {
-          throw new Error("Invalid template/language selected");
-        }
-
-        // Create output directory
+        // Validate output directory
         const outputPath = normalizePath(
           options.workspaceRoot,
           params.outputDir
@@ -116,49 +119,55 @@ export function registerCreateBoilerPlateCode(
             "Invalid output directory: Must be relative to workspace"
           );
         }
-        await fs.mkdir(outputPath, { recursive: true });
 
-        // Create project files with proper directory structure
-        const fileEntries = Object.entries(template.files);
-        for (const [fileName, content] of fileEntries) {
-          const filePath = path.join(outputPath, fileName);
-          const fileDir = path.dirname(filePath);
+        // Use npx to run create-fastedge-app CLI
+        const command = `npx create-fastedge-app "${outputPath}" --template ${params.template} --language ${params.language} --skip-prompts`;
 
-          // Create directory if it doesn't exist
-          await fs.mkdir(fileDir, { recursive: true });
+        // Execute the CLI command
+        const { stdout, stderr } = await execAsync(command, {
+          cwd: options.workspaceRoot,
+          env: process.env,
+        });
 
-          // Write file
-          await fs.writeFile(filePath, content as string);
-        }
-
-        const language = (template as any).language || "javascript";
+        // Determine application type and next steps
+        const applicationType = params.template.startsWith("cdn") ? "cdn" : "http";
 
         const textResponse = dedent`
-          Successfully created ${params.template} FastEdge project at ${
-          params.outputDir
-        }.
+          Successfully created ${params.template} FastEdge project at ${params.outputDir}.
 
-          Template: ${template.description}
-          Language: ${language}
-          Type: ${(template as any).applicationType || "http"}
+          Template: ${params.template}
+          Language: ${params.language}
+          Type: ${applicationType}
 
-          Project contains the following files:
-            ${fileEntries.map(([name]) => `- ${name}`).join("\n")}
+          The project includes:
+            - Source code in the selected language
+            - Build configuration files
+            - .claude/skills/ directory with:
+              * fastedge-development: Core development patterns
+              * fastedge-debugging: Local testing guidance
+              * fastedge-deployment: Production deployment workflows
+              * fastedge-examples: Links to example applications
 
           Next steps:
             1. cd ${params.outputDir}
             ${
-              language === "rust"
+              params.language === "rust"
                 ? dedent`
-                  2. cargo build --release
-                  3. Deploy the generated ./target/wasm32-wasip1/release/${params.template}.wasm to FastEdge
+                  2. cargo build --release --target wasm32-wasip1
+                  3. Test locally with fastedge-debugger (recommended)
+                  4. Deploy to FastEdge using build-wasm and upload-binary tools
                 `
                 : dedent`
                   2. npm install
                   3. npm run build
-                  4. Deploy the generated ./wasm/${params.template}.wasm to FastEdge
+                  4. Test locally with fastedge-debugger (recommended)
+                  5. Deploy to FastEdge using build-wasm and upload-binary tools
               `
-            }`;
+            }
+
+          💡 Tip: Always test locally with fastedge-debugger before deploying to production.
+          See the fastedge-debugging skill for testing guidance.
+        `;
 
         return {
           content: [
@@ -175,7 +184,7 @@ export function registerCreateBoilerPlateCode(
               type: "text",
               text: `Failed to scaffold FastEdge project: ${
                 error?.message || String(error)
-              }`,
+              }\n\nMake sure create-fastedge-app is available. You may need to run: npm install -g create-fastedge-app`,
             },
           ],
         };

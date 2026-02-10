@@ -2,7 +2,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { registerAllPrompts } from "./prompts/index.js";
-import { registerAllResources } from "./resources/index.js";
 import { registerAllTools } from "./tools/index.js";
 
 const server = new McpServer({
@@ -16,14 +15,12 @@ const FASTEDGE_API_KEY = process.env.FASTEDGE_API_KEY || "";
 const FASTEDGE_API_URL =
   process.env.FASTEDGE_API_URL || "https://api.gcore.com";
 
-// Add context tools for VSCode Copilot integration
+// Register tools for build and deployment
 registerAllTools(server, {
   workspaceRoot: WORKSPACE_ROOT,
   fastedgeApiKey: FASTEDGE_API_KEY,
   fastedgeApiUrl: FASTEDGE_API_URL,
 });
-
-registerAllResources(server);
 
 registerAllPrompts(server);
 

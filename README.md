@@ -93,7 +93,7 @@ To manually deploy environment variables from `dotenv` files use:
 /setEnvironmentVariables
 ```
 
-For more information on how Environment Variables work in `dotenv` files read [here](./assets/context/dotenv.md)
+For more information on how Environment Variables work in `dotenv` files read [here](./docs/dotenv.md)
 
 # Available Tools
 

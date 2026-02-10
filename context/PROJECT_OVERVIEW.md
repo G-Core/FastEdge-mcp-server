@@ -72,10 +72,9 @@ The **FastEdge MCP Server** is a Model Context Protocol (MCP) server that provid
 
 ### MCP Tools
 
-**Development Tools**:
-- `get-fastedge-context` - Retrieve comprehensive FastEdge documentation
+**Scaffolding Tools**:
 - `list-fastedge-templates` - List available project templates
-- `scaffold-fastedge-project` - Create new project from template
+- `scaffold-fastedge-project` - Create new project from template (delegates to `create-fastedge-app`)
 
 **Build Tools**:
 - `build-wasm` - Compile source code to WASM binary
@@ -99,21 +98,9 @@ The **FastEdge MCP Server** is a Model Context Protocol (MCP) server that provid
   - Tracks deployment info in source code
   - Enables incremental updates
 
-### MCP Resources
-
-**fastedge-context** resource provides:
-- **FastEdge Core Concepts**: How FastEdge works, architecture, runtime
-- **SDK Documentation**: JavaScript SDK API reference and guides
-- **Examples**: Real-world code from FastEdge examples repository
-- **Best Practices**: Patterns for edge computing, performance optimization
-- **Environment Management**: Using env vars, secrets, dotenv files
-
-**Generated from**:
-- `assets/context/` markdown files
-- Processed during build (`pnpm run create:docs`)
-- Bundled into server for offline access
-
 ### MCP Prompts
+
+**Note**: FastEdge documentation and context is now provided via **skills** in generated projects (`.claude/skills/`), not as MCP resources. This keeps the MCP server focused on build and deployment tools.
 
 **createFastEdgeApp**:
 - Interactive app creation workflow
@@ -177,15 +164,7 @@ FastEdge-mcp-server/
 │   │   │   ├── apps/           # deploy-app, deploy-env-vars
 │   │   │   └── secrets/        # get-secret-id
 │   │   ├── scaffolding/        # scaffold-fastedge-project
-│   │   ├── workspace/          # build-wasm, file operations
-│   │   └── context/            # get-fastedge-context
-│   │
-│   ├── resources/              # MCP resource providers
-│   │   ├── index.ts            # Resource registration
-│   │   ├── fastedge-core/      # Core FastEdge documentation
-│   │   ├── fastedge-sdk-js/    # SDK API documentation
-│   │   ├── fastedge-examples/  # Example code snippets
-│   │   └── dotenv/             # Dotenv patterns
+│   │   └── workspace/          # build-wasm, file operations
 │   │
 │   ├── prompts/                # MCP prompt workflows
 │   │   ├── index.ts            # Prompt registration
@@ -197,14 +176,8 @@ FastEdge-mcp-server/
 │       ├── workspace.ts        # File/workspace operations
 │       └── build.ts            # WASM build logic
 │
-├── assets/
-│   ├── context/                # Context markdown files
-│   │   ├── fastedge-core.md
-│   │   ├── fastedge-sdk-js.md
-│   │   ├── fastedge-examples.md
-│   │   └── dotenv.md
-│   └── scripts/                # Build scripts
-│       └── create-docs.ts      # Generate bundled docs
+├── docs/                       # MCP-specific documentation
+│   └── dotenv.md               # Dotenv patterns for deployments
 │
 ├── package.json                # Dependencies and scripts
 ├── tsconfig.json               # TypeScript configuration
@@ -224,7 +197,6 @@ FastEdge-mcp-server/
 1. **Server Starts** (`src/server.ts`):
    - Creates MCP server instance
    - Registers all tools from `src/tools/index.ts`
-   - Registers all resources from `src/resources/index.ts`
    - Registers all prompts from `src/prompts/index.ts`
    - Connects to stdio transport (reads from stdin, writes to stdout)
 
@@ -259,19 +231,6 @@ FastEdge-mcp-server/
 6. **Claude Code Receives Result**:
    - Displays output to user
    - Can chain with additional tool calls
-
-### Resource Access Flow
-
-1. **Claude Needs Documentation**:
-   - Example: "Show me FastEdge patterns"
-
-2. **Claude Code Requests Resource**:
-   - Sends: `resources/read { uri: "fastedge-context://docs" }`
-
-3. **Server Returns Content**:
-   - Reads bundled markdown content
-   - Returns as text/markdown
-   - Claude incorporates into context
 
 ### Prompt Execution Flow
 

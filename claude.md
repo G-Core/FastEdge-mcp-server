@@ -294,10 +294,10 @@ grep -r "FastEdge API" context/
 **Common Commands:**
 ```bash
 pnpm install
-pnpm run build          # Build server (creates docs + compiles)
+pnpm run build          # Build server (compiles TypeScript)
+pnpm run build:watch    # Build in watch mode
 pnpm run server:dev     # Run server in dev mode
 pnpm run server:inspect # Run with MCP inspector
-pnpm run create:docs    # Generate context docs
 ```
 
 **Project Structure:**
@@ -306,28 +306,22 @@ FastEdge-mcp-server/
 ├── src/
 │   ├── server.ts           # MCP server entry point
 │   ├── tools/              # MCP tool implementations
-│   │   ├── fastedge/       # FastEdge API tools
+│   │   ├── fastedge/       # FastEdge API tools (deploy, upload)
 │   │   ├── scaffolding/    # Project scaffolding
-│   │   ├── workspace/      # Workspace operations
-│   │   └── context/        # Context retrieval
-│   ├── resources/          # MCP resource providers
-│   │   ├── fastedge-core/  # Core FastEdge docs
-│   │   ├── fastedge-sdk-js/# SDK documentation
-│   │   └── fastedge-examples/ # Example code
+│   │   └── workspace/      # Build and workspace operations
 │   ├── prompts/            # MCP prompt workflows
 │   │   ├── scaffolding.ts  # createFastEdgeApp
 │   │   └── deploying.ts    # deployFastEdgeApp, setEnvVars
 │   └── utils/              # Shared utilities
-├── assets/
-│   ├── context/            # Context markdown files
-│   └── scripts/            # Build scripts
+├── docs/                   # MCP-specific documentation
+│   └── dotenv.md           # Environment variable patterns
 └── package.json
 ```
 
 **Key Files:**
 - `src/server.ts` - MCP server initialization
 - `src/tools/index.ts` - Tool registration
-- `assets/context/` - Context docs bundled into resources
+- **Note**: FastEdge documentation is provided via skills in generated projects, not bundled in the MCP server
 
 ---
 
