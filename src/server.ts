@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { registerAllPrompts } from "./prompts/index.js";
 import { registerAllTools } from "./tools/index.js";
+import { registerAllResources } from "./resources/index.js";
 
 const server = new McpServer({
   name: "FastEdge Vibe Agent",
@@ -22,7 +23,11 @@ registerAllTools(server, {
   fastedgeApiUrl: FASTEDGE_API_URL,
 });
 
+// Register prompts for interactive workflows
 registerAllPrompts(server);
+
+// Register resources for documentation and guidance
+registerAllResources(server);
 
 async function main() {
   console.warn(`Workspace initialized at: ${WORKSPACE_ROOT}`);

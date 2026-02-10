@@ -13,28 +13,30 @@ import type { ApiConfig } from "../types.js";
  * @param options Configuration options for tools
  */
 export function registerDeployAppTool(server: McpServer, apiConfig: ApiConfig) {
-  server.tool(
+  server.registerTool(
     "update-or-create-app",
-    "Update or Create a FastEdge application using the FastEdge API",
-    {
-      binaryId: z
-        .string()
-        .describe("ID of the WASM binary to use for the application"),
-      appId: z
-        .string()
-        .optional()
-        .describe("ID of the FastEdge application, if provided"),
-      appName: z
-        .string()
-        .optional()
-        .describe("Name of the FastEdge application, if provided"),
-    },
     {
       title: "Update or Create FastEdge Application",
-      readOnlyHint: false,
-      destructiveHint: true,
-      idempotentHint: true,
-      openWorldHint: false,
+      description: "Update or Create a FastEdge application using the FastEdge API",
+      inputSchema: {
+        binaryId: z
+          .string()
+          .describe("ID of the WASM binary to use for the application"),
+        appId: z
+          .string()
+          .optional()
+          .describe("ID of the FastEdge application, if provided"),
+        appName: z
+          .string()
+          .optional()
+          .describe("Name of the FastEdge application, if provided"),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async (params) => {
       const appName = params.appName;

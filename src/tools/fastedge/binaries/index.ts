@@ -14,20 +14,22 @@ export function registerFastEdgeBinaryTools(
   apiConfig: ApiConfig,
   workspaceRoot: string
 ) {
-  server.tool(
+  server.registerTool(
     "upload-binary",
-    "Upload a FastEdge WASM binary using the FastEdge API",
-    {
-      wasmFile: z
-        .string()
-        .describe("Relative path to the WASM binary file to upload"),
-    },
     {
       title: "Upload FastEdge WASM Binary to the FastEdge API",
-      readOnlyHint: false,
-      destructiveHint: true,
-      idempotentHint: true,
-      openWorldHint: false,
+      description: "Upload a FastEdge WASM binary using the FastEdge API",
+      inputSchema: {
+        wasmFile: z
+          .string()
+          .describe("Relative path to the WASM binary file to upload"),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async (params) => {
       try {

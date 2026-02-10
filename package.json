@@ -5,7 +5,8 @@
   "main": "src/server.ts",
   "type": "module",
   "scripts": {
-    "build": "tsc -p ./tsconfig.build.json",
+    "build": "npm run build:server",
+    "build:server": "tsc -p ./tsconfig.build.json",
     "build:watch": "tsc -p ./tsconfig.build.json --watch",
     "server:dev": "tsx src/server.ts",
     "server:inspect": "export DANGEROUSLY_OMIT_AUTH=true && npx @modelcontextprotocol/inspector npm run server:dev"

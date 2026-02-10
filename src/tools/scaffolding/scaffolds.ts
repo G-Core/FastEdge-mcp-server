@@ -14,24 +14,37 @@ const execAsync = promisify(exec);
 
 export function registerListAvailableTemplates(
   server: McpServer,
-  options: ToolOptions
+  options: ToolOptions,
 ) {
   // Tool to list available templates
-  server.tool(
+  server.registerTool(
     "list-fastedge-templates",
-    "List all available FastEdge templates with descriptions, languages, and application types. Fetches the latest template list from create-fastedge-app.",
-    {},
     {
       title: "List FastEdge Templates",
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: true, // Changed to true since we're calling external command
+      description: "List all available FastEdge templates with descriptions, languages, and application types. Fetches the latest template list from create-fastedge-app.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true, // Changed to true since we're calling external command
+      },
     },
     async () => {
+      const startTime = Date.now();
       try {
         // Fetch templates from create-fastedge-app CLI
-        const { stdout } = await execAsync("npx create-fastedge-app --list-templates");
+        // Use --yes to skip npx prompts, and set a timeout
+        const command = "npx --yes create-fastedge-app@beta --list-templates";
+        const { stdout, stderr } = await execAsync(command, {
+          timeout: 30000, // 30 second timeout
+          maxBuffer: 10 * 1024 * 1024, // 10MB buffer
+        });
+
+        if (stderr) {
+          console.error(`[list-fastedge-templates] stderr: ${stderr}`);
+        }
+
         const templates = JSON.parse(stdout) as Array<{
           name: string;
           description: string;
@@ -42,7 +55,7 @@ export function registerListAvailableTemplates(
         const templateList = templates
           .map(
             (t) =>
-              `- **${t.name}**: ${t.description}\n  Languages: ${t.languages.join(", ")} | Type: ${t.applicationType}`
+              `- **${t.name}**: ${t.description}\n  Languages: ${t.languages.join(", ")} | Type: ${t.applicationType}`,
           )
           .join("\n");
 
@@ -55,54 +68,68 @@ export function registerListAvailableTemplates(
           ],
         };
       } catch (error) {
+        const elapsed = Date.now() - startTime;
+        console.error(
+          `[list-fastedge-templates] Error after ${elapsed}ms:`,
+          error,
+        );
+
         return {
           content: [
             {
               type: "text",
-              text: `Failed to fetch templates from create-fastedge-app: ${error instanceof Error ? error.message : String(error)}\n\nMake sure create-fastedge-app is available via npx.`,
+              text: `Failed to fetch templates from create-fastedge-app after ${elapsed}ms: ${error instanceof Error ? error.message : String(error)}\n\nMake sure create-fastedge-app is available via npx.\n\nTry running manually: npx --yes create-fastedge-app --list-templates`,
             },
           ],
         };
       }
-    }
+    },
   );
 }
 
 export function registerCreateBoilerPlateCode(
   server: McpServer,
-  options: ToolOptions
+  options: ToolOptions,
 ) {
   // Tool to scaffold a new FastEdge project
-  server.tool(
+  server.registerTool(
     "scaffold-fastedge-project",
-    "Create a new FastEdge project with boilerplate code. Choose from templates for different use cases.",
-    {
-      template: z
-        .enum(availableFastEdgeTemplates)
-        .describe("The type of FastEdge project template to use"),
-      language: z
-        .enum(["assemblyscript", "javascript", "typescript", "rust"])
-        .describe("The programming language to use"),
-      outputDir: z
-        .string()
-        .describe("Relative path where the project should be created"),
-    },
     {
       title: "Scaffold FastEdge Project",
-      readOnlyHint: false,
-      destructiveHint: true,
-      idempotentHint: false,
-      openWorldHint: false,
+      description: "Create a new FastEdge project with boilerplate code using create-fastedge-app. This is the primary tool for creating FastEdge applications - use this instead of running npx commands directly. Choose from templates for different use cases (http-base, http-react, http-react-hono, cdn-base). Automatically installs dependencies and includes Claude skills for development guidance.",
+      inputSchema: {
+        template: z
+          .enum(availableFastEdgeTemplates)
+          .describe("The type of FastEdge project template to use"),
+        language: z
+          .enum(["assemblyscript", "javascript", "typescript", "rust"])
+          .describe("The programming language to use"),
+        outputDir: z
+          .string()
+          .describe("Relative path where the project should be created"),
+        packageManager: z
+          .enum(["npm", "pnpm", "yarn"])
+          .optional()
+          .describe("Package manager to use (default: npm)"),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
     async (params: {
       template: ScaffoldTemplateType;
       language: Language;
       outputDir: string;
+      packageManager?: "npm" | "pnpm" | "yarn";
     }) => {
+      const startTime = Date.now();
       try {
         // Validate template type
         const templateType = availableFastEdgeTemplates.find(
-          (t) => t === params.template
+          (t) => t === params.template,
         );
 
         if (!templateType) {
@@ -112,25 +139,47 @@ export function registerCreateBoilerPlateCode(
         // Validate output directory
         const outputPath = normalizePath(
           options.workspaceRoot,
-          params.outputDir
+          params.outputDir,
         );
         if (outputPath === INVALID_PATH) {
           throw new Error(
-            "Invalid output directory: Must be relative to workspace"
+            "Invalid output directory: Must be relative to workspace",
           );
         }
 
-        // Use npx to run create-fastedge-app CLI
-        const command = `npx create-fastedge-app "${outputPath}" --template ${params.template} --language ${params.language} --skip-prompts`;
+        // Build command with proper flags to avoid interactive prompts:
+        // - npx --yes: Skip install confirmation
+        // - --no-verify: Skip "Do you want to continue?" confirmation (validate-config.ts:211)
+        // - --{language}: Specify language flag (--javascript, --typescript, etc.)
+        // - --pnpm or --yarn: Use alternative package manager (optional)
+        const languageFlag = `--${params.language}`;
+        const packageManagerFlag =
+          params.packageManager && params.packageManager !== "npm"
+            ? `--${params.packageManager}`
+            : "";
+        const command =
+          `npx --yes create-fastedge-app@beta "${outputPath}" --template ${params.template} ${languageFlag} --no-verify ${packageManagerFlag}`.trim();
 
         // Execute the CLI command
-        const { stdout, stderr } = await execAsync(command, {
+        const { stderr } = await execAsync(command, {
           cwd: options.workspaceRoot,
           env: process.env,
+          timeout: 120000, // 2 minute timeout for scaffolding + npm install
+          maxBuffer: 10 * 1024 * 1024, // 10MB buffer
         });
 
+        const elapsed = Date.now() - startTime;
+
+        if (stderr) {
+          console.error(
+            `[scaffold-fastedge-project] stderr: ${stderr.substring(0, 500)}`,
+          );
+        }
+
         // Determine application type and next steps
-        const applicationType = params.template.startsWith("cdn") ? "cdn" : "http";
+        const applicationType = params.template.startsWith("cdn")
+          ? "cdn"
+          : "http";
 
         const textResponse = dedent`
           Successfully created ${params.template} FastEdge project at ${params.outputDir}.
@@ -178,17 +227,23 @@ export function registerCreateBoilerPlateCode(
           ],
         };
       } catch (error: any) {
+        const elapsed = Date.now() - startTime;
+        console.error(
+          `[scaffold-fastedge-project] Error after ${elapsed}ms:`,
+          error,
+        );
+
         return {
           content: [
             {
               type: "text",
-              text: `Failed to scaffold FastEdge project: ${
+              text: `Failed to scaffold FastEdge project after ${elapsed}ms: ${
                 error?.message || String(error)
-              }\n\nMake sure create-fastedge-app is available. You may need to run: npm install -g create-fastedge-app`,
+              }\n\nMake sure create-fastedge-app is available via npx.\n\nDebug: Try running manually:\nnpx --yes create-fastedge-app@beta ./test-dir --template ${params.template} --${params.language} --no-verify`,
             },
           ],
         };
       }
-    }
+    },
   );
 }

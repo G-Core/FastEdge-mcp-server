@@ -13,20 +13,22 @@ export function registerFastEdgeSecretTools(
   server: McpServer,
   apiConfig: ApiConfig
 ) {
-  server.tool(
+  server.registerTool(
     "get-secret-id",
-    "Get the ID of a FastEdge secret using the FastEdge API",
-    {
-      secretName: z
-        .string()
-        .describe("Name of the FastEdge secret to retrieve"),
-    },
     {
       title: "Get FastEdge Secret ID from the FastEdge API",
-      readOnlyHint: false,
-      destructiveHint: true,
-      idempotentHint: true,
-      openWorldHint: false,
+      description: "Get the ID of a FastEdge secret using the FastEdge API",
+      inputSchema: {
+        secretName: z
+          .string()
+          .describe("Name of the FastEdge secret to retrieve"),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async (params) => {
       try {
