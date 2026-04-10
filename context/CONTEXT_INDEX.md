@@ -10,10 +10,10 @@
 
 **Provides**:
 - **Tools**: Build WASM, upload binaries, deploy apps, manage env vars, scaffold projects
-- **Resources**: Comprehensive FastEdge documentation (SDK, examples, patterns)
-- **Prompts**: Interactive workflows for app creation and deployment
+- **Resources**: Scaffolding guidance for agents
+- **Prompts**: Interactive workflows for app creation
 
-**Tech Stack**: TypeScript, MCP SDK, FastEdge SDK, Node.js
+**Tech Stack**: TypeScript, MCP SDK (@modelcontextprotocol/sdk ^1.25.2), FastEdge SDK, Node.js
 
 **Protocol**: Model Context Protocol (stdio transport)
 
@@ -23,88 +23,82 @@
 
 Use this tree to find relevant documentation for your task:
 
-### Adding or Modifying Tools
+### Understanding the System
 
-**Task: Add new MCP tool**
-→ Read: `tools/TOOL_DEVELOPMENT.md`
-→ Read: `architecture/MCP_PROTOCOL.md`
-→ Grep: `CHANGELOG.md` for similar tools
+**Task: Understand the MCP server and recent changes**
+→ Read: `PROJECT_OVERVIEW.md` (~200 lines)
+→ Read: `REFACTORING_FEB_2026.md` (comprehensive refactoring details)
+
+**Task: Understand scaffolding system**
+→ Read: `../docs/SCAFFOLDING-ARCHITECTURE.md` (detailed architecture)
+→ Read: `../docs/MIXED-LANGUAGE-EXAMPLES.md` (examples)
+→ Grep: `CHANGELOG.md` for "scaffold"
+
+**Task: Understand prompts and migration**
+→ Read: `../docs/PROMPT-MIGRATION.md` (prompt system details)
+→ Read: `REFACTORING_FEB_2026.md` (sections on prompts)
+
+### Working with Tools
+
+**Task: Understand tool system (registerTool vs deprecated API)**
+→ Read: `REFACTORING_FEB_2026.md` (section: Tool Migration)
+→ Read: `PROJECT_OVERVIEW.md` (section: Tools)
+→ Grep source: `src/server.ts` for `registerTool` examples
 
 **Task: Modify build-wasm tool**
-→ Read: `tools/BUILD_WASM.md`
-→ Read: `architecture/WORKSPACE_UTILS.md`
+→ Read source: `src/tools/build-wasm.ts`
+→ Grep: `CHANGELOG.md` for "build-wasm"
 
 **Task: Modify deployment tools**
-→ Read: `tools/DEPLOY_APP.md` or `tools/DEPLOY_ENV_VARS.md`
-→ Read: `tools/FASTEDGE_API.md`
+→ Read source: `src/tools/deploy-app.ts`
+→ Read source: `src/tools/upload-binary.ts`
+→ Grep: `CHANGELOG.md` for "deploy"
 
-**Task: Add scaffolding template**
-→ Read: `tools/SCAFFOLDING_SYSTEM.md`
-→ Grep: `CHANGELOG.md` for "template" or "scaffold"
+**Task: Modify scaffolding (createFastEdgeApp)**
+→ Read: `../docs/SCAFFOLDING-ARCHITECTURE.md` (complete architecture)
+→ Read: `../docs/MIXED-LANGUAGE-EXAMPLES.md` (usage examples)
+→ Read source: `src/tools/create-fastedge-app.ts`
+→ Read source: `src/prompts/scaffolding-scenarios.ts`
 
-### Working with Prompts
+### Working with Resources
 
-**Task: Add new prompt workflow**
-→ Read: `prompts/PROMPT_SYSTEM.md`
-→ Read: `architecture/MCP_PROTOCOL.md`
+**Task: Understand MCP resources**
+→ Read: `REFACTORING_FEB_2026.md` (section: Resources)
+→ Read source: `src/resources/index.ts`
+→ Read source: `src/resources/scaffolding-guide.ts`
 
-**Task: Modify createFastEdgeApp prompt**
-→ Read: `prompts/CREATE_APP_PROMPT.md`
-→ Read: `tools/SCAFFOLDING_SYSTEM.md`
-
-**Task: Modify deployFastEdgeApp workflow**
-→ Read: `prompts/DEPLOY_APP_PROMPT.md`
-→ Read: `tools/BUILD_WASM.md`, `tools/UPLOAD_BINARY.md`, `tools/DEPLOY_APP.md`
-
-### Managing Resources
-
-**Task: Add new context resource**
-→ Read: `resources/RESOURCE_SYSTEM.md`
+**Task: Add new resource**
+→ Read source: `src/resources/index.ts` (see registerAllResources pattern)
 → Grep: `CHANGELOG.md` for "resource"
 
-**Task: Update FastEdge context docs**
-→ Read: `resources/FASTEDGE_CONTEXT.md`
-→ Read: `resources/CONTENT_GENERATION.md`
+### Fixing Bugs or Issues
 
-### Fixing Bugs
+**Task: Debug tool execution**
+→ Enable debug mode: `DEBUG=mcp* npx ...`
+→ Use MCP Inspector: `npx @modelcontextprotocol/inspector npx ...`
+→ Grep: `CHANGELOG.md` for relevant error messages
 
 **Task: Fix WASM build issue**
-→ Read: `tools/BUILD_WASM.md`
-→ Read: `architecture/WORKSPACE_UTILS.md`
+→ Read source: `src/tools/build-wasm.ts`
+→ Read: `../docs/MIXED-LANGUAGE-EXAMPLES.md` (build patterns)
 → Grep: `CHANGELOG.md` for "build" or "wasm"
 
 **Task: Fix API upload/deployment issue**
-→ Read: `tools/FASTEDGE_API.md`
-→ Read: `architecture/API_CLIENT.md`
+→ Read source: `src/tools/upload-binary.ts`
+→ Read source: `src/tools/deploy-app.ts`
+→ Read source: `src/utils/fastedge-api.ts`
 → Grep: `CHANGELOG.md` for "api" or "deploy"
-
-**Task: Fix Magic Comments**
-→ Read: `tools/MAGIC_COMMENTS.md`
-→ Grep: `CHANGELOG.md` for "magic" or "comment"
-
-### Understanding the System
-
-**Task: Understand MCP protocol basics**
-→ Read: `architecture/MCP_PROTOCOL.md`
-→ Skim: `PROJECT_OVERVIEW.md`
-
-**Task: Understand server architecture**
-→ Read: `architecture/SERVER_ARCHITECTURE.md`
-→ Read: `PROJECT_OVERVIEW.md`
-
-**Task: Understand how tools work**
-→ Read: `tools/TOOL_DEVELOPMENT.md`
-→ Skim: `architecture/MCP_PROTOCOL.md`
 
 ### Testing & Development
 
 **Task: Test MCP server locally**
-→ Read: `development/TESTING_GUIDE.md`
-→ Read: `development/MCP_INSPECTOR.md`
+→ Run: `npm run dev` (starts in dev mode)
+→ Use Claude Code with mcp.json configuration
+→ Use MCP Inspector: `npx @modelcontextprotocol/inspector npx @gcoredev/fastedge-mcp-server`
 
-**Task: Debug tool execution**
-→ Read: `development/MCP_INSPECTOR.md`
-→ Read: specific tool doc
+**Task: Test scaffolding scenarios**
+→ Read: `../docs/SCAFFOLDING-ARCHITECTURE.md` (section: Testing)
+→ Try each scenario from docs/MIXED-LANGUAGE-EXAMPLES.md
 
 ---
 
@@ -114,57 +108,43 @@ Use this tree to find relevant documentation for your task:
 
 | Document | Lines | When to Read |
 |----------|-------|--------------|
-| **CONTEXT_INDEX.md** | ~100 | **Always read first** |
-| **PROJECT_OVERVIEW.md** | ~200 | Understanding the MCP server |
+| **CONTEXT_INDEX.md** | ~180 | **Always read first** |
+| **PROJECT_OVERVIEW.md** | ~200 | Understanding the MCP server overview |
+| **REFACTORING_FEB_2026.md** | ~2,500 | **Primary documentation** - refactoring details |
 | **SEARCH_GUIDE.md** | ~50 | Learning how to search docs |
 | **CHANGELOG.md** | Variable | **Never read linearly** - use grep |
 
-### Architecture (Read when modifying structure)
+### Detailed Documentation (docs/ folder)
 
-| Document | Focus | Read When |
-|----------|-------|-----------|
-| **MCP_PROTOCOL.md** | Model Context Protocol basics | Understanding MCP, adding tools/prompts |
-| **SERVER_ARCHITECTURE.md** | Server structure, lifecycle | Modifying server initialization |
-| **API_CLIENT.md** | FastEdge API integration | Working with API calls |
-| **WORKSPACE_UTILS.md** | File operations, workspace utils | File reading/writing, WASM building |
+| Document | Lines | Focus | Read When |
+|----------|-------|-------|-----------|
+| **SCAFFOLDING-ARCHITECTURE.md** | ~800 | Complete scaffolding system | Working with project scaffolding |
+| **MIXED-LANGUAGE-EXAMPLES.md** | ~900 | Mixed-language support examples | Multi-language projects |
+| **PROMPT-MIGRATION.md** | ~400 | Prompt system and migration | Understanding prompts |
+| **dotenv.md** | ~100 | Environment variable patterns | Working with .env files |
 
-### Tools (Read specific tool when needed)
+### Source Code Organization
 
-| Document | Focus | Read When |
-|----------|-------|-----------|
-| **TOOL_DEVELOPMENT.md** | Creating/modifying tools | Adding new tools |
-| **BUILD_WASM.md** | Build WASM binary tool | WASM compilation issues |
-| **UPLOAD_BINARY.md** | Upload binary to API | Binary upload issues |
-| **DEPLOY_APP.md** | Deploy/update app tool | Application deployment |
-| **DEPLOY_ENV_VARS.md** | Deploy env vars/secrets | Env var management |
-| **SCAFFOLDING_SYSTEM.md** | Project scaffolding | Adding templates |
-| **MAGIC_COMMENTS.md** | Deployment tracking | Magic Comments feature |
-| **FASTEDGE_API.md** | FastEdge API tools | API integration |
-
-### Prompts (Read specific prompt when needed)
-
-| Document | Focus | Read When |
-|----------|-------|-----------|
-| **PROMPT_SYSTEM.md** | How prompts work | Adding new prompts |
-| **CREATE_APP_PROMPT.md** | createFastEdgeApp workflow | App creation prompt |
-| **DEPLOY_APP_PROMPT.md** | deployFastEdgeApp workflow | Deployment prompt |
-| **ENV_VARS_PROMPT.md** | setEnvironmentVariables | Env vars prompt |
-
-### Resources (Read specific resource when needed)
-
-| Document | Focus | Read When |
-|----------|-------|-----------|
-| **RESOURCE_SYSTEM.md** | How resources work | Adding resources |
-| **FASTEDGE_CONTEXT.md** | fastedge-context resource | Context content |
-| **CONTENT_GENERATION.md** | Doc generation scripts | Updating bundled docs |
-
-### Development (Read when implementing/testing)
-
-| Document | Focus | Read When |
-|----------|-------|-----------|
-| **IMPLEMENTATION_GUIDE.md** | Coding patterns | Starting development |
-| **TESTING_GUIDE.md** | Testing MCP server | Testing changes |
-| **MCP_INSPECTOR.md** | MCP debugging tool | Debugging tools/prompts |
+**Key files to explore**:
+```
+src/
+├── server.ts              # Main entry point, tool/resource registration
+├── tools/                 # All 8 MCP tools
+│   ├── build-wasm.ts      # Build WASM binaries
+│   ├── upload-binary.ts   # Upload to FastEdge API
+│   ├── deploy-app.ts      # Deploy applications
+│   ├── deploy-env-vars.ts # Manage env vars
+│   ├── create-fastedge-app.ts  # Smart scaffolding (3 scenarios)
+│   └── ...                # Other tools
+├── prompts/               # MCP prompts
+│   └── scaffolding-scenarios.ts  # Smart scaffolding prompt
+├── resources/             # MCP resources
+│   ├── index.ts           # Resource registration
+│   └── scaffolding-guide.ts  # Agent guidance resource
+└── utils/                 # Shared utilities
+    ├── fastedge-api.ts    # API client
+    └── workspace.ts       # File operations
+```
 
 ---
 
@@ -176,6 +156,7 @@ Use this tree to find relevant documentation for your task:
 # Find tool changes
 grep -i "build-wasm" context/CHANGELOG.md
 grep -i "tool" context/CHANGELOG.md
+grep -i "scaffold" context/CHANGELOG.md
 
 # Find prompt changes
 grep -i "prompt" context/CHANGELOG.md
@@ -190,16 +171,16 @@ grep -i "fix.*wasm" context/CHANGELOG.md
 grep -i "fix.*upload" context/CHANGELOG.md
 ```
 
-**Find tool documentation:**
+**Search source code**:
 ```bash
-ls context/tools/ | grep -i "build"
-ls context/prompts/ | grep -i "deploy"
-```
+# Find tool implementations
+ls src/tools/
 
-**Search across all context:**
-```bash
-grep -r "MCP protocol" context/
-grep -r "FastEdge API" context/
+# Find all registerTool calls
+grep -r "registerTool" src/
+
+# Find API usage
+grep -r "fastedge-api" src/
 ```
 
 See `SEARCH_GUIDE.md` for more patterns.
@@ -209,18 +190,20 @@ See `SEARCH_GUIDE.md` for more patterns.
 ## Token Efficiency Strategy
 
 **Estimated token costs:**
-- This file (CONTEXT_INDEX.md): ~250 tokens
+- This file (CONTEXT_INDEX.md): ~400 tokens
 - PROJECT_OVERVIEW.md: ~500 tokens
-- Architecture doc: ~500-1,000 tokens each
-- Tool doc: ~500-1,500 tokens each
+- REFACTORING_FEB_2026.md: ~6,000 tokens (comprehensive, but contains everything)
+- SCAFFOLDING-ARCHITECTURE.md: ~2,000 tokens
 - CHANGELOG.md: **Don't read** - grep only
 
 **Typical task token usage:**
-- Simple bug fix: ~750 tokens (this file + 1 tool doc)
-- New tool: ~1,500-2,500 tokens (this file + 2-3 docs)
-- Major feature: ~2,500-4,000 tokens (this file + multiple docs)
+- Simple bug fix: ~400-900 tokens (this file + grep CHANGELOG)
+- Understanding scaffolding: ~2,400 tokens (this file + SCAFFOLDING-ARCHITECTURE.md)
+- Complete system understanding: ~7,000 tokens (this file + REFACTORING_FEB_2026.md + docs)
 
 **Compare to reading everything upfront: ~10,000+ tokens**
+
+**Best practice**: Start with this file, then read only what you need based on decision tree.
 
 ---
 
@@ -236,17 +219,18 @@ See `SEARCH_GUIDE.md` for more patterns.
 **Three MCP primitives**:
 
 1. **Tools** - Functions Claude can call
-   - Example: `build-wasm`, `upload-binary`, `deploy-app`
+   - Example: `build-wasm`, `upload-binary`, `deploy-app`, `create-fastedge-app`
    - Defined with schemas (input/output)
-   - Executed synchronously, return results
+   - Registered using modern `server.registerTool()` API
+   - All 8 tools migrated to new API (Feb 2026)
 
 2. **Resources** - Static content Claude can read
-   - Example: `fastedge-context://docs`
+   - Example: `fastedge://guides/scaffolding`
    - URI-based addressing
-   - Returns markdown/text content
+   - Returns markdown/text content for agent guidance
 
 3. **Prompts** - Interactive workflows
-   - Example: `createFastEdgeApp`, `deployFastEdgeApp`
+   - Example: `createFastEdgeApp` (smart scaffolding with 3 scenarios)
    - Can include arguments and messages
    - Guide users through multi-step processes
 
@@ -256,12 +240,13 @@ See `SEARCH_GUIDE.md` for more patterns.
 - Upload binaries
 - Create/update applications
 - Manage environment variables and secrets
-- Requires API key (FASTEDGE_API_KEY)
+- Requires API token (FASTEDGE_API_TOKEN environment variable)
 
 **Build Process**:
 - Rust: `cargo build --target wasm32-wasip1`
-- JavaScript: `fastedge-build <input> <output>`
+- JavaScript/TypeScript: `npx fastedge-build <input> <output>`
 - AssemblyScript: `asc <input> -o <output>`
+- Mixed-language: TypeScript frontend + Rust logic
 
 **Deployment Flow**:
 1. Build WASM binary from source code
@@ -269,24 +254,42 @@ See `SEARCH_GUIDE.md` for more patterns.
 3. Create/update app with binary ID
 4. Deploy env vars/secrets (optional)
 
-### Magic Comments
+### Smart Scaffolding (3 Scenarios)
 
-**Purpose**: Track deployment info in source code
+**New scaffolding system** (Feb 2026) intelligently handles:
 
-**Format**:
-```javascript
-/* FastEdge Deployment Magic Comments
- * appName: "my-app"
- * appId: "12345"
- * appUrl: "https://my-app.fastedge.app"
- * outputFile: "/wasm/output.wasm"
- */
-```
+**Scenario A**: Empty directory or new project
+- Creates complete project structure
+- Delegates to `create-fastedge-app` CLI
+- Supports all templates and languages
 
-**Used by tools**:
-- Automatically extracted during build/deploy
-- Maintains consistency across deployments
-- Enables incremental updates
+**Scenario B**: Existing FastEdge project (has `.claude/skills/fastedge-*`)
+- Detects existing project
+- Warns user, offers to continue or switch directories
+- Preserves existing structure
+
+**Scenario C**: Mixed-language project (TypeScript + Rust)
+- Detects TypeScript entrypoint (package.json)
+- Prompts for Rust crate location
+- Sets up build pipeline for both
+- Validates rust/ folder exists
+
+See `docs/SCAFFOLDING-ARCHITECTURE.md` for complete details.
+
+---
+
+## Recent Changes (February 2026)
+
+**Major refactoring completed**:
+- ✅ All 8 tools migrated to modern MCP SDK (`registerTool`)
+- ✅ Removed deprecated `server.tool()` API (0 instances remain)
+- ✅ Replaced simple scaffolding with intelligent 3-scenario system
+- ✅ Added MCP resources for agent guidance
+- ✅ Full mixed-language support (TypeScript + Rust)
+- ✅ Context detection and validation
+- ✅ Enhanced tool enforcement (prevents `npx create-fastedge-app` bypass)
+
+See `REFACTORING_FEB_2026.md` for complete refactoring details (2,500+ lines).
 
 ---
 
@@ -295,31 +298,40 @@ See `SEARCH_GUIDE.md` for more patterns.
 **Common questions:**
 
 1. **How do I add a new tool?**
-   → Read: `tools/TOOL_DEVELOPMENT.md`
+   → Study existing tools in `src/tools/`
+   → Follow `server.registerTool()` pattern from `src/server.ts`
+   → Read `REFACTORING_FEB_2026.md` (section: Tool Migration)
 
 2. **How does MCP work?**
-   → Read: `architecture/MCP_PROTOCOL.md`
+   → Read `PROJECT_OVERVIEW.md` (MCP basics)
+   → Explore `src/server.ts` (registration patterns)
 
 3. **How do I test my changes?**
-   → Read: `development/TESTING_GUIDE.md`
+   → Run `npm run dev` for development mode
+   → Use MCP Inspector: `npx @modelcontextprotocol/inspector npx @gcoredev/fastedge-mcp-server`
+   → Test with Claude Code + `.claude/mcp.json`
 
-4. **How do prompts work?**
-   → Read: `prompts/PROMPT_SYSTEM.md`
+4. **How does scaffolding work?**
+   → Read `docs/SCAFFOLDING-ARCHITECTURE.md` (complete architecture)
+   → Read `docs/MIXED-LANGUAGE-EXAMPLES.md` (examples)
 
-5. **How is context generated?**
-   → Read: `resources/CONTENT_GENERATION.md`
+5. **What changed in February 2026 refactoring?**
+   → Read `REFACTORING_FEB_2026.md` (comprehensive changelog)
 
 ---
 
 ## Next Steps
 
-1. **If you haven't already**: Read `PROJECT_OVERVIEW.md` for a lightweight introduction
+1. **If you haven't already**: Read `PROJECT_OVERVIEW.md` for a lightweight introduction (~200 lines)
 2. **Use the decision tree above** to find docs relevant to your task
 3. **Read SEARCH_GUIDE.md** to learn effective search patterns
-4. **Follow links** in documentation to discover related information
+4. **For deep dive**: Read `REFACTORING_FEB_2026.md` (2,500 lines, but comprehensive)
+5. **For scaffolding**: Read `docs/SCAFFOLDING-ARCHITECTURE.md` (800 lines)
 
 **Remember**: Only read what you need for your current task. The system is designed for just-in-time discovery.
 
 ---
 
-**Last Updated**: February 2026
+**Last Updated**: February 11, 2026
+**Current Version**: Post-refactoring (Feb 2026)
+**MCP SDK Version**: ^1.25.2
