@@ -120,6 +120,7 @@ For more information on how Environment Variables work in `dotenv` files read [h
 ### Documentation & Magic Comments
 
 - **deployment-comments** - Generate "Magic Comments" for tracking deployment information within code files
+- **fastedge-docs** - Search and read FastEdge SDK reference docs, platform guides, error codes, and testing documentation. Three modes: topics (list all), search (keyword match), read (full document).
 
 # Available Resources
 

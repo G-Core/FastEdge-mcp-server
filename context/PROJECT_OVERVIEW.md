@@ -97,10 +97,11 @@ The **FastEdge MCP Server** is a Model Context Protocol (MCP) server that provid
 - `deployment-comments` - Generate Magic Comments
   - Tracks deployment info in source code
   - Enables incremental updates
+- `fastedge-docs` - Reference documentation search — topics catalog, section-level keyword search, full doc read. Serves pipeline-generated docs from the fastedge-plugin.
 
 ### MCP Prompts
 
-**Note**: FastEdge documentation and context is now provided via **skills** in generated projects (`.claude/skills/`), not as MCP resources. This keeps the MCP server focused on build and deployment tools.
+**Note**: FastEdge documentation and context is now provided via **skills** in generated projects (`.claude/skills/`) and via the `fastedge-docs` tool, not as MCP resources. This keeps the MCP server focused on build and deployment tools.
 
 **createFastEdgeApp**:
 - Interactive app creation workflow
@@ -463,4 +464,4 @@ pnpm run server:inspect # Run with MCP inspector UI
 
 ---
 
-**Last Updated**: February 2026
+**Last Updated**: April 2026

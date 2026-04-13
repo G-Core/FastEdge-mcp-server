@@ -30,12 +30,12 @@ Use this tree to find relevant documentation for your task:
 → Read: `REFACTORING_FEB_2026.md` (comprehensive refactoring details)
 
 **Task: Understand scaffolding system**
-→ Read: `../docs/SCAFFOLDING-ARCHITECTURE.md` (detailed architecture)
-→ Read: `../docs/MIXED-LANGUAGE-EXAMPLES.md` (examples)
+→ Read: `architecture/SCAFFOLDING-ARCHITECTURE.md` (detailed architecture)
+→ Read: `architecture/MIXED-LANGUAGE-EXAMPLES.md` (examples)
 → Grep: `CHANGELOG.md` for "scaffold"
 
 **Task: Understand prompts and migration**
-→ Read: `../docs/PROMPT-MIGRATION.md` (prompt system details)
+→ Read: `architecture/PROMPT-MIGRATION.md` (prompt system details)
 → Read: `REFACTORING_FEB_2026.md` (sections on prompts)
 
 ### Working with Tools
@@ -55,8 +55,8 @@ Use this tree to find relevant documentation for your task:
 → Grep: `CHANGELOG.md` for "deploy"
 
 **Task: Modify scaffolding (createFastEdgeApp)**
-→ Read: `../docs/SCAFFOLDING-ARCHITECTURE.md` (complete architecture)
-→ Read: `../docs/MIXED-LANGUAGE-EXAMPLES.md` (usage examples)
+→ Read: `architecture/SCAFFOLDING-ARCHITECTURE.md` (complete architecture)
+→ Read: `architecture/MIXED-LANGUAGE-EXAMPLES.md` (usage examples)
 → Read source: `src/tools/create-fastedge-app.ts`
 → Read source: `src/prompts/scaffolding-scenarios.ts`
 
@@ -80,7 +80,7 @@ Use this tree to find relevant documentation for your task:
 
 **Task: Fix WASM build issue**
 → Read source: `src/tools/build-wasm.ts`
-→ Read: `../docs/MIXED-LANGUAGE-EXAMPLES.md` (build patterns)
+→ Read: `architecture/MIXED-LANGUAGE-EXAMPLES.md` (build patterns)
 → Grep: `CHANGELOG.md` for "build" or "wasm"
 
 **Task: Fix API upload/deployment issue**
@@ -97,7 +97,7 @@ Use this tree to find relevant documentation for your task:
 → Use MCP Inspector: `npx @modelcontextprotocol/inspector npx @gcoredev/fastedge-mcp-server`
 
 **Task: Test scaffolding scenarios**
-→ Read: `../docs/SCAFFOLDING-ARCHITECTURE.md` (section: Testing)
+→ Read: `architecture/SCAFFOLDING-ARCHITECTURE.md` (section: Testing)
 → Try each scenario from docs/MIXED-LANGUAGE-EXAMPLES.md
 
 ---
@@ -114,14 +114,19 @@ Use this tree to find relevant documentation for your task:
 | **SEARCH_GUIDE.md** | ~50 | Learning how to search docs |
 | **CHANGELOG.md** | Variable | **Never read linearly** - use grep |
 
-### Detailed Documentation (docs/ folder)
+### Architecture (context/architecture/)
 
-| Document | Lines | Focus | Read When |
-|----------|-------|-------|-----------|
-| **SCAFFOLDING-ARCHITECTURE.md** | ~800 | Complete scaffolding system | Working with project scaffolding |
-| **MIXED-LANGUAGE-EXAMPLES.md** | ~900 | Mixed-language support examples | Multi-language projects |
-| **PROMPT-MIGRATION.md** | ~400 | Prompt system and migration | Understanding prompts |
-| **dotenv.md** | ~100 | Environment variable patterns | Working with .env files |
+| Document | Focus | Read When |
+|----------|-------|-----------|
+| **SCAFFOLDING-ARCHITECTURE.md** | Complete scaffolding system (prompts + tools + resources) | Working with project scaffolding |
+| **MIXED-LANGUAGE-EXAMPLES.md** | Mixed-language repository examples | Multi-language projects |
+| **PROMPT-MIGRATION.md** | Old → new prompt migration notes | Understanding prompt system |
+
+### User-Facing Documentation (docs/)
+
+| Document | Focus |
+|----------|-------|
+| **dotenv.md** | How to provide env vars, secrets, response headers via .env files |
 
 ### Source Code Organization
 
@@ -274,7 +279,7 @@ See `SEARCH_GUIDE.md` for more patterns.
 - Sets up build pipeline for both
 - Validates rust/ folder exists
 
-See `docs/SCAFFOLDING-ARCHITECTURE.md` for complete details.
+See `context/architecture/SCAFFOLDING-ARCHITECTURE.md` for complete details.
 
 ---
 
@@ -312,26 +317,15 @@ See `REFACTORING_FEB_2026.md` for complete refactoring details (2,500+ lines).
    → Test with Claude Code + `.claude/mcp.json`
 
 4. **How does scaffolding work?**
-   → Read `docs/SCAFFOLDING-ARCHITECTURE.md` (complete architecture)
-   → Read `docs/MIXED-LANGUAGE-EXAMPLES.md` (examples)
+   → Read `context/architecture/SCAFFOLDING-ARCHITECTURE.md` (complete architecture)
+   → Read `context/architecture/MIXED-LANGUAGE-EXAMPLES.md` (examples)
 
-5. **What changed in February 2026 refactoring?**
-   → Read `REFACTORING_FEB_2026.md` (comprehensive changelog)
-
----
-
-## Next Steps
-
-1. **If you haven't already**: Read `PROJECT_OVERVIEW.md` for a lightweight introduction (~200 lines)
-2. **Use the decision tree above** to find docs relevant to your task
-3. **Read SEARCH_GUIDE.md** to learn effective search patterns
-4. **For deep dive**: Read `REFACTORING_FEB_2026.md` (2,500 lines, but comprehensive)
-5. **For scaffolding**: Read `docs/SCAFFOLDING-ARCHITECTURE.md` (800 lines)
-
-**Remember**: Only read what you need for your current task. The system is designed for just-in-time discovery.
+5. **How does the reference docs tool work?**
+   → Read source: `src/tools/reference/index.ts`
+   → The `fastedge-docs` tool serves pipeline-generated reference docs from `reference-docs/`
+   → Three modes: `topics` (catalog), `search` (section keyword match), `read` (full doc)
 
 ---
 
-**Last Updated**: February 11, 2026
-**Current Version**: Post-refactoring (Feb 2026)
+**Last Updated**: April 2026
 **MCP SDK Version**: ^1.25.2
