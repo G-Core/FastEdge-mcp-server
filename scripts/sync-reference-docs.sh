@@ -15,7 +15,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MCP_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PLUGIN_PATH="${1:-$MCP_ROOT/../fastedge-plugin}"
+PLUGIN_PATH="${1:-${PLUGIN_PATH:-$MCP_ROOT/../fastedge-plugin}}"
 TARGET_DIR="$MCP_ROOT/reference-docs"
 
 if [ ! -d "$PLUGIN_PATH" ]; then
