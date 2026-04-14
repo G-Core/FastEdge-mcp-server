@@ -88,9 +88,12 @@ jobs:
             && mv package.json.tmp package.json
           echo "Set package.json version to ${VERSION}"
 
-      - name: Configure git
+      - name: Configure git credentials
         if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          gh auth setup-git
           git config user.name "fastedge-plugin-sync[bot]"
           git config user.email "fastedge-plugin-sync[bot]@users.noreply.github.com"
 
