@@ -141,7 +141,7 @@ For more information on how Environment Variables work in `dotenv` files read [h
 
 Make sure to set the following environment variables:
 
-- `FASTEDGE_API_KEY` - Your FastEdge API key for authentication
+- `GCORE_API_KEY` - Your Gcore API key for authentication (legacy `FASTEDGE_API_KEY` also accepted)
 
 ## Supported FastEdge Templates
 

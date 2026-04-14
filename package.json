@@ -8,6 +8,7 @@
     "build": "npm run build:server",
     "build:server": "tsc -p ./tsconfig.build.json",
     "build:watch": "tsc -p ./tsconfig.build.json --watch",
+    "test:reference-index": "bash scripts/tests/test-reference-index.sh",
     "server:dev": "tsx src/server.ts",
     "server:inspect": "export DANGEROUSLY_OMIT_AUTH=true && npx @modelcontextprotocol/inspector npm run server:dev"
   },

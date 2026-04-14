@@ -257,7 +257,7 @@ FastEdge-mcp-server/
 ### FastEdge API
 
 **Authentication**:
-- Requires `FASTEDGE_API_KEY` environment variable
+- Requires `GCORE_API_KEY` environment variable (legacy `FASTEDGE_API_KEY` also accepted)
 - API key obtained from FastEdge dashboard
 
 **Endpoints used**:
@@ -361,7 +361,7 @@ npx asc <input> -o <output> --optimize
 ## Environment Variables
 
 **Server configuration**:
-- `FASTEDGE_API_KEY` - API authentication (required)
+- `GCORE_API_KEY` - API authentication (required; legacy `FASTEDGE_API_KEY` also accepted)
 - `FASTEDGE_API_URL` - API endpoint (default: https://api.gcore.com)
 
 **Application configuration** (dotenv files):

@@ -26,9 +26,16 @@ fi
 
 DOCS_REF="$PLUGIN_PATH/plugins/gcore-fastedge/skills/fastedge-docs/reference"
 TEST_REF="$PLUGIN_PATH/plugins/gcore-fastedge/skills/test/reference"
+INDEX_REF="$PLUGIN_PATH/plugins/gcore-fastedge/docs-index.json"
 
 if [ ! -d "$DOCS_REF" ]; then
   echo "Error: Reference docs not found at $DOCS_REF"
+  exit 1
+fi
+
+if [ ! -f "$INDEX_REF" ]; then
+  echo "Error: Docs index not found at $INDEX_REF"
+  echo "Run fastedge-plugin/scripts/sync/generate-docs-index.sh first."
   exit 1
 fi
 
@@ -61,6 +68,19 @@ if [ -d "$TEST_REF" ]; then
     echo "  ✓ $(basename "$file") (test)"
   done
 fi
+
+# Copy canonical docs index from fastedge-plugin
+cp "$INDEX_REF" "$TARGET_DIR/docs-index.json"
+echo "  ✓ docs-index.json"
+
+# Build local index view (same schema + local_path for flattened files).
+# Canonical "path" remains repo-root-relative; MCP server resolves local_path.
+jq '
+  .topics |= map(
+    . + { local_path: ("reference-docs/" + ((.path | split("/") | last))) }
+  )
+' "$TARGET_DIR/docs-index.json" > "$TARGET_DIR/docs-index.local.json"
+echo "  ✓ docs-index.local.json"
 
 TOTAL=$(ls -1 "$TARGET_DIR"/*.md 2>/dev/null | wc -l)
 echo ""

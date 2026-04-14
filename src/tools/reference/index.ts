@@ -1,49 +1,141 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { readFileSync, readdirSync, existsSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import { join, basename } from "path";
-import {
-  DocEntry,
-  DocSection,
-  splitIntoSections,
-  searchDocs,
-} from "./docs.js";
+import { DocEntry, DocSection, searchDocs } from "./docs.js";
+
+interface IndexSectionEntry {
+  id: string;
+  heading: string;
+  level: number;
+  anchor: string;
+  line_start: number;
+  line_end: number;
+  keywords?: string[];
+}
+
+interface IndexTopicEntry {
+  id: string;
+  title: string;
+  description?: string;
+  path: string;
+  local_path?: string;
+  sections?: IndexSectionEntry[];
+}
+
+interface DocsIndexFile {
+  schema_version: string;
+  topics: IndexTopicEntry[];
+}
+
+/**
+ * Extract 1-based line range from content.
+ */
+function sliceByLineRange(
+  content: string,
+  lineStart: number,
+  lineEnd: number
+): string {
+  const lines = content.split("\n");
+  const start = Math.max(1, lineStart);
+  const end = Math.min(lines.length, Math.max(start, lineEnd));
+  return lines.slice(start - 1, end).join("\n").trim();
+}
+
+/**
+ * Resolve local markdown filename from canonical/local index paths.
+ * reference-docs is flat in MCP server; basename(path) is authoritative.
+ */
+function resolveLocalDocPath(
+  docsDir: string,
+  topic: IndexTopicEntry
+): string | null {
+  const candidates = [
+    topic.local_path ? join(docsDir, basename(topic.local_path)) : "",
+    join(docsDir, basename(topic.path)),
+    join(docsDir, `${topic.id}.md`),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function loadRequiredDocsIndex(docsDir: string): DocsIndexFile {
+  const indexPath = join(docsDir, "docs-index.local.json");
+  if (!existsSync(indexPath)) {
+    throw new Error(
+      `Missing required docs index at ${indexPath}. ` +
+        `Run scripts/sync-reference-docs.sh to populate reference-docs/.`
+    );
+  }
+  const parsed = JSON.parse(readFileSync(indexPath, "utf-8"));
+  if (!parsed || !Array.isArray(parsed.topics)) {
+    throw new Error(
+      `Invalid docs index format at ${indexPath}: expected top-level topics[]`
+    );
+  }
+  return parsed as DocsIndexFile;
+}
 
 /**
  * Load reference docs from the bundled docs directory.
  * Docs are imported from the fastedge-plugin repo at build time.
  */
-function loadReferenceDocs(docsDir: string): DocEntry[] {
+export function loadReferenceDocs(docsDir: string): {
+  docs: DocEntry[];
+  sections: DocSection[];
+  mode: "index";
+} {
   if (!existsSync(docsDir)) {
-    return [];
+    throw new Error(
+      `Reference docs directory not found at ${docsDir}. ` +
+        `Run scripts/sync-reference-docs.sh first.`
+    );
   }
 
-  const files = readdirSync(docsDir).filter((f) => f.endsWith(".md"));
-  return files.map((file) => {
-    const content = readFileSync(join(docsDir, file), "utf-8");
-    const id = basename(file, ".md");
+  const docsIndex = loadRequiredDocsIndex(docsDir);
+  const docs: DocEntry[] = [];
+  const sections: DocSection[] = [];
 
-    // Extract title from first # heading
-    const titleMatch = content.match(/^#\s+(.+)/m);
-    const title = titleMatch ? titleMatch[1].trim() : id;
+  for (const topic of docsIndex.topics) {
+    const localPath = resolveLocalDocPath(docsDir, topic);
+    if (!localPath) {
+      throw new Error(`Missing local markdown file for topic ${topic.id}`);
+    }
+    const content = readFileSync(localPath, "utf-8");
+    const doc: DocEntry = {
+      id: topic.id,
+      title: topic.title || topic.id,
+      description: (topic.description || "").slice(0, 200),
+      content,
+    };
+    docs.push(doc);
 
-    // Extract first paragraph as description
-    const lines = content.split("\n");
-    let description = "";
-    let inFirstPara = false;
-    for (const line of lines) {
-      if (!inFirstPara && line.trim() && !line.startsWith("#")) {
-        inFirstPara = true;
-        description = line.trim();
-      } else if (inFirstPara && !line.trim()) {
-        break;
-      } else if (inFirstPara) {
-        description += " " + line.trim();
-      }
+    if (!Array.isArray(topic.sections) || topic.sections.length === 0) {
+      throw new Error(
+        `Topic ${topic.id} has no sections in docs-index.local.json`
+      );
     }
 
-    return { id, title, description: description.slice(0, 200), content };
-  });
+    for (const sec of topic.sections) {
+      const sectionContent = sliceByLineRange(
+        content,
+        sec.line_start,
+        sec.line_end
+      );
+      sections.push({
+        docId: topic.id,
+        heading: sec.heading,
+        content: sectionContent || sec.heading,
+        keywords: sec.keywords ?? [],
+      });
+    }
+  }
+  return { docs, sections, mode: "index" };
 }
 
 /**
@@ -102,10 +194,10 @@ function formatSearchResults(results: DocSection[]): string {
  * Register the fastedge-docs reference tool.
  */
 export function registerReferenceTools(server: McpServer, docsDir: string) {
-  // Load and index docs at registration time
-  const docs = loadReferenceDocs(docsDir);
-  const allSections: DocSection[] = docs.flatMap((doc) =>
-    splitIntoSections(doc.id, doc.content)
+  // Load and index docs at registration time (index-required mode)
+  const { docs, sections: allSections, mode } = loadReferenceDocs(docsDir);
+  console.error(
+    `[fastedge-docs] Loaded ${docs.length} reference docs from ${docsDir} (mode=${mode})`
   );
   const topicsCatalog = buildTopicsCatalog(docs);
 
@@ -114,8 +206,11 @@ export function registerReferenceTools(server: McpServer, docsDir: string) {
     {
       title: "FastEdge Reference Documentation",
       description:
-        "Search and read FastEdge SDK reference docs, platform guides, error codes, and testing documentation. " +
-        'Use action "topics" to list available docs, "search" to find relevant sections, or "read" to get a full document.',
+        "IMPORTANT: Always use this tool before answering questions about FastEdge development. " +
+        "FastEdge is a Wasm edge computing platform with platform-specific constraints (e.g., only stdout is captured — stderr is silently discarded). " +
+        "Your training data may be wrong or outdated about FastEdge APIs and patterns. " +
+        "This tool provides authoritative, up-to-date SDK reference docs, platform guides, error codes, examples, and testing documentation. " +
+        'Use action "search" with your question to find relevant sections, "topics" to list all available docs, or "read" to get a full document by topic ID.',
       inputSchema: {
         action: z
           .enum(["topics", "search", "read"])
