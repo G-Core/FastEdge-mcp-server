@@ -97,10 +97,11 @@ The **FastEdge MCP Server** is a Model Context Protocol (MCP) server that provid
 - `deployment-comments` - Generate Magic Comments
   - Tracks deployment info in source code
   - Enables incremental updates
+- `fastedge-docs` - Reference documentation search — topics catalog, section-level keyword search, full doc read. Serves pipeline-generated docs from the fastedge-plugin.
 
 ### MCP Prompts
 
-**Note**: FastEdge documentation and context is now provided via **skills** in generated projects (`.claude/skills/`), not as MCP resources. This keeps the MCP server focused on build and deployment tools.
+**Note**: FastEdge documentation and context is now provided via **skills** in generated projects (`.claude/skills/`) and via the `fastedge-docs` tool, not as MCP resources. This keeps the MCP server focused on build and deployment tools.
 
 **createFastEdgeApp**:
 - Interactive app creation workflow
@@ -256,7 +257,7 @@ FastEdge-mcp-server/
 ### FastEdge API
 
 **Authentication**:
-- Requires `FASTEDGE_API_KEY` environment variable
+- Requires `GCORE_API_KEY` environment variable (legacy `FASTEDGE_API_KEY` also accepted)
 - API key obtained from FastEdge dashboard
 
 **Endpoints used**:
@@ -360,7 +361,7 @@ npx asc <input> -o <output> --optimize
 ## Environment Variables
 
 **Server configuration**:
-- `FASTEDGE_API_KEY` - API authentication (required)
+- `GCORE_API_KEY` - API authentication (required; legacy `FASTEDGE_API_KEY` also accepted)
 - `FASTEDGE_API_URL` - API endpoint (default: https://api.gcore.com)
 
 **Application configuration** (dotenv files):
@@ -463,4 +464,4 @@ pnpm run server:inspect # Run with MCP inspector UI
 
 ---
 
-**Last Updated**: February 2026
+**Last Updated**: April 2026

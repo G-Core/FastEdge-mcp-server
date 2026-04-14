@@ -25,8 +25,9 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile --prod
 
-# Copy only the build output
+# Copy build output and reference docs
 COPY --from=builder /app/build ./build
+COPY --from=builder /app/reference-docs ./reference-docs
 
 # Default to workspace in volumey
 ENV WORKSPACE_ROOT=/workspace

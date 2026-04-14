@@ -12,7 +12,8 @@ const server = new McpServer({
 
 // Workspace root path - for Docker, this can be mounted volume
 const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT || process.cwd();
-const FASTEDGE_API_KEY = process.env.FASTEDGE_API_KEY || "";
+const FASTEDGE_API_KEY =
+  process.env.GCORE_API_KEY || process.env.FASTEDGE_API_KEY || "";
 const FASTEDGE_API_URL =
   process.env.FASTEDGE_API_URL || "https://api.gcore.com";
 

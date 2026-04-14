@@ -120,6 +120,7 @@ For more information on how Environment Variables work in `dotenv` files read [h
 ### Documentation & Magic Comments
 
 - **deployment-comments** - Generate "Magic Comments" for tracking deployment information within code files
+- **fastedge-docs** - Search and read FastEdge SDK reference docs, platform guides, error codes, and testing documentation. Three modes: topics (list all), search (keyword match), read (full document).
 
 # Available Resources
 
@@ -140,7 +141,7 @@ For more information on how Environment Variables work in `dotenv` files read [h
 
 Make sure to set the following environment variables:
 
-- `FASTEDGE_API_KEY` - Your FastEdge API key for authentication
+- `GCORE_API_KEY` - Your Gcore API key for authentication (legacy `FASTEDGE_API_KEY` also accepted)
 
 ## Supported FastEdge Templates
 

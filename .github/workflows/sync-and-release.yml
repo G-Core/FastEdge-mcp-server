@@ -1,0 +1,117 @@
+# sync-and-release.yml — Auto-sync reference docs and release.
+#
+# Triggered by fastedge-plugin's release-plugin.yml workflow via
+# repository_dispatch. Syncs reference docs from the plugin release tag,
+# bumps package.json to match the plugin version, commits to main,
+# tags, and pushes. The tag push triggers create-release.yaml which
+# builds and publishes the Docker image.
+#
+# All three consumers (Claude plugin, Codex plugin, MCP server) share
+# the same version number after each release.
+#
+# Can also be triggered manually for testing or re-syncing.
+
+name: Sync Docs and Release
+
+on:
+  repository_dispatch:
+    types: [plugin-release]
+  workflow_dispatch:
+    inputs:
+      plugin_ref:
+        description: "fastedge-plugin ref to sync from (tag or branch)"
+        type: string
+        required: false
+        default: "main"
+      version:
+        description: "Version to set (leave empty to skip version bump)"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-and-release
+  cancel-in-progress: false
+
+jobs:
+  sync-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout MCP server
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Resolve inputs
+        id: inputs
+        run: |
+          # Prefer dispatch payload, fall back to workflow_dispatch inputs.
+          REF="${{ github.event.client_payload.tag || inputs.plugin_ref || 'main' }}"
+          VERSION="${{ github.event.client_payload.version || inputs.version || '' }}"
+          echo "ref=${REF}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Syncing from fastedge-plugin ref: ${REF}, version: ${VERSION}"
+
+      - name: Sparse checkout fastedge-plugin
+        run: |
+          REF="${{ steps.inputs.outputs.ref }}"
+          git clone --depth 1 --sparse --branch "$REF" \
+            https://github.com/G-Core/fastedge-plugin.git /tmp/fastedge-plugin
+          cd /tmp/fastedge-plugin
+          git sparse-checkout set \
+            plugins/gcore-fastedge/skills/fastedge-docs/reference \
+            plugins/gcore-fastedge/skills/test/reference \
+            plugins/gcore-fastedge/docs-index.json
+
+      - name: Sync reference docs
+        run: PLUGIN_PATH=/tmp/fastedge-plugin bash scripts/sync-reference-docs.sh
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No doc changes — skipping release."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bump version to match plugin release
+        if: steps.changes.outputs.changed == 'true' && steps.inputs.outputs.version != ''
+        run: |
+          VERSION="${{ steps.inputs.outputs.version }}"
+          jq --arg v "$VERSION" '.version = $v' package.json > package.json.tmp \
+            && mv package.json.tmp package.json
+          echo "Set package.json version to ${VERSION}"
+
+      - name: Configure git credentials
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh auth setup-git
+          git config user.name "fastedge-plugin-sync[bot]"
+          git config user.email "fastedge-plugin-sync[bot]@users.noreply.github.com"
+
+      - name: Commit, tag, and push
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          REF="${{ steps.inputs.outputs.ref }}"
+          VERSION="${{ steps.inputs.outputs.version }}"
+
+          git add reference-docs/ package.json
+
+          if [ -n "$VERSION" ]; then
+            git commit -m "release: v${VERSION} — sync reference docs from fastedge-plugin ${REF}"
+            git tag -a "v${VERSION}" -m "Release v${VERSION} (synced from fastedge-plugin ${REF})"
+            git push origin main --follow-tags
+            echo "Tagged and pushed v${VERSION}"
+          else
+            git commit -m "docs: sync reference docs from fastedge-plugin ${REF}"
+            git push origin main
+            echo "Pushed docs sync (no version tag — manual dispatch without version)"
+          fi

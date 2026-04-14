@@ -269,6 +269,7 @@ grep -r "FastEdge API" context/
 - `update-env-vars-app` - Deploy environment variables/secrets
 - `get-secret-id` - Get secret IDs by name
 - `deployment-comments` - Generate Magic Comments
+- `fastedge-docs` - Reference documentation search
 
 **MCP Resources** (static content):
 - `fastedge-context` - Comprehensive FastEdge dev documentation
@@ -307,12 +308,18 @@ FastEdge-mcp-server/
 │   ├── server.ts           # MCP server entry point
 │   ├── tools/              # MCP tool implementations
 │   │   ├── fastedge/       # FastEdge API tools (deploy, upload)
+│   │   ├── reference/      # Reference documentation tool
+│   │   │   ├── index.ts          # fastedge-docs tool registration
+│   │   │   └── docs.ts           # Section splitting and search logic
 │   │   ├── scaffolding/    # Project scaffolding
 │   │   └── workspace/      # Build and workspace operations
 │   ├── prompts/            # MCP prompt workflows
 │   │   ├── scaffolding.ts  # createFastEdgeApp
 │   │   └── deploying.ts    # deployFastEdgeApp, setEnvVars
 │   └── utils/              # Shared utilities
+├── reference-docs/          # Synced from fastedge-plugin (24 .md files)
+├── scripts/
+│   └── sync-reference-docs.sh  # Copies reference docs from plugin repo
 ├── docs/                   # MCP-specific documentation
 │   └── dotenv.md           # Environment variable patterns
 └── package.json
@@ -363,4 +370,4 @@ FastEdge-mcp-server/
 
 ---
 
-**Last Updated**: February 2026
+**Last Updated**: April 2026
