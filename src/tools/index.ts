@@ -1,4 +1,5 @@
 import { join } from "path";
+import { fileURLToPath } from "url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { registerFastEdgeApiTools } from "./fastedge/index.js";
@@ -25,7 +26,7 @@ export function registerAllTools(server: McpServer, options: ToolOptions) {
   // Reference docs are bundled at build time from the fastedge-plugin repo.
   // See scripts/sync-reference-docs.sh for the import process.
   const docsDir = join(
-    new URL(".", import.meta.url).pathname,
+    fileURLToPath(new URL(".", import.meta.url)),
     "..",
     "..",
     "reference-docs"
