@@ -14,6 +14,94 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-04-24] - Absorbed gcore-api-mcp-server: direct Gcore API integration
+
+### Overview
+
+The four API tools previously proxied to the sibling `gcore-api-mcp-server` (edge-deployed WASM, HTTP transport) now run natively in this server. The embedded MCP client, the proxy hop, and the `GCORE_API_MCP_URL` env var are gone. This removes the edge runtime's 30s request timeout as a ceiling on long `batch_execute` chains, eliminates one network hop, and consolidates build-pipeline + API tools into a single image. `gcore-api-mcp-server` will be archived.
+
+### 🎯 What Was Completed
+
+#### 1. Build pipeline migration
+- Ported `scripts/generate-schemas.ts` (OpenAPI → LLM-readable schemas)
+- Ported `src/config/products.ts` with `cloud` product removed (no FastEdge crossover) and new optional `timeout_ms?: number` field
+- Added `@apidevtools/swagger-parser` devDep
+- Added `pnpm run generate:schemas` — manual script, commit-time regeneration (not a prebuild hook)
+- Generated prod schemas: **55 groups** across 5 products (fastedge 7 · cdn 17 · dns 10 · waap 14 · storage 7)
+
+#### 2. Runtime migration
+- Ported `src/api-client.ts` with Node `fetch`, `AbortController`-based timeout, auth header forwarding + `GCORE_API_KEY` fallback
+- Ported `src/workflows/` (types, registry, create-app, update-app-binary, delete-app-and-binary)
+- Extracted 4 tool handlers into `src/tools/api/` with injectable `apiCaller` for testability
+- Moved `upload-binary` into `src/tools/api/binaries/`, simplified signature (drops `ApiConfig`, uses `GCORE_API_BASE` directly)
+
+#### 3. Tool folder reorganization
+- `src/tools/local/` — `reference/`, `scaffolding/`, `workspace/`
+- `src/tools/api/` — `gcore-api`, `describe-api`, `workflows-list`, `batch-execute`, `binaries/`
+- Dropped `src/tools/fastedge/` entirely (contents absorbed into api/)
+
+#### 4. Timeouts
+- `DEFAULT_TIMEOUT_MS = 60_000` per-call, hard default
+- Per-product override via `products.ts` `timeout_ms`
+- `batch_execute`: total budget = sum of per-step product timeouts; rejects if > `BATCH_TOTAL_CAP_MS` (180_000); aborts remaining steps if wall-clock elapsed exceeds budget
+- Uniform timeout error shape: `{ error, timeout: true, path, timeout_ms }`
+
+#### 5. Proxy removal
+- Deleted `src/mcp-client.ts`, `src/tools/fastedge/proxied.ts`, `src/tools/fastedge/types.ts`
+- Removed `GCORE_API_MCP_URL` and `FASTEDGE_API_URL` env var plumbing from `src/server.ts`
+- Server startup simplified: reads only `GCORE_API_KEY` and `WORKSPACE_ROOT`
+
+#### 6. Environment variables
+- **Added**: `GCORE_API_BASE` (optional runtime override; lets in-house devs point prod-schemas image at preprod endpoints)
+- **Removed**: `GCORE_API_MCP_URL`, `FASTEDGE_API_URL`
+- **Kept**: `GCORE_API_KEY` (required), `BATCH_MAX_CALLS` (optional, default 5), `WORKSPACE_ROOT`
+
+#### 7. Tests
+- Added `scripts/tests/test-api.ts` with 21 tests (node:test + tsx)
+- Covers: `resolveTimeoutMs`, `resolveRefs`/`resolveRefsTyped`, all tool handlers with injected mock apiCaller, batch cap and max-calls rejection, fail-fast on 4xx, local HTTP server integration smoke test
+- New `pnpm run test` (test:api + test:reference-index) and `pnpm run test:api` scripts
+
+#### 8. Docs
+- Updated `README.md`, `DEVELOPMENT.md`, `STANDALONE-SETUP.md`, `mcp-standalone.json` — removed `GCORE_API_MCP_URL`, added `GCORE_API_BASE`, added preprod build recipe
+- New "API Tools" section in README listing the 5 absorbed tools
+
+**Files Created:**
+- `src/api-client.ts` — Gcore API HTTP client with timeout layer
+- `src/config/products.ts` — product registry
+- `src/generated/schemas.ts`, `src/generated/config.ts` — auto-generated
+- `src/workflows/{types,registry}.ts` + `src/workflows/fastedge/*.ts`
+- `src/tools/api/{gcore-api,describe-api,workflows-list,batch-execute,index}.ts`
+- `src/tools/api/binaries/` (moved + adapted)
+- `scripts/generate-schemas.ts`
+- `scripts/tests/test-api.ts`
+
+**Files Deleted:**
+- `src/mcp-client.ts`
+- `src/tools/fastedge/proxied.ts`
+- `src/tools/fastedge/types.ts`
+
+**Files Moved:**
+- `src/tools/reference/` → `src/tools/local/reference/`
+- `src/tools/scaffolding/` → `src/tools/local/scaffolding/`
+- `src/tools/workspace/` → `src/tools/local/workspace/`
+- `src/tools/fastedge/binaries/` → `src/tools/api/binaries/`
+
+### 🧪 Testing
+
+```bash
+pnpm run test              # 21 passing tests, ~400ms
+pnpm run generate:schemas  # regenerate from SPEC_BASE_URL
+```
+
+### 📝 Notes
+
+- **No semver bump** in this server. fastedge-plugin's release CI will drive the next version bump and propagate via `sync-and-release.yml`.
+- **`GCORE_API_MCP_URL` removal is a breaking change** for any manual standalone setup that hardcoded it — removed from docs, safe to drop from mcp.json.
+- **Cloud product dropped** — not a FastEdge workflow crossover. Re-adding is one entry in `products.ts` + `enabledForGeneration`.
+- **Preprod recipe**: either set `GCORE_API_BASE=https://api.preprod.world` at runtime (prod schemas, preprod endpoints — 99% compatible) or rebuild image locally with `SPEC_BASE_URL=https://api.preprod.world pnpm run generate:schemas`.
+
+---
+
 ## [2026-02-10] - Dynamic Template List from create-fastedge-app
 
 ### Overview

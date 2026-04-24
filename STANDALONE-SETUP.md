@@ -20,7 +20,7 @@ Create a file called `.vscode/mcp.json` in your workspace with the following con
       "command": "bash",
       "args": [
         "-c",
-        "docker run --rm -i -v ${workspaceFolder}:/workspace -e WORKSPACE_ROOT=/workspace -e \"GCORE_API_KEY=$GCORE_API_KEY\" -e \"FASTEDGE_API_URL=$FASTEDGE_API_URL\" ghcr.io/g-core/fastedge-mcp-server:latest"
+        "docker run --rm -i --pull=always -v ${workspaceFolder}:/workspace -e WORKSPACE_ROOT=/workspace -e \"GCORE_API_KEY=$GCORE_API_KEY\" ghcr.io/g-core/fastedge-mcp-server:latest"
       ],
       "env": {
         "GCORE_API_KEY": "your_api_key_here"
@@ -48,7 +48,7 @@ Create a file called `.vscode/mcp.json` in your workspace with the following con
 You can test the Docker image manually:
 
 ```bash
-docker run --rm -i \
+docker run --rm -i --pull=always \
   -v "$(pwd):/workspace" \
   -e "WORKSPACE_ROOT=/workspace" \
   -e "GCORE_API_KEY=your_api_key" \

@@ -27,7 +27,7 @@ export function registerDeploymentPrompts(server: McpServer) {
                 1. Prompt the user for the outputFile location if it was not provided already in "Magic Comments" or chat.
                 2. Use build-wasm tool to create a wasm binary.
                 3. Upload the wasm binary to the FastEdge network using the upload-binary tool. Keep track of the new binary id.
-                4. Use the update-or-create-app tool to deploy this application to FastEdge.
+                4. Use describe_api with group "fastedge-apps" to understand the app endpoints, then use gcore_api to create or update the app (POST /fastedge/v1/apps to create, PUT /fastedge/v1/apps/{id} to update). Include the binary id from step 3.
                 5. Check if the user wants to save the application data in "Magic Comments"?
                 6. If so, use the deployment-comment tool to create them and insert them into the top of the active file (i.e. the entryFile from building).
                 7. Validate that the "Magic Comments" were inserted correctly, if they were requested.
@@ -90,14 +90,14 @@ export function registerDeploymentPrompts(server: McpServer) {
                 - .env.secrets: Secrets (key=secret_name where secret_name is the FastEdge secret name)
                 - .env.rsp_headers: Response headers (key=value)
 
-                For each Secret found in a dotenv file, please use the get-secret-id tool to retrieve the secret's ID using the the secret_name ( value of the pair ).
-                ( The update-env-vars-app tool requires id's for secrets, not the values. )
+                For each Secret found in a dotenv file, use the gcore_api tool with GET /fastedge/v1/secrets?secret_name={name} to retrieve the secret's ID.
+                ( The app update endpoint requires id's for secrets, not the values. )
 
                 PROCESS:
                 1. Verify which entryFile and folder to be searching for dotenv variables from, i.e. where is my application's root directory.
                 2. Collect all the "Environment Variables", "Secrets" and "Response Headers" for my application as per the FastEdge context "DotEnv Variables" information.
                 3. Check that the user is happy with the values collected. (For secrets show the key, secret_name and collected id)
-                4. Use the update-env-vars-app tool to set them on my FastEdge application.
+                4. Use the gcore_api tool with PUT /fastedge/v1/apps/{id} to set the environment variables on the FastEdge application.
 
                 If no dotenv files are found, please inform me that this is likely due to .gitignore rules excluding them from search results.
                 The user may need to provide the dotenv files as context or temporarily adjust their .gitignore to allow the MCP to read these files.

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { Language } from "../tools/scaffolding/types.js";
+import { Language } from "../tools/local/scaffolding/types.js";
 
 export const INVALID_PATH = "Invalid path: Must be relative to workspace";
 

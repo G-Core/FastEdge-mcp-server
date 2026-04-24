@@ -8,6 +8,9 @@
     "build": "npm run build:server",
     "build:server": "tsc -p ./tsconfig.build.json",
     "build:watch": "tsc -p ./tsconfig.build.json --watch",
+    "generate:schemas": "tsx scripts/generate-schemas.ts",
+    "test": "npm run test:api && npm run test:reference-index",
+    "test:api": "tsx --test scripts/tests/test-api.ts",
     "test:reference-index": "bash scripts/tests/test-reference-index.sh",
     "server:dev": "tsx src/server.ts",
     "server:inspect": "export DANGEROUSLY_OMIT_AUTH=true && npx @modelcontextprotocol/inspector npm run server:dev"
@@ -23,6 +26,7 @@
     "zod": "^4.3.5"
   },
   "devDependencies": {
+    "@apidevtools/swagger-parser": "^12.1.0",
     "@modelcontextprotocol/inspector": "^0.18.0",
     "@types/node": "^24.10.9",
     "@types/qs": "^6.14.0",

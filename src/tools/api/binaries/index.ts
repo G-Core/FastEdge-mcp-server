@@ -2,17 +2,17 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { uploadBinary } from "./api.js";
-import { ApiConfig } from "../types.js";
 
 /**
- * Register fastedge-binary-related tools to the MCP server
+ * Register the upload-binary tool to the MCP server.
  * @param server MCP Server instance
- * @param options Configuration options for tools
+ * @param apiKey Gcore API key
+ * @param workspaceRoot Workspace root path
  */
-export function registerFastEdgeBinaryTools(
+export function registerUploadBinaryTool(
   server: McpServer,
-  apiConfig: ApiConfig,
-  workspaceRoot: string
+  apiKey: string,
+  workspaceRoot: string,
 ) {
   server.registerTool(
     "upload-binary",
@@ -33,11 +33,7 @@ export function registerFastEdgeBinaryTools(
     },
     async (params) => {
       try {
-        const binary = await uploadBinary(
-          apiConfig,
-          workspaceRoot,
-          params.wasmFile
-        );
+        const binary = await uploadBinary(apiKey, workspaceRoot, params.wasmFile);
 
         if (!binary.id) {
           throw new Error("Failed to upload binary: No ID returned");
@@ -56,13 +52,13 @@ export function registerFastEdgeBinaryTools(
           content: [
             {
               type: "text",
-              text: `Failed to build the WASM binary: ${
+              text: `Failed to upload the WASM binary: ${
                 error?.message || String(error)
               }`,
             },
           ],
         };
       }
-    }
+    },
   );
 }

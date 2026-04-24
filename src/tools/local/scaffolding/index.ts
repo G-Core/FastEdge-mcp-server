@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import { ToolOptions } from "../index.js";
+import { ToolOptions } from "../../index.js";
 import {
   registerCreateBoilerPlateCode,
   registerListAvailableTemplates,

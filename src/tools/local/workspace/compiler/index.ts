@@ -2,7 +2,7 @@ import path from "node:path";
 
 import { compileJavascriptBinary } from "./jsBuild.js";
 import { compileRustAndFindBinary } from "./rustBuild.js";
-import { INVALID_PATH, normalizePath } from "../../../utils/index.js";
+import { INVALID_PATH, normalizePath } from "../../../../utils/index.js";
 
 function getActiveFileLanguage(entryFilePath: string): "rust" | "javascript" {
   const ext = path.extname(entryFilePath).toLowerCase();

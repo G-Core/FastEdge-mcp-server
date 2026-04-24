@@ -10,28 +10,28 @@ const server = new McpServer({
   version: "1.0.0",
 });
 
-// Workspace root path - for Docker, this can be mounted volume
 const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT || process.cwd();
-const FASTEDGE_API_KEY =
+const GCORE_API_KEY =
   process.env.GCORE_API_KEY || process.env.FASTEDGE_API_KEY || "";
-const FASTEDGE_API_URL =
-  process.env.FASTEDGE_API_URL || "https://api.gcore.com";
 
-// Register tools for build and deployment
 registerAllTools(server, {
   workspaceRoot: WORKSPACE_ROOT,
-  fastedgeApiKey: FASTEDGE_API_KEY,
-  fastedgeApiUrl: FASTEDGE_API_URL,
+  gcoreApiKey: GCORE_API_KEY,
 });
 
-// Register prompts for interactive workflows
 registerAllPrompts(server);
-
-// Register resources for documentation and guidance
 registerAllResources(server);
 
 async function main() {
+  if (!GCORE_API_KEY) {
+    console.error(
+      "GCORE_API_KEY is required. Set it to your Gcore API key (or use FASTEDGE_API_KEY).",
+    );
+    process.exit(1);
+  }
+
   console.warn(`Workspace initialized at: ${WORKSPACE_ROOT}`);
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

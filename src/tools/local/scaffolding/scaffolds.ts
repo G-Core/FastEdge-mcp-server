@@ -4,9 +4,9 @@ import { promisify } from "node:util";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import { ToolOptions } from "../index.js";
+import { ToolOptions } from "../../index.js";
 import { availableFastEdgeTemplates } from "./index.js";
-import { normalizePath, INVALID_PATH } from "../../utils/index.js";
+import { normalizePath, INVALID_PATH } from "../../../utils/index.js";
 
 import type { Language, ScaffoldTemplateType } from "./types.js";
 
