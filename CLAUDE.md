@@ -41,7 +41,7 @@ Use the decision tree in `CONTEXT_INDEX.md` to determine what to read. **Only re
 
 **Task: "Regenerate API schemas"**
 - Read: `scripts/generate-schemas.ts` + `src/config/products.ts`
-- Run: `SPEC_BASE_URL=https://api.gcore.com pnpm run generate:schemas`
+- Run: `pnpm run generate:schemas:prod` (or `generate:schemas:preprod` for preprod specs)
 
 **Task: "Fix WASM build issue"**
 - Read source: `src/tools/local/workspace/build.ts` + `compiler/`
@@ -66,7 +66,7 @@ Use the decision tree in `CONTEXT_INDEX.md` to determine what to read. **Only re
 | **Adding a new API tool** | PROJECT_OVERVIEW + existing handler in `src/tools/api/` |
 | **Modifying API tools / fixing calls** | `src/tools/api/` + `src/api-client.ts` + grep CHANGELOG |
 | **Regenerating schemas** | `scripts/generate-schemas.ts` + `src/config/products.ts` |
-| **Adding a product (e.g. re-add cloud)** | `src/config/products.ts` + run `generate:schemas` |
+| **Adding a product (e.g. re-add cloud)** | `src/config/products.ts` + run `generate:schemas:prod` |
 | **Timeout / batch budget** | `src/api-client.ts` (`resolveTimeoutMs`) + `src/tools/api/batch-execute.ts` |
 | **Fixing WASM build** | `src/tools/local/workspace/` + grep CHANGELOG for "build" |
 | **Scaffolding system** | `context/architecture/SCAFFOLDING-ARCHITECTURE.md` |
@@ -79,7 +79,7 @@ Use the decision tree in `CONTEXT_INDEX.md` to determine what to read. **Only re
 ## Anti-Patterns (What NOT to Do)
 
 **Don't:** Read all context docs upfront
-**Don't:** Hand-edit `src/generated/` — run `pnpm run generate:schemas` instead
+**Don't:** Hand-edit `src/generated/` — run `pnpm run generate:schemas:prod` instead
 **Don't:** Read `context/CHANGELOG.md` linearly — grep it
 **Don't:** Add dependencies without understanding container image impact
 **Don't:** Re-introduce `GCORE_API_MCP_URL` / a proxy layer — API calls go direct now
@@ -165,7 +165,9 @@ FastEdge-mcp-server/
 | `pnpm run build` | Compile TypeScript |
 | `pnpm run server:dev` | Run server via tsx (dev mode) |
 | `pnpm run server:inspect` | Run with MCP Inspector |
-| `pnpm run generate:schemas` | Regenerate API schemas (needs `SPEC_BASE_URL`) |
+| `pnpm run generate:schemas:prod` | Regenerate API schemas from prod (`api.gcore.com`) |
+| `pnpm run generate:schemas:preprod` | Regenerate API schemas from preprod (`api.preprod.world`) |
+| `pnpm run build:preprod` | Build with preprod schemas baked in |
 | `pnpm run test` | Run full test suite |
 | `pnpm run test:api` | Run API handler + timeout tests only |
 

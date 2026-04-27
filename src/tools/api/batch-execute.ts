@@ -7,6 +7,7 @@ import {
   type ApiCallOptions,
   type ApiCallResult,
 } from "../../api-client.js";
+import { checkAllowed } from "../../policy/enforce.js";
 
 export const BATCH_TOTAL_CAP_MS = 180_000;
 export const BATCH_MAX_CALLS_DEFAULT = 5;
@@ -141,6 +142,34 @@ export async function batchExecuteHandler(
         error: `Batch total budget (${totalBudget}ms) exceeds maximum ${BATCH_TOTAL_CAP_MS}ms. Reduce step count or split into smaller batches.`,
         step_timeouts_ms: stepTimeouts,
       }),
+    );
+  }
+
+  const policyDenials: Array<{ step: number; method: string; path: string; reason: string }> = [];
+  for (let i = 0; i < calls.length; i++) {
+    const call = calls[i];
+    const denial = checkAllowed(call.method, call.path);
+    if (denial) {
+      policyDenials.push({
+        step: i + 1,
+        method: call.method,
+        path: call.path,
+        reason: denial.reason,
+      });
+    }
+  }
+  if (policyDenials.length > 0) {
+    return textResult(
+      JSON.stringify(
+        {
+          error: "policy_denied",
+          message:
+            "Batch is atomic: one or more steps are not permitted by this MCP server's access policy. No steps were executed.",
+          denied_steps: policyDenials,
+        },
+        null,
+        2,
+      ),
     );
   }
 

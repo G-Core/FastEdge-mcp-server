@@ -14,6 +14,28 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-04-27] - Per-product access policy for the API tools
+
+Added a configurable access-control layer over the OpenAPI-derived API tools (`gcore_api`, `batch_execute`, `describe_api`, `workflows_list`). Previously every endpoint across all five products was exposed for full CRUD; now each product declares an access tier in `src/config/products.ts`:
+
+- **Tiers**: `read-only` (GET/HEAD/OPTIONS), `read-write` (+ POST/PUT/PATCH), `read-write-destroy` (+ DELETE).
+- **Current policy**: `fastedge: read-write-destroy`; `cdn: read-only` with `writableTags: ["cdn-rules", "cdn-rule-templates"]` plus surgical `allowedPaths` PATCH/PUT on `/cdn/cdn/resources/{resource_id}`; `dns: read-only` with surgical `allowedPaths` POST/PUT on `/dns/v2/zones/{zoneName}/{rrsetName}/{rrsetType}` (per-record create/update only — no zone create, no DNSSEC, no bulk import); `waap: read-only`; `storage: read-only`. Default fallback is `read-only` (closed by default).
+- **Two enforcement points, one source of truth**: `scripts/generate-schemas.ts` strips disallowed ops at parse time AND emits `src/generated/policy.ts` (184 allowed ops). `src/policy/enforce.ts:checkAllowed` validates every runtime call in `gcore-api.ts` and `batch-execute.ts` against that allowlist. `batch_execute` is **atomic** — if any step is denied, zero steps execute.
+- **Workflows are validated at module load**: `src/workflows/registry.ts` calls `validateWorkflows` on import; a workflow whose steps violate the policy crashes the server at startup rather than failing silently per-call.
+- **Path-template matcher** (`matchTemplate`): segment-by-segment, `{var}` matches one non-empty segment, querystrings stripped, trailing slashes ignored, segment counts must match (no implicit deeper matches).
+
+Deferred extensions documented in the `ProductConfig` doc-block: `destructiveTags`, `forbiddenPaths`, `allowedMethods`. Add when a real use case appears.
+
+Files: `src/config/products.ts`, `src/policy/{evaluate,enforce}.ts`, `src/workflows/validate.ts`, `src/generated/policy.ts` (auto-generated), `scripts/generate-schemas.ts`, `src/tools/api/{gcore-api,batch-execute}.ts`, `src/workflows/registry.ts`. 36 new unit tests in `scripts/tests/test-api.ts`.
+
+---
+
+## [2026-04-24] - Schema-generation scripts split into `:prod` / `:preprod`
+
+Renamed `generate:schemas` → `generate:schemas:prod` (defaults to `SPEC_BASE_URL=https://api.gcore.com`, caller env still wins) and added `generate:schemas:preprod` (`api.preprod.world`). New `build:preprod` pipes the preprod generator into `build:server`; default `build` now invokes `generate:schemas:prod`, so `pnpm build` works without env setup. Motivation: the old script failed if `SPEC_BASE_URL` was unset, which tripped up fresh clones and the 99% prod workflow. Updated `DEVELOPMENT.md` Schemas + preprod sections and `CLAUDE.md` decision tree / anti-patterns / common-commands table.
+
+---
+
 ## [2026-04-24] - Absorbed gcore-api-mcp-server: direct Gcore API integration
 
 ### Overview

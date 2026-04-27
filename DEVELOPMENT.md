@@ -64,17 +64,18 @@ pnpm run build
 API schemas are committed to `src/generated/` and regenerated against prod on each plugin release. To regenerate manually:
 
 ```sh
-SPEC_BASE_URL=https://api.gcore.com pnpm run generate:schemas
+pnpm run generate:schemas:prod
 ```
+
+`generate:schemas:prod` defaults to `SPEC_BASE_URL=https://api.gcore.com`; you can still override it (e.g. `SPEC_BASE_URL=https://… pnpm run generate:schemas:prod`) if you need a different source.
 
 ### Rebuild with preprod schemas (in-house only — edge case)
 
 Only needed if you're actively testing an endpoint whose preprod/prod schema has diverged. For the 99% case, use `GCORE_API_BASE=https://api.preprod.world` above and keep the published image.
 
 ```sh
-SPEC_BASE_URL=https://api.preprod.world pnpm run generate:schemas
-pnpm run build
-./build-local.sh        # builds fastedge-mcp-server:local
+pnpm run build:preprod      # = generate:schemas:preprod + build:server
+./build-local.sh            # builds fastedge-mcp-server:local
 # point your .vscode/mcp.json image ref at fastedge-mcp-server:local
 ```
 

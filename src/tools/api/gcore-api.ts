@@ -6,6 +6,7 @@ import {
   type ApiCallOptions,
   type ApiCallResult,
 } from "../../api-client.js";
+import { checkAllowed } from "../../policy/enforce.js";
 
 export interface GcoreApiInput {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -23,6 +24,27 @@ export async function gcoreApiHandler(
   { method, path, query, body }: GcoreApiInput,
   apiCaller: (opts: ApiCallOptions) => Promise<ApiCallResult> = callGcoreApi,
 ): Promise<ToolResponse> {
+  const denial = checkAllowed(method, path);
+  if (denial) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              error: "policy_denied",
+              method,
+              path,
+              reason: denial.reason,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+    };
+  }
+
   const result = await apiCaller({ method, path, query, body });
   return {
     content: [{ type: "text", text: JSON.stringify(result, null, 2) }],

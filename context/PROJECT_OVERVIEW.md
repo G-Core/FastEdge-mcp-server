@@ -84,10 +84,14 @@ The **FastEdge MCP Server** is a Model Context Protocol (MCP) server that provid
 
 **API Tools** (direct Gcore API calls via `src/api-client.ts`):
 - `upload-binary` - Upload WASM binary to FastEdge API → returns binary ID
-- `gcore_api` - Execute any single Gcore API call (GET, POST, PUT, PATCH, DELETE)
-- `describe_api` - Get endpoint docs and type definitions for a schema group (FastEdge, CDN, DNS, WAAP, Storage — 55 groups)
-- `workflows_list` - Discover multi-step API workflows with `batch_execute`-compatible templates (create-app, update-app-binary, delete-app-and-binary)
-- `batch_execute` - Execute sequential API calls with `$name.path` reference resolution. Max 5 calls (configurable via `BATCH_MAX_CALLS`); total runtime capped at 3 min (sum of per-product timeouts)
+- `gcore_api` - Execute any single Gcore API call. Subject to the per-product access policy in `src/config/products.ts`; denied calls return a `policy_denied` error without contacting the API.
+- `describe_api` - Get endpoint docs and type definitions for a schema group (FastEdge, CDN, DNS, WAAP, Storage). Schemas reflect the policy: write/destroy ops on read-only products are stripped at generation time.
+- `workflows_list` - Discover multi-step API workflows with `batch_execute`-compatible templates (create-app, update-app-binary, delete-app-and-binary). Workflows are validated against the policy at module load — a forbidden step crashes the server at startup rather than failing per-call.
+- `batch_execute` - Execute sequential API calls with `$name.path` reference resolution. Atomic w.r.t. policy: if **any** step is denied, **no** steps execute. Max 5 calls (configurable via `BATCH_MAX_CALLS`); total runtime capped at 3 min.
+
+**Access policy** (`src/policy/`, `src/config/products.ts`):
+- Tiers: `read-only` (GET/HEAD/OPTIONS), `read-write` (+ POST/PUT/PATCH), `read-write-destroy` (+ DELETE). Default fallback is `read-only` (closed by default for new endpoints).
+- Per-product overrides via `writableTags` (whole OpenAPI tag → read-write) and `allowedPaths` (surgical method+path exception). Single source of truth: `scripts/generate-schemas.ts` emits `src/generated/policy.ts` which both the schemas and the runtime consult.
 
 **Documentation Tools**:
 - `deployment-comments` - Generate Magic Comments
