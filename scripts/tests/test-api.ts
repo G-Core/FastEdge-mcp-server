@@ -199,7 +199,7 @@ test("batchExecuteHandler: executes all steps and collects results via apiCaller
 test("batchExecuteHandler: atomic policy denial — one bad step prevents any execution", async () => {
   const calls: BatchCall[] = [
     { method: "GET",    path: "/fastedge/v1/apps" },                  // allowed
-    { method: "DELETE", path: "/cdn/cdn/resources/123" },              // DENIED (cdn read-only)
+    { method: "DELETE", path: "/cdn/resources/123" },              // DENIED (cdn read-only)
     { method: "GET",    path: "/dns/v2/zones/example.com" },           // allowed (read)
   ];
 
@@ -223,7 +223,7 @@ test("batchExecuteHandler: atomic policy denial — one bad step prevents any ex
 
 test("batchExecuteHandler: reports every denied step, not just the first", async () => {
   const calls: BatchCall[] = [
-    { method: "DELETE", path: "/cdn/cdn/resources/1" },
+    { method: "DELETE", path: "/cdn/resources/1" },
     { method: "DELETE", path: "/dns/v2/zones/example.com" },
   ];
   const resp = await batchExecuteHandler({ calls }, async () => ({ status: 200, data: null }));
@@ -277,13 +277,13 @@ test("gcoreApiHandler: denies a forbidden call without invoking apiCaller", asyn
     return { status: 200, data: null };
   };
   const resp = await gcoreApiHandler(
-    { method: "DELETE", path: "/cdn/cdn/resources/123" },
+    { method: "DELETE", path: "/cdn/resources/123" },
     mockCaller,
   );
   const parsed = parseResponse(resp) as { error: string; method: string; path: string };
   assert.equal(parsed.error, "policy_denied");
   assert.equal(parsed.method, "DELETE");
-  assert.equal(parsed.path, "/cdn/cdn/resources/123");
+  assert.equal(parsed.path, "/cdn/resources/123");
   assert.equal(called, false, "apiCaller must not be invoked when policy denies");
 });
 
@@ -294,10 +294,10 @@ test("gcoreApiHandler: allows a surgical write granted via allowedPaths", async 
     return { status: 200, data: { id: opts.path } };
   };
   const resp = await gcoreApiHandler(
-    { method: "PATCH", path: "/cdn/cdn/resources/abc-123" },
+    { method: "PATCH", path: "/cdn/resources/abc-123" },
     mockCaller,
   );
-  assert.equal(called, true, "PATCH on /cdn/cdn/resources/{resource_id} must reach apiCaller");
+  assert.equal(called, true, "PATCH on /cdn/resources/{resource_id} must reach apiCaller");
   const parsed = parseResponse(resp) as { status: number };
   assert.equal(parsed.status, 200);
 });
@@ -391,8 +391,8 @@ const cdnLike: ProductConfig = {
   policy: "read-only",
   writableTags: ["cdn-rules"],
   allowedPaths: [
-    { method: "PATCH", path: "/cdn/cdn/resources/{resource_id}" },
-    { method: "DELETE", path: "/cdn/cdn/origin_groups/{origin_group_id}" },
+    { method: "PATCH", path: "/cdn/resources/{resource_id}" },
+    { method: "DELETE", path: "/cdn/origin_groups/{origin_group_id}" },
   ],
 };
 const noPolicy: ProductConfig = { specPath: SPEC_PATH };
@@ -438,25 +438,25 @@ test("isOperationAllowed: read-write-destroy allows DELETE", () => {
 
 test("isOperationAllowed: writableTags promotes a tag from read-only to read-write", () => {
   assert.equal(
-    isOperationAllowed("POST", "/cdn/cdn/resources/{id}/rules", ["cdn-rules"], cdnLike),
+    isOperationAllowed("POST", "/cdn/resources/{id}/rules", ["cdn-rules"], cdnLike),
     true,
   );
   assert.equal(
-    isOperationAllowed("PATCH", "/cdn/cdn/resources/{id}/rules/{r}", ["cdn-rules"], cdnLike),
+    isOperationAllowed("PATCH", "/cdn/resources/{id}/rules/{r}", ["cdn-rules"], cdnLike),
     true,
   );
 });
 
 test("isOperationAllowed: writableTags does NOT enable DELETE", () => {
   assert.equal(
-    isOperationAllowed("DELETE", "/cdn/cdn/resources/{id}/rules/{r}", ["cdn-rules"], cdnLike),
+    isOperationAllowed("DELETE", "/cdn/resources/{id}/rules/{r}", ["cdn-rules"], cdnLike),
     false,
   );
 });
 
 test("isOperationAllowed: writableTags does not affect non-listed tags", () => {
   assert.equal(
-    isOperationAllowed("POST", "/cdn/cdn/origins", ["cdn-origins"], cdnLike),
+    isOperationAllowed("POST", "/cdn/origins", ["cdn-origins"], cdnLike),
     false,
   );
 });
@@ -465,7 +465,7 @@ test("isOperationAllowed: allowedPaths grants surgical write through read-only",
   assert.equal(
     isOperationAllowed(
       "PATCH",
-      "/cdn/cdn/resources/{resource_id}",
+      "/cdn/resources/{resource_id}",
       ["cdn-cdn-resources"],
       cdnLike,
     ),
@@ -477,7 +477,7 @@ test("isOperationAllowed: allowedPaths can grant DELETE on a single endpoint", (
   assert.equal(
     isOperationAllowed(
       "DELETE",
-      "/cdn/cdn/origin_groups/{origin_group_id}",
+      "/cdn/origin_groups/{origin_group_id}",
       ["cdn-origins"],
       cdnLike,
     ),
@@ -487,14 +487,14 @@ test("isOperationAllowed: allowedPaths can grant DELETE on a single endpoint", (
 
 test("isOperationAllowed: allowedPaths is exact-match — wrong method denied", () => {
   assert.equal(
-    isOperationAllowed("PUT", "/cdn/cdn/resources/{resource_id}", [], cdnLike),
+    isOperationAllowed("PUT", "/cdn/resources/{resource_id}", [], cdnLike),
     false,
   );
 });
 
 test("isOperationAllowed: allowedPaths is exact-match — wrong path denied", () => {
   assert.equal(
-    isOperationAllowed("PATCH", "/cdn/cdn/resources/something-else", [], cdnLike),
+    isOperationAllowed("PATCH", "/cdn/resources/something-else", [], cdnLike),
     false,
   );
 });
@@ -550,7 +550,7 @@ const sampleAllowlist: ReadonlyArray<AllowedOp> = [
   { method: "GET",    path: "/fastedge/v1/apps" },
   { method: "POST",   path: "/fastedge/v1/apps" },
   { method: "DELETE", path: "/fastedge/v1/apps/{app_id}" },
-  { method: "PATCH",  path: "/cdn/cdn/resources/{resource_id}" },
+  { method: "PATCH",  path: "/cdn/resources/{resource_id}" },
 ];
 
 test("checkAllowed: returns null for an allowed op (literal)", () => {
@@ -560,19 +560,19 @@ test("checkAllowed: returns null for an allowed op (literal)", () => {
 test("checkAllowed: returns null for an allowed op (templated path)", () => {
   assert.equal(checkAllowed("DELETE", "/fastedge/v1/apps/42", sampleAllowlist), null);
   assert.equal(
-    checkAllowed("PATCH", "/cdn/cdn/resources/abc-123", sampleAllowlist),
+    checkAllowed("PATCH", "/cdn/resources/abc-123", sampleAllowlist),
     null,
   );
 });
 
 test("checkAllowed: denies when method matches but no path matches (closed by default)", () => {
-  const denial = checkAllowed("PATCH", "/cdn/cdn/origins/1", sampleAllowlist);
+  const denial = checkAllowed("PATCH", "/cdn/origins/1", sampleAllowlist);
   assert.ok(denial, "expected denial");
   assert.match(denial!.reason, /not permitted/);
 });
 
 test("checkAllowed: denies when path matches but method does not", () => {
-  const denial = checkAllowed("DELETE", "/cdn/cdn/resources/1", sampleAllowlist);
+  const denial = checkAllowed("DELETE", "/cdn/resources/1", sampleAllowlist);
   assert.ok(denial, "expected denial");
 });
 
@@ -611,7 +611,7 @@ test("validateWorkflows: synthetic forbidden workflow is rejected", () => {
     domain: "cdn",
     params: {},
     steps: [
-      { method: "DELETE", path: "/cdn/cdn/resources/{{params.id}}", description: "" },
+      { method: "DELETE", path: "/cdn/resources/{{params.id}}", description: "" },
     ],
   };
   const issues = validateWorkflows({ [forbidden.name]: forbidden });
@@ -628,9 +628,9 @@ test("validateWorkflows: pinpoints the specific bad step in a multi-step workflo
     domain: "cdn",
     params: {},
     steps: [
-      { method: "GET",    path: "/cdn/cdn/resources",                  description: "" },
-      { method: "DELETE", path: "/cdn/cdn/resources/{{params.id}}",   description: "" },
-      { method: "GET",    path: "/cdn/cdn/resources/{{params.id}}",   description: "" },
+      { method: "GET",    path: "/cdn/resources",                  description: "" },
+      { method: "DELETE", path: "/cdn/resources/{{params.id}}",   description: "" },
+      { method: "GET",    path: "/cdn/resources/{{params.id}}",   description: "" },
     ],
   };
   const issues = validateWorkflows({ [mixed.name]: mixed });

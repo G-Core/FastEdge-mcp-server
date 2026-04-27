@@ -5,8 +5,8 @@ export interface PolicyDenial {
 }
 
 /**
- * Match a concrete request path (e.g. "/cdn/cdn/resources/123/options?x=1")
- * against an OpenAPI path template (e.g. "/cdn/cdn/resources/{resource_id}/options").
+ * Match a concrete request path (e.g. "/cdn/resources/123/options?x=1")
+ * against an OpenAPI path template (e.g. "/cdn/resources/{resource_id}/options").
  *
  * Rules:
  *   - Querystring is stripped before comparison.

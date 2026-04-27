@@ -93,8 +93,8 @@ export const products: Record<string, ProductConfig> = {
     policy: "read-only",
     writableTags: ["cdn-rules", "cdn-rule-templates"],
     allowedPaths: [
-      { method: "PATCH", path: "/cdn/cdn/resources/{resource_id}" },
-      { method: "PUT",   path: "/cdn/cdn/resources/{resource_id}" },
+      { method: "PATCH", path: "/cdn/resources/{resource_id}" },
+      { method: "PUT",   path: "/cdn/resources/{resource_id}" },
     ],
   },
   dns: {

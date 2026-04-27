@@ -525,7 +525,9 @@ async function generateForProduct(
     )) {
       if (typeof op !== "object" || !op || !op.tags) continue;
 
-      const fullPath = `/${productKey}${specPath}`;
+      const fullPath = specPath.startsWith(`/${productKey}/`)
+        ? specPath
+        : `/${productKey}${specPath}`;
       const upperMethod = method.toUpperCase();
       const summary =
         op.summary || op.operationId || `${upperMethod} ${specPath}`;

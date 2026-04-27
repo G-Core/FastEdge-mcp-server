@@ -14,6 +14,14 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-04-27] - Add `wasm32-wasip2` Rust target to base image
+
+`Dockerfile-base` now installs both `wasm32-wasip1` and `wasm32-wasip2` via `rustup target add`. Motivation: newer FastEdge-sdk-rust apps using `#[wstd::http_server]` (wasi async HTTP) require the `wasip2` target, which they request through a per-project `.cargo/config.toml` (`[build] target = "wasm32-wasip2"`). The build tool already honors that file via `rustConfigWasiTarget()` in `src/tools/local/workspace/compiler/rustBuild.ts` — only the toolchain image was missing the target. `wasip1` is retained for older FastEdge apps and CDN apps. No source code changes.
+
+Files: `Dockerfile-base`.
+
+---
+
 ## [2026-04-27] - Per-product access policy for the API tools
 
 Added a configurable access-control layer over the OpenAPI-derived API tools (`gcore_api`, `batch_execute`, `describe_api`, `workflows_list`). Previously every endpoint across all five products was exposed for full CRUD; now each product declares an access tier in `src/config/products.ts`:
