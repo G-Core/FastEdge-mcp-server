@@ -563,7 +563,20 @@ async function generateForProduct(
 
   const schemas = new Map<string, string>();
   for (const [tag, ops] of tagGroups) {
-    const groupKey = `${productKey}-${tag.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "")}`;
+    const normalizedTag = tag
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/-+$/, "");
+    // Some OpenAPI specs already prefix tags with the product name (e.g. CDN
+    // tag "CDN resources"). Strip a leading product prefix so we don't emit
+    // keys like "cdn-cdn-resources" or "storage-storage".
+    const tagSuffix =
+      normalizedTag === productKey
+        ? ""
+        : normalizedTag.startsWith(`${productKey}-`)
+          ? normalizedTag.slice(productKey.length + 1)
+          : normalizedTag;
+    const groupKey = tagSuffix ? `${productKey}-${tagSuffix}` : productKey;
     const text = generateSchemaText(productKey, tag, ops, refNames, config);
     schemas.set(groupKey, text);
   }
