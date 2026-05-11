@@ -36,6 +36,37 @@ export interface ApiCallResult {
   data: unknown;
 }
 
+/**
+ * Serialize a request body for the outbound HTTP call.
+ *
+ * For `application/json`, JSON-encode objects/arrays normally. If the caller
+ * passes a string that parses as JSON, parse-then-re-serialize to avoid
+ * double-stringification — callers that hand us pre-serialized JSON (e.g.
+ * confused MCP clients emitting body as a JSON-encoded string instead of an
+ * object) would otherwise produce an escaped string literal on the wire, and
+ * the Gcore gateway's OpenAPI validator rejects that with "value must be an
+ * object". If the string isn't valid JSON, pass it through unchanged.
+ *
+ * For non-JSON content types, coerce to string.
+ */
+export function serializeBody(
+  body: unknown,
+  contentType: string,
+): string | undefined {
+  if (body === undefined || body === null) return undefined;
+  if (contentType === "application/json") {
+    if (typeof body === "string") {
+      try {
+        return JSON.stringify(JSON.parse(body));
+      } catch {
+        return body;
+      }
+    }
+    return JSON.stringify(body);
+  }
+  return String(body);
+}
+
 export async function callGcoreApi(
   opts: ApiCallOptions,
 ): Promise<ApiCallResult> {
@@ -69,8 +100,7 @@ export async function callGcoreApi(
   if (opts.body !== undefined && opts.body !== null) {
     const ct = opts.contentType ?? "application/json";
     headers["Content-Type"] = ct;
-    body =
-      ct === "application/json" ? JSON.stringify(opts.body) : String(opts.body);
+    body = serializeBody(opts.body, ct);
   }
 
   const timeoutMs = resolveTimeoutMs(opts.path);

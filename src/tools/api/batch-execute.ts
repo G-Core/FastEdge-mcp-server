@@ -249,26 +249,51 @@ export async function batchExecuteHandler(
   return textResult(JSON.stringify(completed, null, 2));
 }
 
-const batchCallSchema = z.object({
-  method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]),
-  path: z.string(),
-  query: z.record(z.string(), z.string()).optional(),
-  body: z.any().optional(),
-  as: z
-    .string()
-    .optional()
-    .describe("Name this result for use in later calls via $name.field syntax"),
-  content_type: z
-    .string()
-    .optional()
-    .describe(
-      "Override Content-Type header (default: application/json). Use application/octet-stream for binary uploads.",
-    ),
-  description: z
-    .string()
-    .optional()
-    .describe("Human-readable step description"),
-});
+export const batchCallSchema = z
+  .object({
+    method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]),
+    path: z.string(),
+    query: z.record(z.string(), z.string()).optional(),
+    body: z
+      .any()
+      .optional()
+      .describe(
+        "Request body. For application/json calls (default), a JSON object or array — never a JSON-encoded string. For binary uploads, a raw string with content_type set to application/octet-stream. Use $name.field references for values produced by an earlier call (e.g. { binary: '$binary.id' }).",
+      ),
+    as: z
+      .string()
+      .optional()
+      .describe("Name this result for use in later calls via $name.field syntax"),
+    content_type: z
+      .string()
+      .optional()
+      .describe(
+        "Override Content-Type header (default: application/json). Use application/octet-stream for binary uploads.",
+      ),
+    description: z
+      .string()
+      .optional()
+      .describe("Human-readable step description"),
+  })
+  .superRefine((call, ctx) => {
+    // String body is valid only when an explicit non-JSON content_type override
+    // is set (e.g. application/octet-stream for binary uploads). A string body
+    // on the default JSON path produces a JSON-quoted string on the wire and
+    // the Gcore gateway rejects it with "value must be an object". The L2
+    // safety net in api-client.ts parse-and-reserializes valid JSON strings,
+    // but rejecting at the schema layer surfaces the contract violation
+    // immediately with a clearer message.
+    if (typeof call.body !== "string") return;
+    const ct = call.content_type ?? "application/json";
+    if (ct === "application/json") {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "Body for application/json calls must be a JSON object or array, not a JSON-encoded string. If you intend to send a raw string body (e.g. a binary upload), set content_type to application/octet-stream.",
+        path: ["body"],
+      });
+    }
+  });
 
 export function registerBatchExecuteTool(server: McpServer) {
   server.registerTool(

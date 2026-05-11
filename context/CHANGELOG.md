@@ -14,6 +14,87 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-05-11] - fix: gcore_api body serialization (finding #23)
+
+POST/PATCH calls through `gcore_api` consistently failed with the FastEdge gateway returning `400 — request body has an error: ... value must be an object`, even when the body was structurally well-formed JSON. Reproduced 3× during the 2026-05-08 `geo-redirect` live-test run; `batch_execute` succeeded with the identical body shape, confirming the bug was specific to `gcore_api`'s wire path.
+
+**Root cause**: `gcore_api`'s body schema was `z.any().optional().describe("Request body (JSON)")`. The describe text reads to the model as "send a JSON-formatted string," so Claude emitted body as a pre-serialized string (`'{"name":"foo"}'`). `api-client.ts:73` then ran `JSON.stringify(opts.body)`, which JSON-quotes a string, producing an escaped string literal on the wire. The gateway's OpenAPI validator parsed that as a JSON value, got a string where `schemas_app` was expected, and rejected. `batch_execute`'s `z.any()` had no misleading describe text and the model was already in "build the structured calls array" mode, so its body came out as an object naturally.
+
+**Fix — two layers**:
+
+- **L1 (schema, primary)**:
+  - `src/tools/api/gcore-api.ts` — body schema is now `z.union([z.record(z.string(), z.unknown()), z.array(z.unknown())])` with describe text that explicitly forbids JSON-encoded strings. Exported as `gcoreApiBodySchema` for unit testing.
+  - `src/tools/api/batch-execute.ts` — `batchCallSchema` exported; body stays `z.any()` (binary uploads legitimately use a string body with `content_type: application/octet-stream`), but a `superRefine` rejects string body when `content_type` is missing or `application/json`. The error message points users at the `content_type` escape hatch for binary uploads.
+- **L2 (defensive parser, safety net)**: `src/api-client.ts` factored the body-serialization logic into an exported `serializeBody(body, contentType)` helper. For `application/json`, if `body` is a string that parses as JSON, parse-then-re-serialize so the wire body is the object, not a quoted string. If the string isn't valid JSON, pass through verbatim. Non-JSON content types are coerced via `String(body)` as before.
+
+**Tests** (`scripts/tests/test-api.ts`): 14 new tests — `gcoreApiBodySchema` accept/reject matrix, `batchCallSchema` content-type-conditional matrix, `serializeBody` round-trip including the bug-shape normalization and the binary-upload pass-through. Total: 72 API tests, all passing.
+
+**Plugin-side companion**: `fastedge-plugin/.../deploy/SKILL.md` Step 4.2 still recommends `gcore_api` POST/PATCH as primary. That recommendation will be updated once this MCP fix is released — until then the plugin documents `batch_execute` as the workaround. Tracked in `fastedge-coordinator/context/PLUGIN_SKILL_FINDINGS.md` finding #23.
+
+---
+
+## [2026-04-28] - cdn: allow POST /cdn/origin_groups (create only)
+
+Added `{ method: "POST", path: "/cdn/origin_groups" }` to `cdn.allowedPaths` in `src/config/products.ts`. Surgical exception under the otherwise read-only cdn product: agents (notably the upcoming live-test setup flow in the gcore-fastedge plugin) can now provision new origin groups for CDN resources without opening PATCH or DELETE on the same tag.
+
+Rationale: live-test scenarios sometimes need a different origin (e.g. `httpbin.org`) than the one already attached to a developer's preconfigured CDN resource. Origin-group creation is non-destructive — a stray new group is harmless until attached to a resource — so the blast radius is low. Modification (PATCH) and deletion (DELETE) of existing groups remain blocked because they could overwrite or destroy shared infra.
+
+Note: origin groups still take ~15–20 minutes to propagate to edge, so a freshly-created group cannot be exercised within a single live-test run. Use this for "set up next time" provisioning, not the hot iteration loop.
+
+Re-run `pnpm run generate:schemas:prod` (or `:preprod`) to regenerate `src/generated/policy.ts` so the new entry takes effect.
+
+---
+
+## [2026-04-28] - workflows: remove `delete-app-and-binary`
+
+Removed the `delete-app-and-binary` workflow. FastEdge auto-cleans dangling binaries (binaries unattached to any application) every 24 hours, so the binary-DELETE step the workflow performed is redundant. App-only deletion remains expressible via `gcore_api` DELETE `/fastedge/v1/apps/{id}` for the rare hand-cleanup case — no workflow needed.
+
+Files: deleted `src/workflows/fastedge/delete-app-and-binary.ts`; updated `src/workflows/registry.ts` to drop the import and registry entry. No skill callers existed (verified via grep across `fastedge-plugin/`). Tracked in `fastedge-coordinator/context/PLUGIN_SKILL_FINDINGS.md` as part of the live-test validation cleanup discussion.
+
+---
+
+## [2026-04-28] - test-reference-index: fix stale path
+
+`scripts/tests/test-reference-index.sh:15` referenced `build/tools/reference/index.js`, the path before the 2026-04-24 tool reorganization (commit `30f5967`) that moved `src/tools/reference/` → `src/tools/local/reference/`. The script was missed in that rename, so all 4 test cases failed with `ERR_MODULE_NOT_FOUND` at the `import { loadReferenceDocs }` step before `loadReferenceDocs(...)` was ever called. Updated to the new path. Full test suite (`pnpm run test`) now reports 58 API tests + 4 reference-index tests, all passing.
+
+---
+
+## [2026-04-28] - build-wasm: AssemblyScript dispatch
+
+`build-wasm` now handles AssemblyScript projects in addition to Rust and JavaScript. Previously the tool always invoked `npx fastedge-build` for any non-`.rs` file, which 404'd on AS projects (which don't depend on `fastedge-build` — they use `asc` from local devDeps). Surfaced during live-test validation against `proxy-wasm-sdk-as/examples/helloWorld` and tracked as Finding #1 in `fastedge-coordinator/context/PLUGIN_SKILL_FINDINGS.md`.
+
+Detection: `.ts`/`.tsx` extension AND `asconfig.json` present in the resolved build directory → AssemblyScript. TypeScript HTTP apps (which have `package.json` with `fastedge-build` in scripts and no `asconfig.json`) correctly stay on the JS path.
+
+Build invocation: `npx asc <entryFile> --target release [--outFile <outputFile>]`, with `cwd` set to the resolved build directory. The `--outFile` flag is only passed when the caller explicitly supplied `outputFile` — otherwise the tool reads `targets.release.outFile` from `asconfig.json` and returns that path. This honors the project's existing AS configuration as the default and lets explicit overrides work as expected.
+
+Auto-derived `buildDirectory`: when the caller doesn't pass `buildDirectory`, the tool walks upward from `entryFile` looking for the nearest project marker (`asconfig.json`, `Cargo.toml`, or `package.json`) within the workspace root, falling back to the workspace root if none is found. Removes the burden of always specifying the build dir for nested project layouts (e.g. examples in a workspace).
+
+Schema change: dropped the previous `outputFile` default of `/wasm/output.wasm`. The field is now genuinely optional. Required for JS and Rust builds (both fall back to `wasm/output.wasm` inside the workspace at the dispatcher level), optional for AS (resolved from asconfig.json).
+
+Files: `src/tools/local/workspace/compiler/asBuild.ts` (new), `src/tools/local/workspace/compiler/index.ts` (detection + dispatch + auto-derive), `src/tools/local/workspace/build.ts` (schema).
+
+Related: Finding #8 in `PLUGIN_SKILL_FINDINGS.md` tracks the parallel parity work in `FastEdge-vscode/src/compiler/asBuild.ts` (which still hardcodes `assembly/index.ts` and overrides asconfig's outFile) plus a separate Rust target-detection improvement (currently both tools fall back to `wasm32-wasip1` without inspecting Cargo.toml deps).
+
+Operational validation pending: this code change requires a Docker image rebuild (`docker build -t ghcr.io/g-core/fastedge-mcp-server:dev .`) before the next live-test sweep can verify AS builds work end-to-end.
+
+---
+
+## [2026-04-28] - Add live-test workflows + fix CDN writableTags
+
+Added three workflows in `src/workflows/fastedge/` to support an upcoming `live-test` skill in the gcore-fastedge plugin:
+
+- **`enable-app-http`**: PATCH `{"debug": true}` on a FastEdge app so `/apps/{id}/logs` captures traffic. Returns `app.url` and `app.debug_until`. Used before issuing test traffic against an HTTP-type app.
+- **`attach-app-to-cdn-rule-create`**: PATCH app debug → POST a new CDN rule wiring the app at a given path. Caller provides a pre-built `options.fastedge` body (which decides hook phases). Used on first deploy.
+- **`attach-app-to-cdn-rule-update`**: PATCH app debug → PATCH an existing CDN rule. Used on iterative re-runs (idempotent live-test cycle).
+
+Two workflows for create vs update because workflow steps are linear (no conditionals). The skill orchestrates: list rules on the resource, match by path, pick which workflow to call.
+
+Prerequisite policy fix in `src/config/products.ts`: `writableTags` for the `cdn` product was renamed from `["cdn-rules", "cdn-rule-templates"]` (which matched no upstream OpenAPI tags) to `["Rules", "Rule templates"]` (the actual tag names in the upstream spec). This enables POST/PUT/PATCH on rule + rule-template endpoints. DELETE remains blocked — `writableTags` does not promote destroy per `evaluate.ts:27`. Empirically verified PATCH on existing rules returns 200 after the rename.
+
+Files: `src/workflows/fastedge/{enable-app-http,attach-app-to-cdn-rule-create,attach-app-to-cdn-rule-update}.ts`, `src/workflows/registry.ts`, `src/config/products.ts`.
+
+---
+
 ## [2026-04-27] - Add `wasm32-wasip2` Rust target to base image
 
 `Dockerfile-base` now installs both `wasm32-wasip1` and `wasm32-wasip2` via `rustup target add`. Motivation: newer FastEdge-sdk-rust apps using `#[wstd::http_server]` (wasi async HTTP) require the `wasip2` target, which they request through a per-project `.cargo/config.toml` (`[build] target = "wasm32-wasip2"`). The build tool already honors that file via `rustConfigWasiTarget()` in `src/tools/local/workspace/compiler/rustBuild.ts` — only the toolchain image was missing the target. `wasip1` is retained for older FastEdge apps and CDN apps. No source code changes.

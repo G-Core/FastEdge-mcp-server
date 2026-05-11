@@ -12,12 +12,14 @@ import { AddressInfo } from "node:net";
 import {
   DEFAULT_TIMEOUT_MS,
   resolveTimeoutMs,
+  serializeBody,
   type ApiCallOptions,
   type ApiCallResult,
 } from "../../src/api-client.js";
 import {
   BATCH_TOTAL_CAP_MS,
   BATCH_MAX_CALLS_DEFAULT,
+  batchCallSchema,
   batchExecuteHandler,
   resolveRefs,
   resolveRefsTyped,
@@ -25,7 +27,10 @@ import {
 } from "../../src/tools/api/batch-execute.js";
 import { describeApiHandler } from "../../src/tools/api/describe-api.js";
 import { workflowsListHandler } from "../../src/tools/api/workflows-list.js";
-import { gcoreApiHandler } from "../../src/tools/api/gcore-api.js";
+import {
+  gcoreApiBodySchema,
+  gcoreApiHandler,
+} from "../../src/tools/api/gcore-api.js";
 import { isOperationAllowed } from "../../src/policy/evaluate.js";
 import type { ProductConfig } from "../../src/config/products.js";
 import { matchTemplate, checkAllowed } from "../../src/policy/enforce.js";
@@ -113,7 +118,6 @@ test("workflowsListHandler: returns all workflows when no domain filter", async 
   const names = parsed.map((w) => w.name);
   assert.ok(names.includes("create-app"));
   assert.ok(names.includes("update-app-binary"));
-  assert.ok(names.includes("delete-app-and-binary"));
 });
 
 test("workflowsListHandler: filters by domain", async () => {
@@ -315,6 +319,103 @@ test("gcoreApiHandler: denies DELETE on a DNS path (read-write product)", async 
   const parsed = parseResponse(resp) as { error: string };
   assert.equal(parsed.error, "policy_denied");
   assert.equal(called, false);
+});
+
+// ── body-serialization fix (#23) ─────────────────────────────────────────────
+// Schema-layer rejection + api-client safety-net normalization keep the
+// "value must be an object" gateway rejection from happening when a caller
+// supplies body as a JSON-encoded string instead of an object.
+
+test("gcoreApiBodySchema: accepts object body", () => {
+  const result = gcoreApiBodySchema.safeParse({ name: "foo", binary: 123 });
+  assert.equal(result.success, true);
+});
+
+test("gcoreApiBodySchema: accepts array body", () => {
+  const result = gcoreApiBodySchema.safeParse([{ key: "k", value: "v" }]);
+  assert.equal(result.success, true);
+});
+
+test("gcoreApiBodySchema: accepts undefined (optional field)", () => {
+  const result = gcoreApiBodySchema.safeParse(undefined);
+  assert.equal(result.success, true);
+});
+
+test("gcoreApiBodySchema: rejects a JSON-encoded string body (the #23 bug shape)", () => {
+  const result = gcoreApiBodySchema.safeParse('{"name":"foo","binary":123}');
+  assert.equal(result.success, false);
+});
+
+test("gcoreApiBodySchema: rejects a raw string body", () => {
+  const result = gcoreApiBodySchema.safeParse("not-json");
+  assert.equal(result.success, false);
+});
+
+test("batchCallSchema: accepts object body on default (JSON) content type", () => {
+  const result = batchCallSchema.safeParse({
+    method: "POST",
+    path: "/fastedge/v1/apps",
+    body: { name: "foo", binary: 123 },
+  });
+  assert.equal(result.success, true);
+});
+
+test("batchCallSchema: rejects JSON-encoded string body when content_type is unset (defaults to JSON)", () => {
+  const result = batchCallSchema.safeParse({
+    method: "POST",
+    path: "/fastedge/v1/apps",
+    body: '{"name":"foo"}',
+  });
+  assert.equal(result.success, false);
+});
+
+test("batchCallSchema: rejects string body when content_type is explicitly application/json", () => {
+  const result = batchCallSchema.safeParse({
+    method: "POST",
+    path: "/fastedge/v1/apps",
+    body: '{"name":"foo"}',
+    content_type: "application/json",
+  });
+  assert.equal(result.success, false);
+});
+
+test("batchCallSchema: accepts string body when content_type is application/octet-stream (binary upload)", () => {
+  const result = batchCallSchema.safeParse({
+    method: "POST",
+    path: "/fastedge/v1/binaries/raw",
+    body: "<base64-encoded-wasm-bytes>",
+    content_type: "application/octet-stream",
+  });
+  assert.equal(result.success, true);
+});
+
+test("serializeBody: stringifies an object for application/json", () => {
+  const out = serializeBody({ name: "foo", n: 1 }, "application/json");
+  assert.equal(out, '{"name":"foo","n":1}');
+});
+
+test("serializeBody: normalizes a JSON-encoded string body to a JSON object on the wire", () => {
+  const out = serializeBody('{"name":"foo","n":1}', "application/json");
+  // Parsed and re-serialized — wire body is the object, not the quoted string.
+  assert.equal(out, '{"name":"foo","n":1}');
+  // Crucially, NOT the double-stringified `"{\"name\":\"foo\",\"n\":1}"` shape
+  // that triggers the gateway's "value must be an object" rejection.
+  assert.notEqual(out, JSON.stringify('{"name":"foo","n":1}'));
+});
+
+test("serializeBody: passes through unparseable string verbatim for application/json", () => {
+  const out = serializeBody("not-json-just-text", "application/json");
+  assert.equal(out, "not-json-just-text");
+});
+
+test("serializeBody: passes a string body through for application/octet-stream", () => {
+  const out = serializeBody("<binary-bytes>", "application/octet-stream");
+  assert.equal(out, "<binary-bytes>");
+});
+
+test("serializeBody: returns undefined for null/undefined body", () => {
+  assert.equal(serializeBody(undefined, "application/json"), undefined);
+  assert.equal(serializeBody(null, "application/json"), undefined);
 });
 
 // ── Integration: real HTTP against local server ──────────────────────────────
