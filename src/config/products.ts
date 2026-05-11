@@ -91,10 +91,14 @@ export const products: Record<string, ProductConfig> = {
     notes: [],
     excludeTags: ["internal"],
     policy: "read-only",
-    writableTags: ["cdn-rules", "cdn-rule-templates"],
+    writableTags: ["Rules", "Rule templates"],
     allowedPaths: [
       { method: "PATCH", path: "/cdn/resources/{resource_id}" },
-      { method: "PUT",   path: "/cdn/resources/{resource_id}" },
+      { method: "PUT", path: "/cdn/resources/{resource_id}" },
+      // Origin groups: allow CREATE only. Used by the live-test skill to provision
+      // new test origins (e.g. httpbin.org) for CDN resources. PATCH/DELETE remain
+      // blocked — agents must not modify or destroy existing origin groups.
+      { method: "POST", path: "/cdn/origin_groups" },
     ],
   },
   dns: {
@@ -104,8 +108,14 @@ export const products: Record<string, ProductConfig> = {
     excludeTags: [],
     policy: "read-only",
     allowedPaths: [
-      { method: "POST", path: "/dns/v2/zones/{zoneName}/{rrsetName}/{rrsetType}" },
-      { method: "PUT",  path: "/dns/v2/zones/{zoneName}/{rrsetName}/{rrsetType}" },
+      {
+        method: "POST",
+        path: "/dns/v2/zones/{zoneName}/{rrsetName}/{rrsetType}",
+      },
+      {
+        method: "PUT",
+        path: "/dns/v2/zones/{zoneName}/{rrsetName}/{rrsetType}",
+      },
     ],
   },
   waap: {
@@ -125,4 +135,10 @@ export const products: Record<string, ProductConfig> = {
 };
 
 /** Products to generate schemas for in the current build */
-export const enabledForGeneration: string[] = ["fastedge", "cdn", "dns", "waap", "storage"];
+export const enabledForGeneration: string[] = [
+  "fastedge",
+  "cdn",
+  "dns",
+  "waap",
+  "storage",
+];

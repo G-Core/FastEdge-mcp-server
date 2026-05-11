@@ -12,7 +12,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-BUILD_JS="${ROOT_DIR}/build/tools/reference/index.js"
+BUILD_JS="${ROOT_DIR}/build/tools/local/reference/index.js"
 
 PASS=0
 FAIL=0

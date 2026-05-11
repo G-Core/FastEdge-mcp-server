@@ -27,9 +27,10 @@ export function registerBuildWasmTools(
         outputFile: z
           .string()
           .optional()
-          .default(`/wasm/output.wasm`)
           .describe(
-            "Relative path and filename to the output WASM binary within the workspace"
+            "Relative path and filename to the output WASM binary within the workspace. " +
+              "Optional for AssemblyScript projects — when omitted, the output path is read from " +
+              "asconfig.json targets.release.outFile. Required for JavaScript and Rust projects."
           ),
         tsConfigPath: z
           .string()
