@@ -27,7 +27,12 @@ jobs:
 
     steps:
       - name: Checkout this repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.12.0"
 
       - name: Create release tag
         id: determine-tag
