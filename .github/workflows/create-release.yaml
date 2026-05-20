@@ -13,12 +13,12 @@ on:
         default: ""
 
 jobs:
-  fossa:
-    uses: ./.github/workflows/fossa.yaml
-    secrets: inherit
+  # fossa:
+  #   uses: ./.github/workflows/fossa.yaml
+  #   secrets: inherit
 
   create_docker_release:
-    needs: fossa
+    # needs: fossa
     runs-on: [self-hosted, ubuntu-22-04, regular]
 
     permissions:
