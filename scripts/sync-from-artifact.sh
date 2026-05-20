@@ -46,9 +46,17 @@ EXTRACT_DIR="$TMPDIR_WORK/$ARTIFACT_BASENAME"
 # Fall back to unauthenticated curl when gh is unavailable (local testing).
 echo "Downloading artifact v${VERSION}..."
 REPO=$(echo "$ARTIFACT_URL" | sed 's|https://github.com/\([^/]*/[^/]*\)/.*|\1|')
+if [[ ! "$REPO" =~ ^[^/]+/[^/]+$ ]]; then
+  echo "Error: could not parse owner/repo from artifact URL: ${ARTIFACT_URL}" >&2
+  exit 1
+fi
 TAR_FILENAME=$(basename "$ARTIFACT_URL")
 SHA_FILENAME=$(basename "$SHA256_URL")
-if command -v gh &>/dev/null && [[ -n "${GITHUB_TOKEN:-}" ]]; then
+if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+  if ! command -v gh &>/dev/null; then
+    echo "Error: GITHUB_TOKEN is set (internal repo) but gh CLI is not installed on this runner." >&2
+    exit 1
+  fi
   GITHUB_TOKEN="$GITHUB_TOKEN" gh release download "v${VERSION}" \
     --repo "$REPO" \
     --pattern "$TAR_FILENAME" \
