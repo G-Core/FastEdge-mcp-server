@@ -41,14 +41,34 @@ SHA256_FILE="$TMPDIR_WORK/artifact.tar.gz.sha256"
 ARTIFACT_BASENAME="fastedge-reference-docs-v${VERSION}"
 EXTRACT_DIR="$TMPDIR_WORK/$ARTIFACT_BASENAME"
 
-# Download (auth header required for internal GitHub repos)
+# Download
+# gh release download handles auth correctly for internal repos.
+# Fall back to unauthenticated curl when gh is unavailable (local testing).
 echo "Downloading artifact v${VERSION}..."
-CURL_AUTH=()
-if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-  CURL_AUTH=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+REPO=$(echo "$ARTIFACT_URL" | sed 's|https://github.com/\([^/]*/[^/]*\)/.*|\1|')
+if [[ ! "$REPO" =~ ^[^/]+/[^/]+$ ]]; then
+  echo "Error: could not parse owner/repo from artifact URL: ${ARTIFACT_URL}" >&2
+  exit 1
 fi
-curl -fsSL "${CURL_AUTH[@]}" "$ARTIFACT_URL" -o "$TARBALL"
-curl -fsSL "${CURL_AUTH[@]}" "$SHA256_URL"   -o "$SHA256_FILE"
+TAR_FILENAME=$(basename "$ARTIFACT_URL")
+SHA_FILENAME=$(basename "$SHA256_URL")
+if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+  if ! command -v gh &>/dev/null; then
+    echo "Error: GITHUB_TOKEN is set (internal repo) but gh CLI is not installed on this runner." >&2
+    exit 1
+  fi
+  GITHUB_TOKEN="$GITHUB_TOKEN" gh release download "v${VERSION}" \
+    --repo "$REPO" \
+    --pattern "$TAR_FILENAME" \
+    --pattern "$SHA_FILENAME" \
+    --dir "$TMPDIR_WORK" \
+    --clobber
+  mv "$TMPDIR_WORK/$TAR_FILENAME" "$TARBALL"
+  mv "$TMPDIR_WORK/$SHA_FILENAME" "$SHA256_FILE"
+else
+  curl -fsSL "$ARTIFACT_URL" -o "$TARBALL"
+  curl -fsSL "$SHA256_URL"   -o "$SHA256_FILE"
+fi
 
 # Verify checksum
 echo "Verifying checksum..."
