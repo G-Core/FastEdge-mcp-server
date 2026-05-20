@@ -57,10 +57,19 @@ jobs:
           echo "Syncing from fastedge-plugin ref: ${REF}, version: ${VERSION}"
 
       # repository_dispatch: download + verify tarball from GitHub Release.
+      - name: Generate token for fastedge-plugin artifact download
+        if: github.event_name == 'repository_dispatch'
+        id: plugin-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.FASTEDGE_APP_ID }}
+          private-key: ${{ secrets.FASTEDGE_APP_PRIVATE_KEY }}
+          repositories: fastedge-plugin
+
       - name: Sync from release artifact (repository_dispatch)
         if: github.event_name == 'repository_dispatch'
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.plugin-token.outputs.token }}
         run: |
           bash scripts/sync-from-artifact.sh \
             --artifact-url "${{ github.event.client_payload.artifact_url }}" \
