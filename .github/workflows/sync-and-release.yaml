@@ -31,6 +31,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: sync-and-release
@@ -127,6 +128,7 @@ jobs:
 
       - name: Commit, tag, and push
         if: steps.changes.outputs.changed == 'true'
+        id: commit
         run: |
           REF="${{ steps.inputs.outputs.ref }}"
           VERSION="${{ steps.inputs.outputs.version }}"
@@ -134,12 +136,41 @@ jobs:
           git add reference-docs/ package.json
 
           if [ -n "$VERSION" ]; then
+            BRANCH="release/v${VERSION}"
+            git checkout -b "$BRANCH"
             git commit -m "release: v${VERSION} — sync reference docs from fastedge-plugin ${REF}"
             git tag -a "v${VERSION}" -m "Release v${VERSION} (synced from fastedge-plugin ${REF})"
-            git push origin main --follow-tags
-            echo "Tagged and pushed v${VERSION}"
+            git push origin "$BRANCH" --follow-tags
+            echo "Tagged and pushed v${VERSION} on ${BRANCH}"
           else
+            BRANCH="docs/sync-$(date +%Y%m%d-%H%M%S)"
+            git checkout -b "$BRANCH"
             git commit -m "docs: sync reference docs from fastedge-plugin ${REF}"
-            git push origin main
-            echo "Pushed docs sync (no version tag — manual dispatch without version)"
+            git push origin "$BRANCH"
+            echo "Pushed docs sync on ${BRANCH}"
           fi
+          echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+
+      - name: Open release PR
+        if: steps.changes.outputs.changed == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REF="${{ steps.inputs.outputs.ref }}"
+          VERSION="${{ steps.inputs.outputs.version }}"
+          BRANCH="${{ steps.commit.outputs.branch }}"
+
+          if [ -n "$VERSION" ]; then
+            TITLE="release: v${VERSION}"
+            BODY="Automated sync — reference docs from fastedge-plugin ${REF}. Approve to land on main."
+          else
+            TITLE="docs: sync reference docs from fastedge-plugin ${REF}"
+            BODY="Manual reference doc sync from fastedge-plugin ${REF}. Approve to land on main."
+          fi
+
+          gh pr create \
+            --title "$TITLE" \
+            --body "$BODY" \
+            --base main \
+            --head "$BRANCH"
