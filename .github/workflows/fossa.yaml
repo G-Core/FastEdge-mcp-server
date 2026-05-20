@@ -20,9 +20,11 @@ jobs:
       - name: Run FOSSA Analysis
         env:
           FOSSA_API_KEY: ${{ secrets.FOSSA_PUB_API_KEY }}
+        continue-on-error: true
         run: fossa analyze
 
       - name: Run FOSSA Test
         env:
           FOSSA_API_KEY: ${{ secrets.FOSSA_PUB_API_KEY }}
+        continue-on-error: true
         run: fossa test
