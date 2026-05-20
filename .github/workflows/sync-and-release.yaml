@@ -19,12 +19,12 @@ on:
   workflow_dispatch:
     inputs:
       plugin_ref:
-        description: "fastedge-plugin ref to sync from (tag or branch)"
+        description: "fastedge-plugin ref to sync from (tag or branch) e.g. v0.1.7 or main"
         type: string
         required: false
         default: "main"
       version:
-        description: "Version to set (leave empty to skip version bump)"
+        description: "Version to set (leave empty to skip version bump) e.g. 0.1.7"
         type: string
         required: false
         default: ""
