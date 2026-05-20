@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-test
-      ref: v0.1.7
-      commit: 0f309ee346b81261e66d09d1b50f70f8928e47fa
-      updated: 2026-04-22
+      ref: v0.2.2
+      commit: e5254c8c4b4b3aab0069e783ade1cec435726566
+      updated: 2026-05-20
 -->
 
 # test-config Reference
@@ -17,7 +17,7 @@
 
 The config schema is a union of two variants selected by `appType`:
 
-- **`proxy-wasm`** (CDN mode, default): The WASM module intercepts an upstream HTTP request. Uses `request.url` (full URL). Supports a mock origin `response`.
+- **`proxy-wasm`** (CDN mode, default): The WASM module intercepts an upstream HTTP request. Uses `request.url` (full URL). Supports a mock origin `response`. The upstream response is generated at runtime — either by a real fetch against `request.url`, or by the built-in responder when `request.url === "built-in"`.
 - **`http-wasm`**: The WASM module acts as an origin HTTP server. Uses `request.path` (path only). No `response` field.
 
 ### Top-Level Fields
@@ -32,7 +32,7 @@ The config schema is a union of two variants selected by `appType`:
 | `wasm.description` | string | no | — | Human-readable label for the loaded binary |
 | `request` | object | **yes** | — | Incoming HTTP request to simulate |
 | `request.method` | string | yes (schema) / runtime default | `"GET"` | HTTP method (e.g. `"GET"`, `"POST"`) |
-| `request.url` | string | **yes** (CDN only) | — | Full URL for the simulated upstream request (e.g. `"https://example.com/api"`). CDN (`proxy-wasm`) mode only |
+| `request.url` | string | **yes** (CDN only) | — | Full URL for the simulated upstream request (e.g. `"https://example.com/api"`). CDN (`proxy-wasm`) mode only. Use `"built-in"` to invoke the local built-in responder without a real upstream fetch |
 | `request.path` | string | **yes** (HTTP-WASM only) | — | Request path (e.g. `"/api/submit"`). HTTP-WASM mode only. The WASM module acts as the origin server and receives only the path portion |
 | `request.headers` | object | yes (schema) / runtime default | `{}` | Key/value map of request headers. All keys and values must be strings |
 | `request.body` | string | yes (schema) / runtime default | `""` | Request body as a plain string |
@@ -60,6 +60,15 @@ Supply fields explicitly to avoid editor warnings, or add the `$schema` field an
 Without `httpPort`, the runner allocates a port from the 8100–8199 range for each test run. The allocated port is not stable across runs.
 
 If the pinned port is already in use, `HttpWasmRunner.load()` throws immediately with a descriptive error. There is no fallback to dynamic allocation. Pinning a port inside the 8100–8199 dynamic pool is allowed by the schema but risks collisions with other concurrent debug sessions. For shared environments, choose a port outside the pool (e.g. 8250).
+
+### Built-In Responder
+
+For CDN (`proxy-wasm`) configs, setting `request.url` to `"built-in"` causes the runner to generate a local response and skip the upstream fetch entirely. This is the fastest way to exercise a CDN WASM app without depending on network reachability.
+
+The default built-in response is a full JSON echo of the request. Override via control headers on the request:
+- `x-debugger-status` — sets the HTTP status code
+- `x-debugger-content: status-only` — omits the body
+- `x-debugger-content: body-only` — echoes only the request body with its inferred content-type
 
 ---
 

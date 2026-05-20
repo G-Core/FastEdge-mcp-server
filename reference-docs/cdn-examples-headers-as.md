@@ -3,8 +3,8 @@
   sources:
     - id: proxy-wasm-sdk-as
       ref: master
-      commit: 20b31c05b39c5537fb1ac7cc8693d9d8ec314f25
-      updated: 2026-04-15
+      commit: 60f25c7bd35564e5bafb421be7f37aa4acf1bf81
+      updated: 2026-05-20
 -->
 
 ---
@@ -16,7 +16,7 @@ capabilities: [headers, request-headers, response-headers, header-manipulation]
 
 # CDN Headers Manipulation — AssemblyScript
 
-Demonstrates adding, removing, replacing, and validating HTTP request and response headers using the proxy-wasm-sdk-as in both `onRequestHeaders` and `onResponseHeaders` lifecycle hooks.
+Demonstrates adding, removing, replacing, and validating HTTP request and response headers using the proxy-wasm-sdk-as in both `onRequestHeaders` and `onResponseHeaders` lifecycle hooks. Also demonstrates cross-phase response header writes from the request phase.
 
 ## Package
 
@@ -70,7 +70,7 @@ All header operations are accessed via `stream_context.headers.request` or `stre
 | --------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------ |
 | `get(name)`                             | `(name: string) => string`                           | Returns the value of the named header, or empty string if not present    |
 | `add(name, value)`                      | `(name: string, value: string) => void`              | Adds a header; multiple calls with the same name produce multiple values |
-| `replace(name, value)`                  | `(name: string, value: string) => void`              | Replaces the value of an existing header; no-op if header does not exist |
+| `replace(name, value)`                  | `(name: string, value: string) => void`              | Upserts the header value — creates the header if it does not exist (see Known Issues) |
 | `remove(name)`                          | `(name: string) => void`                             | Removes the header (see Known Issues)                                    |
 | `get_headers()`                         | `() => Headers` (alias: `HeaderPair[]`)              | Returns all headers as an array of `{ key: ArrayBuffer, value: ArrayBuffer }` |
 | `set_headers(headers)`                  | `(headers: Headers) => void`                         | Replaces the full header collection                                      |
@@ -109,17 +109,20 @@ Operations performed in order:
 2. Return `550` error if no headers are present
 3. Check `host` header with `stream_context.headers.request.get("host")`; return `551` error if present but empty
 4. Add `new-header-01`, `new-header-02`, `new-header-03`
-5. Remove `new-header-01` (see Known Issues)
+5. Remove `new-header-01` — result is empty-string value, not deletion (see Known Issues)
 6. Replace `new-header-02` value with `new-value-02`
 7. Add a second value for `new-header-03` (`value-03-a`)
-8. Attempt to add/read response headers — **causes panic** (see Known Issues)
-9. Validate that only expected headers are present; return `552` error on mismatch
-10. Return `FilterHeadersStatusValues.Continue`
+8. Write response headers from the request phase: `stream_context.headers.response.add("new-response-header", "value-01")` — this does not panic; headers written here appear alongside those set in `onResponseHeaders`
+9. Conditionally blank `cache-control` response header using a guard: only calls `replace("cache-control", "")` if `get("cache-control").length > 0`, because `replace()` upserts and would create the header with an empty value if called unconditionally on an absent header
+10. Attempt to read `new-response-header` via `stream_context.headers.response.get(...)` — **causes panic** (see Known Issues)
+11. Validate that only expected headers are present using symmetric diff; return `552` error on mismatch
+12. Return `FilterHeadersStatusValues.Continue`
 
 Expected post-mutation request headers (new headers only):
 
 | Header          | Value(s)                    |
 | --------------- | --------------------------- |
+| `new-header-01` | `` (empty string)           |
 | `new-header-02` | `new-value-02`              |
 | `new-header-03` | `value-03`, `value-03-a`    |
 
@@ -133,48 +136,76 @@ Operations performed in order:
 2. Return `550` error if no headers are present
 3. Check `host` header; return `551` error if present but empty
 4. Add `new-header-01`, `new-header-02`, `new-header-03`
-5. Remove `new-header-01` (see Known Issues)
+5. Remove `new-header-01` — result is empty-string value, not deletion (see Known Issues)
 6. Replace `new-header-02` value with `new-value-02`
 7. Add a second value for `new-header-03` (`value-03-a`)
-8. Validate that only expected headers are present; return `552` error on mismatch
+8. Validate that only expected headers are present using symmetric diff; return `552` error on mismatch
 9. Return `FilterHeadersStatusValues.Continue`
 
 Expected post-mutation response headers (new headers only):
 
 | Header          | Value(s)                    |
 | --------------- | --------------------------- |
+| `new-header-01` | `` (empty string)           |
 | `new-header-02` | `new-value-02`              |
 | `new-header-03` | `value-03`, `value-03-a`    |
 
 ## Header Validation Pattern
 
-Used in both phases to assert that header mutations produced the exact expected set:
+`validateHeaders` performs a symmetric diff scoped to headers with the `new-header-` prefix. It returns a `HeaderDiff` object with two sets: `missing` (expected but absent) and `extra` (present but not expected). Other headers are deliberately ignored.
 
 ```typescript
-function validateHeaders(headers: Headers, expectedHeaders: Set<string>): Set<string> {
+class HeaderDiff {
+  missing: Set<string>;
+  extra: Set<string>;
+
+  constructor() {
+    this.missing = new Set<string>();
+    this.extra = new Set<string>();
+  }
+}
+
+function validateHeaders(headers: Headers, expectedHeaders: Set<string>): HeaderDiff {
+  const result = new HeaderDiff();
   const headersArr = collectHeaders(headers, false).values();
-  const diff = new Set<string>();
+  const actualNewHeaders = new Set<string>();
+
   for (let i = 0; i < headersArr.length; i++) {
     const header = headersArr[i];
     if (header.startsWith("new-header-")) {
-      if (!expectedHeaders.has(header)) diff.add(header);
+      actualNewHeaders.add(header);
+      if (!expectedHeaders.has(header)) result.extra.add(header);
     }
   }
-  return diff;
+
+  const expectedArr = expectedHeaders.values();
+  for (let i = 0; i < expectedArr.length; i++) {
+    const e = expectedArr[i];
+    if (!actualNewHeaders.has(e)) result.missing.add(e);
+  }
+
+  return result;
 }
 ```
 
-- Filters to only headers with prefix `new-header-` to scope validation
-- Returns the set of unexpected headers found
-- Caller sends `552` error response if `diff.size > 0`
+Caller checks:
+
+```typescript
+if (diff.missing.size > 0 || diff.extra.size > 0) {
+  log(LogLevelValues.warn,
+    `Header mismatch | missing: ${diff.missing.values().join(", ")} | extra: ${diff.extra.values().join(", ")}`);
+  send_http_response(552, "internal server error", String.UTF8.encode("Internal server error"), []);
+  return FilterHeadersStatusValues.StopIteration;
+}
+```
 
 ## Error Response Codes Used
 
-| Code | Meaning                           | Trigger                                    |
-| ---- | --------------------------------- | ------------------------------------------ |
-| 550  | No headers present                | `get_headers()` returns empty collection   |
-| 551  | Host header present but empty     | `get("host")` returns `""`                 |
-| 552  | Unexpected headers after mutation | `validateHeaders()` returns non-empty diff |
+| Code | Meaning                           | Trigger                                                     |
+| ---- | --------------------------------- | ----------------------------------------------------------- |
+| 550  | No headers present                | `get_headers()` returns empty collection                    |
+| 551  | Host header present but empty     | `get("host")` returns `""`                                  |
+| 552  | Header mismatch after mutation    | `validateHeaders()` returns non-empty `missing` or `extra`  |
 
 All errors use `send_http_response(code, "internal server error", body, [])`.
 
@@ -204,13 +235,13 @@ onLog(): void {
 
 ## Known Issues
 
-**`remove()` on nginx**: Calling `stream_context.headers.request.remove(name)` or `stream_context.headers.response.remove(name)` does not remove the header. Nginx sets the value to an empty string instead of removing the entry.
+**`remove()` on nginx**: Calling `stream_context.headers.request.remove(name)` or `stream_context.headers.response.remove(name)` does not remove the header. Nginx sets the value to an empty string instead of removing the entry. When checking for header absence, test for both a missing key and an empty string value.
 
-**Response headers in request phase**: Attempting to read or write `stream_context.headers.response` during `onRequestHeaders` causes a runtime panic. The runtime will panic because response headers are not available in the request phase. Example operations that panic:
-- `stream_context.headers.response.add("new-response-header", "value-01")` — add does not panic
-- `stream_context.headers.response.get("new-response-header")` — **panics** if called during request phase
+**`replace()` upserts on FastEdge**: `replace()` creates the header with the given value if the named header does not exist — it does not behave as a no-op on absent headers. Guard calls to `replace()` with a prior `get()` length check when you intend to update only an existing header.
 
-**`replace()` on absent header**: `replace()` is a no-op if the named header does not exist. Check existence with `get()` and test `length > 0` before calling `replace()`.
+**Response header reads during request phase**: Reading `stream_context.headers.response` (e.g. via `get()`) during `onRequestHeaders` causes a runtime panic because response headers are not available in the request phase. Writing response headers via `add()` during `onRequestHeaders` is safe and those headers appear in the final response. The distinction:
+- `stream_context.headers.response.add("new-response-header", "value-01")` — **safe** in request phase
+- `stream_context.headers.response.get("new-response-header")` — **panics** in request phase
 
 ## Build
 

@@ -3,8 +3,8 @@
   sources:
     - id: proxy-wasm-sdk-as
       ref: master
-      commit: 20b31c05b39c5537fb1ac7cc8693d9d8ec314f25
-      updated: 2026-04-15
+      commit: 60f25c7bd35564e5bafb421be7f37aa4acf1bf81
+      updated: 2026-05-20
 -->
 
 ---
@@ -55,7 +55,7 @@ log(level: LogLevelValues, message: string): void
 ```typescript
 import { getCurrentTime } from "@gcoredev/proxy-wasm-sdk-as/assembly/fastedge";
 
-function printCurrentDate(): string {
+function getCurrentDateString(): string {
   const date = new Date(getCurrentTime());
   return date.toISOString(); // UTC ISO 8601 string, e.g. "2026-04-15T12:00:00.000Z"
 }
@@ -82,7 +82,7 @@ import {
 } from "@gcoredev/proxy-wasm-sdk-as/assembly";
 import { getCurrentTime } from "@gcoredev/proxy-wasm-sdk-as/assembly/fastedge";
 
-function printCurrentDate(): string {
+function getCurrentDateString(): string {
   const date = new Date(getCurrentTime());
   return date.toISOString();
 }
@@ -101,7 +101,7 @@ class LogTime extends Context {
   onRequestHeaders(a: u32, end_of_stream: bool): FilterHeadersStatusValues {
     log(
       LogLevelValues.info,
-      "onRequestHeaders >> currentTime: " + printCurrentDate()
+      "onRequestHeaders >> currentTime: " + getCurrentDateString()
     );
     return FilterHeadersStatusValues.Continue;
   }
@@ -109,16 +109,9 @@ class LogTime extends Context {
   onResponseHeaders(a: u32, end_of_stream: bool): FilterHeadersStatusValues {
     log(
       LogLevelValues.info,
-      "onResponseHeaders >> currentTime: " + printCurrentDate()
+      "onResponseHeaders >> currentTime: " + getCurrentDateString()
     );
     return FilterHeadersStatusValues.Continue;
-  }
-
-  onLog(): void {
-    log(
-      LogLevelValues.info,
-      "onLog >> completed (contextId): " + this.context_id.toString()
-    );
   }
 }
 
@@ -135,9 +128,8 @@ registerRootContext((context_id: u32) => {
 |---|---|---|
 | `onRequestHeaders` | Incoming request headers received | `FilterHeadersStatusValues.Continue` |
 | `onResponseHeaders` | Upstream response headers received | `FilterHeadersStatusValues.Continue` |
-| `onLog` | Request processing complete, before log flush | `void` |
 
-- `onLog` does not receive headers or body — use it for final per-request logging only.
+- `FilterHeadersStatusValues.Continue` must be returned from header hooks to allow request/response to proceed.
 - `this.context_id` is available in all `Context` methods and uniquely identifies the request context.
 
 ---

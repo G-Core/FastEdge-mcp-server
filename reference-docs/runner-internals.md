@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-test
-      ref: v0.1.7
-      commit: 0f309ee346b81261e66d09d1b50f70f8928e47fa
-      updated: 2026-04-22
+      ref: v0.2.2
+      commit: e5254c8c4b4b3aab0069e783ade1cec435726566
+      updated: 2026-05-20
 -->
 
 # Runner Internals — Low-Level Runner API
@@ -145,10 +145,6 @@ interface IWasmRunner {
     method: string,
     headers: Record<string, string>,
     body: string,
-    responseHeaders: Record<string, string>,
-    responseBody: string,
-    responseStatus: number,
-    responseStatusText: string,
     properties: Record<string, unknown>,
     enforceProductionPropertyRules: boolean
   ): Promise<FullFlowResult>;
@@ -211,7 +207,7 @@ const runner = await createRunner('./my-http-app.wasm');
 let response = await runner.execute({ path: '/moved', method: 'GET', headers: {} });
 if (response.status >= 300 && response.status < 400 && response.headers['location']) {
   response = await runner.execute({
-    path: response.headers['location'], // e.g. "/new-location"
+    path: response.headers['location'] as string, // e.g. "/new-location"
     method: 'GET',
     headers: {},
   });
@@ -238,7 +234,7 @@ callHook(hookCall: HookCall): Promise<HookResult>
 
 #### `callFullFlow` — Proxy-WASM only
 
-Executes the complete CDN request/response lifecycle: runs all four hooks in sequence with a real HTTP fetch (or built-in responder) between request and response phases.
+Executes the complete CDN request/response lifecycle: runs all four hooks in sequence with a real HTTP fetch (or built-in responder) between request and response phases. The upstream response is generated at runtime — either by a real HTTP fetch against `url`, or by the built-in responder when `url === "built-in"`. There is no caller-provided mock response.
 
 **Hook execution order**: `onRequestHeaders` → `onRequestBody` → *(real HTTP fetch or built-in responder)* → `onResponseHeaders` → `onResponseBody`
 
@@ -248,10 +244,6 @@ callFullFlow(
   method: string,
   headers: Record<string, string>,
   body: string,
-  responseHeaders: Record<string, string>,
-  responseBody: string,
-  responseStatus: number,
-  responseStatusText: string,
   properties: Record<string, unknown>,
   enforceProductionPropertyRules: boolean
 ): Promise<FullFlowResult>
@@ -263,14 +255,10 @@ callFullFlow(
 | `method` | `string` | HTTP method |
 | `headers` | `Record<string, string>` | Request headers |
 | `body` | `string` | Request body |
-| `responseHeaders` | `Record<string, string>` | Upstream response headers (initial state for response hooks) |
-| `responseBody` | `string` | Upstream response body |
-| `responseStatus` | `number` | Upstream response status code |
-| `responseStatusText` | `string` | Upstream response status text |
 | `properties` | `Record<string, unknown>` | Shared properties passed to all hooks |
 | `enforceProductionPropertyRules` | `boolean` | When `true`, restricts property access to match CDN production behavior |
 
-**Local response short-circuit**: If a WASM module calls `send_http_response` (proxy-wasm: `proxy_send_local_response`) during `onRequestHeaders` or `onRequestBody` and returns `StopIteration` (return code `1`), the remaining hooks and origin fetch are skipped. The `finalResponse` in the result is built from the locally-sent status, headers, and body — matching CDN production behavior. This is how redirect modules (e.g., geo-redirect) and early error responses work.
+**Local response short-circuit**: If a WASM module calls `proxy_send_local_response` in any hook and returns `StopIteration` (return code `1`), the runner short-circuits immediately. For request-phase hooks (`onRequestHeaders`, `onRequestBody`), this skips the remaining request hooks, the origin fetch, and all response hooks. For response-phase hooks (`onResponseHeaders`, `onResponseBody`), this skips any remaining response hooks. In all cases, `finalResponse` is built from the locally-sent status, headers, and body — matching CDN production behavior. This is how redirect modules (e.g., geo-redirect) and early error responses work.
 
 **Constraint**: Only available on `ProxyWasmRunner`. Calling on `HttpWasmRunner` throws.
 
@@ -335,7 +323,8 @@ const result = await runner.callFullFlow(
   'GET',
   { 'accept': 'application/json' },
   '',
-  {}, '', 200, 'OK', {}, true
+  {},   // properties
+  true, // enforceProductionPropertyRules
 );
 ```
 
@@ -391,7 +380,11 @@ interface HttpRequest {
 interface HttpResponse {
   status: number;
   statusText: string;
-  headers: Record<string, string>;
+  // Node's IncomingHttpHeaders (from "node:http"):
+  //   known single-valued headers (content-type, location, etag, …) are typed as string
+  //   set-cookie is always string[] when present
+  //   unknown headers are string | string[] | undefined
+  headers: IncomingHttpHeaders;
   body: string;
   contentType: string | null;
   isBase64?: boolean;
@@ -405,6 +398,23 @@ Used exclusively with `execute()` on `HttpWasmRunner`.
 
 `HttpResponse.logs` contains log entries captured from the `fastedge-run` process stdout/stderr during the request.
 
+**Multi-valued headers.** `Set-Cookie` is preserved as a `string[]` — each `Set-Cookie` header emitted by the WASM app (or an upstream origin) becomes a separate array entry. This matches RFC 6265 §3 and Node's fetch behavior.
+
+```typescript
+const response = await runner.execute({ path: '/login', method: 'POST', headers: {} });
+const cookies = response.headers['set-cookie']; // string[] | undefined
+for (const cookie of cookies ?? []) {
+  console.log(cookie);
+}
+```
+
+Single-valued headers read as plain strings with no narrowing needed:
+
+```typescript
+const location = response.headers['location'];        // string | undefined
+const contentType = response.headers['content-type']; // string | undefined
+```
+
 ---
 
 ### `HookCall`
@@ -413,14 +423,14 @@ Used exclusively with `execute()` on `HttpWasmRunner`.
 type HookCall = {
   hook: string;
   request: {
-    headers: HeaderMap;
+    headers: HeaderRecord;
     body: string;
     method?: string;
     path?: string;
     scheme?: string;
   };
-  response: {
-    headers: HeaderMap;
+  response?: {
+    headers: HeaderRecord;
     body: string;
     status?: number;
     statusText?: string;
@@ -435,10 +445,12 @@ type HookCall = {
 |-------|-------------|
 | `hook` | Hook name: `"onRequestHeaders"`, `"onRequestBody"`, `"onResponseHeaders"`, `"onResponseBody"` |
 | `request` | Request state passed to the hook |
-| `response` | Response state passed to the hook |
+| `response` | Seed state for response hooks called via `callHook()`. Ignored by `callFullFlow()` and by request hooks — the full-flow path generates the upstream response at runtime. Optional. |
 | `properties` | Shared properties (e.g. `request.path`, `vm_config`, `plugin_config`) |
 | `dotenvEnabled` | Optional per-call dotenv override. Use `applyDotenv()` for persistent changes. |
 | `enforceProductionPropertyRules` | Defaults to `true`. Set to `false` to allow property reads blocked on production CDN. |
+
+`HeaderRecord` is `Record<string, string | string[]>` — multi-valued headers (e.g. multiple `Set-Cookie`) are represented as `string[]`.
 
 ---
 
@@ -449,13 +461,13 @@ type HookResult = {
   returnCode: number | null;
   logs: { level: number; message: string }[];
   input: {
-    request: { headers: HeaderMap; body: string };
-    response: { headers: HeaderMap; body: string };
+    request: { headers: HeaderRecord; body: string };
+    response: { headers: HeaderRecord; body: string };
     properties?: Record<string, unknown>;
   };
   output: {
-    request: { headers: HeaderMap; body: string };
-    response: { headers: HeaderMap; body: string };
+    request: { headers: HeaderRecord; body: string };
+    response: { headers: HeaderRecord; body: string };
     properties?: Record<string, unknown>;
   };
   properties: Record<string, unknown>;
@@ -480,7 +492,7 @@ type FullFlowResult = {
   finalResponse: {
     status: number;
     statusText: string;
-    headers: HeaderMap;
+    headers: HeaderRecord;
     body: string;
     contentType: string;
     isBase64?: boolean;
@@ -502,7 +514,11 @@ type FullFlowResult = {
 ```typescript
 type WasmType = 'http-wasm' | 'proxy-wasm';
 
+// Single-valued headers only — used as callFullFlow input parameters
 type HeaderMap = Record<string, string>;
+
+// Single- or multi-valued headers — used in HookCall, HookResult, and FullFlowResult
+type HeaderRecord = Record<string, string | string[]>;
 
 type LogEntry = {
   level: number;
@@ -510,8 +526,8 @@ type LogEntry = {
 };
 
 enum ProxyStatus {
-  Ok = 0,
-  NotFound = 1,
+  Ok          = 0,
+  NotFound    = 1,
   BadArgument = 2,
 }
 ```
@@ -533,7 +549,7 @@ interface IStateManager {
   emitRequestStarted(
     url: string,
     method: string,
-    headers: Record<string, string>,
+    headers: Record<string, string | string[]>,
     source?: EventSource,
   ): void;
 
@@ -542,12 +558,12 @@ interface IStateManager {
     returnCode: number | null,
     logCount: number,
     input: {
-      request: { headers: Record<string, string>; body: string };
-      response: { headers: Record<string, string>; body: string };
+      request: { headers: Record<string, string | string[]>; body: string };
+      response: { headers: Record<string, string | string[]>; body: string };
     },
     output: {
-      request: { headers: Record<string, string>; body: string };
-      response: { headers: Record<string, string>; body: string };
+      request: { headers: Record<string, string | string[]>; body: string };
+      response: { headers: Record<string, string | string[]>; body: string };
     },
     source?: EventSource,
   ): void;
@@ -557,7 +573,7 @@ interface IStateManager {
     finalResponse: {
       status: number;
       statusText: string;
-      headers: Record<string, string>;
+      headers: Record<string, string | string[]>;
       body: string;
       contentType: string;
       isBase64?: boolean;
@@ -579,7 +595,7 @@ interface IStateManager {
     response: {
       status: number;
       statusText: string;
-      headers: Record<string, string>;
+      headers: Record<string, string | string[] | undefined>;
       body: string;
       contentType: string | null;
       isBase64?: boolean;
@@ -615,11 +631,10 @@ async function testCdnApp() {
       'GET',
       { 'accept': 'application/json' },
       '',
-      { 'content-type': 'application/json' },
-      '{"key":"value"}',
-      200,
-      'OK',
-      { 'request.path': '/api/data', 'request.host': 'example.com' },
+      {
+        'request.path': '/api/data',
+        'request.host': 'example.com',
+      },
       true,
     );
 
@@ -638,7 +653,12 @@ async function testCdnApp() {
         path: '/api/submit',
         scheme: 'https',
       },
-      response: { headers: {}, body: '', status: 200, statusText: 'OK' },
+      response: {
+        headers: {},
+        body: '',
+        status: 200,
+        statusText: 'OK',
+      },
       properties: { 'request.host': 'example.com' },
       enforceProductionPropertyRules: false,
     });
@@ -665,7 +685,8 @@ async function testCdnAppOffline() {
       'GET',
       { 'accept': 'application/json' },
       '',
-      {}, '', 200, 'OK', {}, true,
+      {},   // properties
+      true, // enforceProductionPropertyRules
     );
 
     console.log('Final status:', result.finalResponse.status);

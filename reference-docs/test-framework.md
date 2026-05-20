@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-test
-      ref: v0.1.7
-      commit: 0f309ee346b81261e66d09d1b50f70f8928e47fa
-      updated: 2026-04-22
+      ref: v0.2.2
+      commit: e5254c8c4b4b3aab0069e783ade1cec435726566
+      updated: 2026-05-20
 -->
 
 # FastEdge Test Framework API
@@ -24,6 +24,7 @@ npm install --save-dev @gcoredev/fastedge-test
 ```typescript
 import {
   defineTestSuite, runAndExit, runTestSuite, runFlow, runHttpRequest, loadConfigFile,
+  mockOrigins,
   assertRequestHeader, assertNoRequestHeader, assertResponseHeader, assertNoResponseHeader,
   assertFinalStatus, assertFinalHeader, assertReturnCode,
   assertLog, assertNoLog, logsContain,
@@ -36,6 +37,7 @@ import {
 import type {
   TestSuite, TestCase, TestResult, SuiteResult,
   FlowOptions, HttpRequestOptions, RunnerConfig,
+  MockOriginsHandle, MockOriginsOptions,
 } from '@gcoredev/fastedge-test/test';
 ```
 
@@ -52,6 +54,7 @@ import type {
 | Header assertions | `assertRequestHeader`, `assertResponseHeader` | `assertHttpHeader`, `assertHttpNoHeader` |
 | Properties | Supported via `properties` field in `FlowOptions` | Not applicable |
 | Hook return codes | `assertReturnCode(hookResult, 0)` | Not applicable |
+| Origin mocking | `mockOrigins()` — default config works as-is | `mockOrigins({ allowNetConnect: [/localhost/] })` required |
 
 ---
 
@@ -67,8 +70,13 @@ defineTestSuite({
   // OR
   wasmBuffer: Buffer;     // pre-loaded WASM binary — mutually exclusive with wasmPath
   runnerConfig?: {
-    dotenvEnabled?: boolean;                    // load .env into WASM before each test — see the DOTENV reference
-    enforceProductionPropertyRules?: boolean;   // default true
+    dotenv?: {
+      enabled?: boolean;                          // load .env into WASM before each test — see the DOTENV reference
+      path?: string;                              // directory to load dotenv files from; defaults to process CWD
+    };
+    enforceProductionPropertyRules?: boolean;     // default true
+    runnerType?: "http-wasm" | "proxy-wasm";      // override automatic WASM type detection
+    httpPort?: number;                            // pin HTTP server to specific port (HTTP-WASM only; throws if in use)
   };
   tests: Array<{
     name: string;
@@ -126,13 +134,10 @@ interface TestResult {
 ```typescript
 interface FlowOptions {
   url: string;                                   // required; derives :path, :authority, :scheme pseudo-headers
+                                                 // or "built-in" for the local responder
   method?: string;                               // default "GET"
   requestHeaders?: Record<string, string>;       // merged with auto-derived pseudo-headers; pseudo-headers here override
   requestBody?: string;                          // default ""
-  responseStatus?: number;                       // simulated upstream status, default 200
-  responseStatusText?: string;                   // default "OK"
-  responseHeaders?: Record<string, string>;      // default {}
-  responseBody?: string;                         // default ""
   properties?: Record<string, unknown>;          // CDN properties to inject, default {}
   enforceProductionPropertyRules?: boolean;      // default true
 }
@@ -151,7 +156,7 @@ type FullFlowResult = {
   finalResponse: {
     status: number;
     statusText: string;
-    headers: Record<string, string>;
+    headers: Record<string, string | string[]>;
     body: string;
     contentType: string;
     isBase64?: boolean;
@@ -165,6 +170,8 @@ hookResult.output.request.headers       // Record<string, string>
 hookResult.output.response.headers      // Record<string, string>
 hookResult.logs                         // LogEntry[]
 ```
+
+The upstream response is generated at runtime by a real fetch against `url`, or by the built-in responder when `url === "built-in"`. Use `mockOrigins()` to control upstream responses in tests.
 
 ---
 
@@ -216,6 +223,52 @@ const config = await loadConfigFile('./fastedge-config.test.json');
 
 ---
 
+### `mockOrigins(options?: MockOriginsOptions): MockOriginsHandle`
+
+Installs an undici `MockAgent` as the global fetch dispatcher for the duration of a test. Every origin fetch and every `proxy_http_call` upstream the runner makes routes through it. Blocks unmocked requests by default.
+
+```typescript
+interface MockOriginsOptions {
+  allowNetConnect?: boolean | (string | RegExp)[];  // default: false
+}
+
+interface MockOriginsHandle {
+  origin(url: string): MockPool;          // get or create MockPool; chain .intercept().reply()
+  readonly agent: MockAgent;              // raw MockAgent for .persist() / .times() / .delay()
+  close(): Promise<void>;                 // restore previous dispatcher; idempotent
+  assertAllCalled(): void;               // throw if any interceptor was never matched
+}
+```
+
+**HTTP-WASM caveat:** `HttpWasmRunner.execute()` forwards requests to a local `fastedge-run` subprocess. Allow localhost through with:
+
+```typescript
+mocks = mockOrigins({ allowNetConnect: [/^127\.0\.0\.1/, /^localhost/] });
+```
+
+For CDN/proxy-wasm tests using `runFlow` only, the default config is correct — no `allowNetConnect` needed.
+
+**Lifecycle pattern:**
+
+```typescript
+let mocks: MockOriginsHandle | null = null;
+
+beforeEach(() => { mocks = mockOrigins(); });
+afterEach(async () => { await mocks?.close(); mocks = null; });
+
+it("handles 503 from origin", async () => {
+  mocks!.origin("https://origin.example.com")
+    .intercept({ path: "/api/resource" })
+    .reply(503, "upstream down");
+
+  const result = await runFlow(runner, { url: "https://origin.example.com/api/resource" });
+  assertFinalStatus(result, 503);
+  mocks!.assertAllCalled();
+});
+```
+
+---
+
 ## Assertion Helpers
 
 All helpers throw `Error` on failure. Compatible with any test framework or plain scripts.
@@ -224,13 +277,13 @@ All helpers throw `Error` on failure. Compatible with any test framework or plai
 
 | Function | Applies to | Asserts |
 |----------|-----------|---------|
-| `assertRequestHeader(result, name, expected?)` | `HookResult` | Named header exists in output request headers; optionally exact value |
+| `assertRequestHeader(result, name, expected?)` | `HookResult` | Named header exists in output request headers; `string` expected matches any value in multi-valued header; `string[]` requires exact array match |
 | `assertNoRequestHeader(result, name)` | `HookResult` | Named header absent from output request headers |
-| `assertResponseHeader(result, name, expected?)` | `HookResult` | Named header exists in output response headers; optionally exact value |
+| `assertResponseHeader(result, name, expected?)` | `HookResult` | Named header exists in output response headers; same multi-value semantics as above |
 | `assertNoResponseHeader(result, name)` | `HookResult` | Named header absent from output response headers |
 | `assertReturnCode(result, expected)` | `HookResult` | Hook return code equals expected (0 = Continue, 1 = Pause) |
 | `assertFinalStatus(result, expected)` | `FullFlowResult` | Final response status code equals expected |
-| `assertFinalHeader(result, name, expected?)` | `FullFlowResult` | Named header exists in final response headers; optionally exact value |
+| `assertFinalHeader(result, name, expected?)` | `FullFlowResult` | Named header exists in final response headers; `string` expected matches any value in multi-valued header; `string[]` requires exact array match |
 | `assertLog(result, substring)` | `HookResult` | At least one log entry contains substring |
 | `assertNoLog(result, substring)` | `HookResult` | No log entry contains substring |
 | `logsContain(result, substring)` | `HookResult` | Returns `boolean` — non-throwing predicate |
@@ -243,7 +296,7 @@ All helpers throw `Error` on failure. Compatible with any test framework or plai
 | Function | Applies to | Asserts |
 |----------|-----------|---------|
 | `assertHttpStatus(response, expected)` | `HttpResponse` | Response status code equals expected |
-| `assertHttpHeader(response, name, expected?)` | `HttpResponse` | Named header exists (case-insensitive); optionally exact value |
+| `assertHttpHeader(response, name, expected?)` | `HttpResponse` | Named header exists (case-insensitive); `string` expected matches any value in multi-valued header (e.g. `set-cookie`); `string[]` requires exact array match |
 | `assertHttpNoHeader(response, name)` | `HttpResponse` | Named header absent (case-insensitive) |
 | `assertHttpBody(response, expected)` | `HttpResponse` | Response body matches exactly |
 | `assertHttpBodyContains(response, substring)` | `HttpResponse` | Response body contains substring |

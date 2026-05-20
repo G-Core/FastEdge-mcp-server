@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-js
       ref: main
-      commit: f52d9220499e073755091cb39b28915d86d2c8d9
-      updated: 2026-04-14
+      commit: df672e9f296361bd9f3d5475ec32c624c2456656
+      updated: 2026-05-20
 -->
 
 # JavaScript SDK Reference (`@gcoredev/fastedge-sdk-js`)
@@ -21,6 +21,7 @@ All FastEdge-specific modules use the `fastedge::` specifier — these are NOT N
 import { getEnv } from "fastedge::env";
 import { getSecret, getSecretEffectiveAt } from "fastedge::secret";
 import { KvStore } from "fastedge::kv";
+import { Cache } from "fastedge::cache";
 import { readFileSync } from "fastedge::fs";
 ```
 
@@ -130,7 +131,7 @@ addEventListener("fetch", event => event.respondWith(app(event)));
 
 ### KV Store — `fastedge::kv`
 
-KV stores must be created in the Gcore portal first, then referenced by name from the application. The KV store is **read-only** from the app — there is no `set()`, `delete()`, or `list()`.
+KV stores must be created in the Gcore portal first, then referenced by name from the application. The KV store is **read-only** from the app — there is no `set()`, `delete()`, or `list()`. `KvStore` is globally replicated with eventual consistency. For strongly-consistent, POP-local storage with atomic counter primitives, see Cache below.
 
 ```ts
 import { KvStore } from "fastedge::kv";
@@ -144,14 +145,29 @@ import { KvStore } from "fastedge::kv";
 |--------|-----------|---------|-------------|
 | `KvStore.open` | `(name: string) => KvStoreInstance` | `KvStoreInstance` | Opens a named KV store. `name` must match a store configured on the application. Throws if the store cannot be opened. |
 
+#### KvStoreEntry
+
+A handle to a value retrieved from the KV store. The bytes are already in memory when you receive a `KvStoreEntry`; the accessor methods return `Promise` to align with the standard Web `Body` interface, but they resolve immediately.
+
+| Method | Signature | Returns |
+|--------|-----------|---------|
+| `arrayBuffer()` | `() => Promise<ArrayBuffer>` | `Promise<ArrayBuffer>` |
+| `text()` | `() => Promise<string>` | `Promise<string>` |
+| `json()` | `() => Promise<unknown>` | `Promise<unknown>` |
+
+`json()` rejects with a `SyntaxError` if the bytes are not valid JSON.
+
 #### Instance Methods — `KvStoreInstance`
 
 | Method | Signature | Returns | Description |
 |--------|-----------|---------|-------------|
 | `get` | `(key: string) => ArrayBuffer \| null` | `ArrayBuffer \| null` | Get value by exact key. Returns `null` if key does not exist. **Returns `ArrayBuffer`, not string — decode explicitly.** |
+| `getEntry` | `(key: string) => Promise<KvStoreEntry \| null>` | `Promise<KvStoreEntry \| null>` | Get value as a `KvStoreEntry` with `text()`, `json()`, and `arrayBuffer()` accessors. Returns `null` if key does not exist. |
 | `scan` | `(pattern: string) => Array<string>` | `Array<string>` | Get keys matching prefix pattern — must include `*` wildcard. Returns empty array if no match. |
 | `zrangeByScore` | `(key: string, min: number, max: number) => Array<[ArrayBuffer, number]>` | `Array<[ArrayBuffer, number]>` | Get sorted set members with scores in `[min, max]`. Each entry is a `[value, score]` tuple. Returns empty array if no match. |
+| `zrangeByScoreEntries` | `(key: string, min: number, max: number) => Promise<Array<[KvStoreEntry, number]>>` | `Promise<Array<[KvStoreEntry, number]>>` | Equivalent to `zrangeByScore` but each tuple's value is a `KvStoreEntry` instead of a raw `ArrayBuffer`. |
 | `zscan` | `(key: string, pattern: string) => Array<[ArrayBuffer, number]>` | `Array<[ArrayBuffer, number]>` | Get sorted set members matching value prefix pattern. Must include `*`. Each entry is a `[value, score]` tuple. Returns empty array if no match. |
+| `zscanEntries` | `(key: string, pattern: string) => Promise<Array<[KvStoreEntry, number]>>` | `Promise<Array<[KvStoreEntry, number]>>` | Equivalent to `zscan` but each tuple's value is a `KvStoreEntry` instead of a raw `ArrayBuffer`. |
 | `bfExists` | `(key: string, value: string) => boolean` | `boolean` | Check if value exists in Bloom Filter. Returns `true` if likely present, `false` if definitely absent. |
 
 ```js
@@ -169,6 +185,12 @@ async function app(event) {
       return new Response("not found", { status: 404 });
     }
     const text = new TextDecoder().decode(buf);
+
+    // getEntry — returns KvStoreEntry | null with text/json/arrayBuffer accessors
+    const entry = await kv.getEntry("user:42");
+    if (entry !== null) {
+      const user = await entry.json();
+    }
 
     // scan — returns Array<string>
     const keys = kv.scan("user:*");
@@ -190,6 +212,127 @@ async function app(event) {
   } catch (err) {
     return new Response("store error", { status: 500 });
   }
+}
+
+addEventListener("fetch", event => event.respondWith(app(event)));
+```
+
+---
+
+### Cache — `fastedge::cache`
+
+`Cache` is a POP-local key/value store with TTL and atomic counter primitives. It is strongly consistent within a single point-of-presence and is designed for transient, request-time state: rate limiting, hit counters, response memoisation, and deduplicated origin fetches. A value written from one data center is not visible to another.
+
+```ts
+import { Cache } from "fastedge::cache";
+```
+
+**`Cache` vs `KvStore` at a glance:**
+
+| Concern | `Cache` | `KvStore` |
+|---------|---------|-----------|
+| Consistency scope | Strong within a POP; independent across POPs | Eventual; globally replicated |
+| Atomic operations | `incr`, `decr`, `getOrSet` coalescing | Not available |
+| Typical use cases | Rate limits, counters, request coalescing | Configuration, lookup tables, sorted sets |
+| Data persistence | Evicted; no durability guarantee | Durable; persists across deployments |
+
+#### CacheValue
+
+Values accepted by `Cache.set` and the `populate` callback of `Cache.getOrSet`:
+
+```typescript
+type CacheValue = string | ArrayBuffer | ArrayBufferView | ReadableStream | Response;
+```
+
+All forms are stored as raw bytes. `string` is encoded as UTF-8. `ReadableStream` is fully consumed before storage. `Response` — `response.arrayBuffer()` is consumed; status and headers are discarded.
+
+#### WriteOptions
+
+Controls how long a cache entry lives. Pass exactly one of `ttl`, `ttlMs`, or `expiresAt`. Passing more than one, or a zero or negative value, throws `TypeError`. Omitting `options` entirely stores the entry with no expiry (subject to host eviction policy).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ttl` | `number` | Relative TTL, seconds from now. Mutually exclusive with `ttlMs`, `expiresAt`. |
+| `ttlMs` | `number` | Relative TTL, milliseconds from now. Mutually exclusive with `ttl`, `expiresAt`. |
+| `expiresAt` | `number` | Absolute expiry, Unix epoch seconds. Mutually exclusive with `ttl`, `ttlMs`. |
+
+#### CacheEntry
+
+A handle to a cached value. The bytes are already in memory when you receive a `CacheEntry`; the accessor methods return `Promise` to align with the standard Web `Body` interface, but they resolve immediately.
+
+| Method | Signature | Returns |
+|--------|-----------|---------|
+| `arrayBuffer()` | `() => Promise<ArrayBuffer>` | `Promise<ArrayBuffer>` |
+| `text()` | `() => Promise<string>` | `Promise<string>` |
+| `json()` | `() => Promise<unknown>` | `Promise<unknown>` |
+
+`json()` rejects with a `SyntaxError` if the bytes are not valid JSON.
+
+#### Cache Methods
+
+All methods are static; `Cache` is never constructed. All methods return `Promise`. Operational errors surface as Promise rejections. Argument validation errors (wrong types, conflicting `WriteOptions` fields) throw synchronously.
+
+| Method | Signature | Returns |
+|--------|-----------|---------|
+| `get(key)` | `(key: string) => Promise<CacheEntry \| null>` | `Promise<CacheEntry \| null>` |
+| `exists(key)` | `(key: string) => Promise<boolean>` | `Promise<boolean>` |
+| `set(key, value, options?)` | `(key: string, value: CacheValue, options?: WriteOptions) => Promise<void>` | `Promise<void>` |
+| `delete(key)` | `(key: string) => Promise<void>` | `Promise<void>` |
+| `expire(key, options)` | `(key: string, options: WriteOptions) => Promise<boolean>` | `Promise<boolean>` |
+| `incr(key, delta?)` | `(key: string, delta?: number) => Promise<number>` | `Promise<number>` |
+| `decr(key, delta?)` | `(key: string, delta?: number) => Promise<number>` | `Promise<number>` |
+| `getOrSet(key, populate, options?)` | `(key: string, populate: () => CacheValue \| Promise<CacheValue>, options?: WriteOptions) => Promise<CacheEntry>` | `Promise<CacheEntry>` |
+| `getOrSet(key, populate, options?)` | `(key: string, populate: () => CacheValue \| null \| Promise<CacheValue \| null>, options?: WriteOptions) => Promise<CacheEntry \| null>` | `Promise<CacheEntry \| null>` |
+
+**`get`** — Returns the entry for `key`, or `null` if absent or expired.
+
+**`exists`** — Returns `true` if `key` is present. Cheaper than `get` when you only need presence, as no value bytes are transferred.
+
+**`set`** — Stores `value` under `key`, optionally with an expiry. Overwrites any existing value at `key`.
+
+**`delete`** — Removes `key` from the cache. A no-op if the key does not exist.
+
+**`expire`** — Updates the expiry of an existing key without changing its value. Resolves to `true` if the expiry was set, `false` if the key does not exist.
+
+**`incr` / `decr`** — Atomically increment or decrement an integer stored at `key`. If the key does not exist, it is initialised to `0` before the operation. Resolves to the new value after the operation. Rejects if the stored value is not an integer. `delta` defaults to `1`. `Cache.decr` is sugar for `Cache.incr(key, -(delta ?? 1))`. Strong per-POP consistency makes these reliable for per-POP rate limits.
+
+**`getOrSet`** — Returns the entry for `key`, or calls `populate` on a cache miss and stores the result. All concurrent callers for the same key within the same WASM instance share a single `populate` execution. If `populate` resolves with `null`, the value is not written to the cache and `getOrSet` resolves with `null` (skip-cache signal).
+
+```js
+/// <reference types="@gcoredev/fastedge-sdk-js" />
+
+import { Cache } from "fastedge::cache";
+
+async function app(event) {
+  const ip    = event.client.address;
+  const key   = `rl:${ip}`;
+  const count = await Cache.incr(key);
+
+  if (count === 1) {
+    await Cache.expire(key, { ttl: 60 });
+  }
+
+  if (count > 100) {
+    return new Response("Too Many Requests", { status: 429 });
+  }
+
+  const url   = new URL(event.request.url);
+  const entry = await Cache.getOrSet(
+    `proxy:${url.pathname}`,
+    async () => {
+      const r = await fetch(`https://origin.example.com${url.pathname}`);
+      return r.ok ? r : null;
+    },
+    { ttl: 30 },
+  );
+
+  if (entry === null) {
+    return Response.json({ error: "upstream unavailable" }, { status: 503 });
+  }
+
+  return new Response(await entry.arrayBuffer(), {
+    headers: { "content-type": "application/json" },
+  });
 }
 
 addEventListener("fetch", event => event.respondWith(app(event)));
@@ -230,6 +373,7 @@ addEventListener("fetch", (event: FetchEvent) => void);
 |--------|------|-------------|
 | `request` | `Request` | Incoming HTTP request from the client |
 | `client` | `ClientInfo` | Downstream client info |
+| `server` | `ServerInfo` | Information about the FastEdge POP handling the request |
 | `respondWith(r)` | `(Response \| PromiseLike<Response>) => void` | Send response. Must be called synchronously. |
 | `waitUntil(p)` | `(Promise<any>) => void` | Extend lifetime for post-response async work (e.g., logging, telemetry) |
 
@@ -237,12 +381,43 @@ addEventListener("fetch", (event: FetchEvent) => void);
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `address` | `string` | IPv4 or IPv6 address of the downstream client |
-| `tlsProtocol` | `string` | Negotiated TLS protocol version (e.g. `"TLSv1.3"`) |
-| `tlsCipherOpensslName` | `string` | OpenSSL name of the negotiated TLS cipher |
-| `tlsJA3MD5` | `string` | JA3 MD5 fingerprint of the TLS client hello |
-| `tlsClientCertificate` | `ArrayBuffer` | Raw bytes of the client TLS certificate, if present |
-| `tlsClientHello` | `ArrayBuffer` | Raw bytes of the TLS ClientHello message |
+| `address` | `string` | IPv4 or IPv6 address of the downstream client. Empty string if unavailable. |
+| `tlsJA3MD5` | `string` | JA3 TLS-handshake fingerprint as an MD5 hex string. Empty string for non-TLS requests or when fingerprinting is unavailable. |
+| `protocol` | `string` | Protocol family — `"https"` or `"http"`. Not the TLS version string. |
+| `geo` | `GeoInfo` | Client geographic information. Populated lazily on first access. |
+
+**`GeoInfo`:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `asn` | `string` | Autonomous System Number of the client's network. Empty if unavailable. |
+| `latitude` | `number \| null` | Latitude in decimal degrees, or `null` if unavailable. |
+| `longitude` | `number \| null` | Longitude in decimal degrees, or `null` if unavailable. |
+| `region` | `string` | Region or state code (subdivision). Empty string if unavailable. |
+| `continent` | `string` | Continent code (e.g. `"EU"`, `"NA"`). Empty string if unavailable. |
+| `countryCode` | `string` | ISO 3166-1 alpha-2 country code (e.g. `"PT"`). Empty string if unavailable. |
+| `countryName` | `string` | Country name (e.g. `"Portugal"`). Empty string if unavailable. |
+| `city` | `string` | City name. Empty string when geo lookup did not resolve a city. |
+
+**`ServerInfo`:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `address` | `string` | Server-side IP address that received the request. |
+| `name` | `string` | Server hostname. |
+| `pop` | `PopInfo` | POP location information. Populated lazily on first access. |
+
+**`PopInfo`:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `latitude` | `number \| null` | POP latitude in decimal degrees, or `null` if unavailable. |
+| `longitude` | `number \| null` | POP longitude in decimal degrees, or `null` if unavailable. |
+| `region` | `string` | POP region or state code. Empty string if unavailable. |
+| `continent` | `string` | POP continent code. Empty string if unavailable. |
+| `countryCode` | `string` | ISO 3166-1 alpha-2 POP country code. Empty string if unavailable. |
+| `countryName` | `string` | POP country name. Empty string if unavailable. |
+| `city` | `string` | POP city. Empty string when not resolved. |
 
 ```js
 /// <reference types="@gcoredev/fastedge-sdk-js" />
@@ -252,7 +427,10 @@ addEventListener("fetch", event => {
 });
 
 async function handleRequest(event) {
-  const { request, client } = event;
+  const { request, client, server } = event;
+
+  console.log(`Request from ${client.address} in ${client.geo.city}, ${client.geo.countryCode}`);
+  console.log(`Served by ${server.name} in ${server.pop.city}, ${server.pop.countryCode}`);
 
   event.waitUntil(
     logRequest(request.url, client.address)
@@ -280,15 +458,18 @@ FastEdge runs on StarlingMonkey (SpiderMonkey-based Wasm runtime). The following
 |-----|--------------------|----- |
 | Fetch (`fetch`, `Request`, `Response`, `Headers`) | Mostly — see limitations | Incoming `request.headers` is read-only |
 | URL (`URL`, `URLSearchParams`) | Yes | WHATWG URL spec |
-| Streams (`ReadableStream`, `WritableStream`, `TransformStream`) | Yes | WHATWG Streams spec |
+| Streams (`ReadableStream`, `WritableStream`, `TransformStream`) | Yes | WHATWG Streams spec; includes BYOB reader, compression streams |
 | Encoding (`TextEncoder`, `TextDecoder`, `atob`, `btoa`) | Yes | |
+| File (`Blob`, `File`, `FormData`) | Yes | |
+| Abort (`AbortController`, `AbortSignal`) | Yes | `AbortSignal.timeout`, `AbortSignal.any` supported |
 | Crypto (`crypto.subtle`, `crypto.getRandomValues`, `crypto.randomUUID`) | Partial | See SubtleCrypto section |
 | Timers (`setTimeout`, `clearTimeout`, `setInterval`, `clearInterval`) | Yes | |
 | Console | Partial | No format-string substitution; all args stringified and concatenated |
 | Performance (`performance.now`, `performance.timeOrigin`) | Yes | |
+| DOM Events (`Event`, `EventTarget`, `CustomEvent`) | Yes | Underpins FetchEvent mechanism |
 | `structuredClone` | Yes | Transferable: `ArrayBuffer` |
 
-**NOT available:** WebSocket, localStorage, sessionStorage, DOM APIs, Node.js APIs (`fs`, `path`, `process`, etc.)
+**NOT available:** WebSocket, localStorage, sessionStorage, DOM APIs, Node.js APIs (`fs`, `path`, `process`, `node:crypto`, etc.)
 
 ---
 
@@ -322,21 +503,22 @@ new Request(input: RequestInfo | URL, init?: RequestInit): Request
 | `method` | `string` | HTTP method. Defaults to `"GET"`. |
 | `headers` | `HeadersInit` | Request headers. |
 | `body` | `BodyInit \| null` | Request body. |
-| `manualFramingHeaders` | `boolean` | When `true`, disables automatic framing header management. |
+| `signal` | `AbortSignal \| null` | Abort signal for the request. |
 
 | `Request` property / method | Type | Description |
 |-----------------------------|------|-------------|
 | `method` | `string` | HTTP method. |
 | `url` | `string` | Request URL as a string. |
 | `headers` | `Headers` | Request headers. Read-only on incoming requests. |
+| `signal` | `AbortSignal` | Abort signal associated with this request. |
 | `body` | `ReadableStream<Uint8Array> \| null` | Request body stream. |
 | `bodyUsed` | `boolean` | Whether the body has already been consumed. |
 | `clone()` | `() => Request` | Creates a copy of the request. |
 | `text()` | `() => Promise<string>` | Reads body as a string. |
 | `json()` | `() => Promise<any>` | Reads body and parses as JSON. |
 | `arrayBuffer()` | `() => Promise<ArrayBuffer>` | Reads body as an `ArrayBuffer`. |
-| `setCacheKey(key)` | `(key: string) => void` | Sets a custom cache key for the request. |
-| `setManualFramingHeaders(manual)` | `(manual: boolean) => void` | Toggles manual framing header control. |
+| `blob()` | `() => Promise<Blob>` | Reads body as a `Blob`. |
+| `formData()` | `() => Promise<FormData>` | Reads body as `FormData`. |
 
 ##### `Response`
 
@@ -351,21 +533,23 @@ Response.json(data: any, init?: ResponseInit): Response
 | `status` | `number` | HTTP status code. Defaults to `200`. |
 | `statusText` | `string` | HTTP status text. |
 | `headers` | `HeadersInit` | Response headers. |
-| `manualFramingHeaders` | `boolean` | When `true`, disables automatic framing header management. |
 
 | `Response` property / method | Type | Description |
 |------------------------------|------|-------------|
 | `status` | `number` | HTTP status code. |
 | `statusText` | `string` | HTTP status text. |
 | `ok` | `boolean` | `true` if status is in the range 200–299. |
+| `redirected` | `boolean` | `true` if the response was redirected. |
 | `url` | `string` | URL of the response. |
+| `type` | `ResponseType` | Response type (e.g., `"basic"`, `"cors"`). |
 | `headers` | `Headers` | Response headers. |
 | `body` | `ReadableStream<Uint8Array> \| null` | Response body stream. |
 | `bodyUsed` | `boolean` | Whether the body has already been consumed. |
 | `text()` | `() => Promise<string>` | Reads body as a string. |
 | `json()` | `() => Promise<any>` | Reads body and parses as JSON. |
 | `arrayBuffer()` | `() => Promise<ArrayBuffer>` | Reads body as an `ArrayBuffer`. |
-| `setManualFramingHeaders(manual)` | `(manual: boolean) => void` | Toggles manual framing header control. |
+| `blob()` | `() => Promise<Blob>` | Reads body as a `Blob`. |
+| `formData()` | `() => Promise<FormData>` | Reads body as `FormData`. |
 
 ##### `Headers`
 
@@ -382,6 +566,7 @@ new Headers(init?: HeadersInit): Headers
 | `set(name, value)` | `(name: string, value: string) => void` |
 | `append(name, value)` | `(name: string, value: string) => void` |
 | `delete(name)` | `(name: string) => void` |
+| `getSetCookie()` | `() => string[]` |
 | `forEach(callback)` | `(callback: (value: string, key: string, parent: Headers) => void) => void` |
 | `entries()` | `() => IterableIterator<[string, string]>` |
 | `keys()` | `() => IterableIterator<string>` |
@@ -484,6 +669,8 @@ new ReadableStream<R>(underlyingSource?: UnderlyingSource<R>, strategy?: Queuing
 | `tee()` | `() => [ReadableStream<R>, ReadableStream<R>]` |
 | `cancel(reason?)` | `(reason?: any) => Promise<void>` |
 
+To read a byte stream with a caller-supplied buffer, call `getReader({ mode: 'byob' })` which returns a `ReadableStreamBYOBReader`. The BYOB reader's `read(view)` method fills the provided `ArrayBufferView` in-place.
+
 ```js
 const stream = new ReadableStream({
   start(controller) {
@@ -522,18 +709,61 @@ new TransformStream<I, O>(
 | `readable` | `ReadableStream<O>` | The readable side of the transform. |
 | `writable` | `WritableStream<I>` | The writable side of the transform. |
 
+##### Queuing Strategies
+
+Two built-in queuing strategies control backpressure. Both accept `{ highWaterMark: number }`.
+
+```typescript
+new ByteLengthQueuingStrategy(init: QueuingStrategyInit): ByteLengthQueuingStrategy
+new CountQueuingStrategy(init: QueuingStrategyInit): CountQueuingStrategy
+```
+
+| Strategy | Counts |
+|----------|--------|
+| `ByteLengthQueuingStrategy` | Byte length of each `ArrayBufferView` chunk |
+| `CountQueuingStrategy` | Each chunk as a single unit |
+
+##### Compression Streams
+
+```typescript
+new CompressionStream(format: CompressionFormat): CompressionStream
+new DecompressionStream(format: CompressionFormat): DecompressionStream
+```
+
+`CompressionFormat` is one of `"deflate"`, `"deflate-raw"`, or `"gzip"`. Both implement the transform-stream shape (`readable` / `writable`) and can be piped directly with `pipeThrough`.
+
+```js
+/// <reference types="@gcoredev/fastedge-sdk-js" />
+
+async function app(event) {
+  const upstream   = await fetch("https://origin.example.com/data");
+  const compressed = upstream.body.pipeThrough(new CompressionStream("gzip"));
+
+  return new Response(compressed, {
+    headers: {
+      "content-type":     upstream.headers.get("content-type") ?? "application/octet-stream",
+      "content-encoding": "gzip",
+    },
+  });
+}
+
+addEventListener("fetch", event => event.respondWith(app(event)));
+```
+
 ---
 
 #### Encoding API
 
 ##### `TextEncoder` / `TextDecoder`
 
-Standard `TextEncoder` and `TextDecoder` are available as globals.
+Standard `TextEncoder` and `TextDecoder` are available as globals for converting between strings and `Uint8Array`.
 
 ```js
 const encoded = new TextEncoder().encode("hello");    // Uint8Array
 const decoded = new TextDecoder().decode(encoded);    // "hello"
 ```
+
+`TextDecoder` accepts an optional encoding label (default `"utf-8"`) and options `{ fatal?: boolean, ignoreBOM?: boolean }`. `TextEncoder` always encodes as UTF-8 and additionally exposes `encodeInto(source, destination)` which writes into a pre-allocated `Uint8Array` and returns `{ read, written }`.
 
 ##### Base64
 
@@ -554,6 +784,104 @@ const decoded = atob(encoded);          // "hello world"
 
 ---
 
+#### File API
+
+##### `Blob`
+
+```typescript
+new Blob(blobParts?: BlobPart[], options?: BlobPropertyBag): Blob
+```
+
+`BlobPart` is `BufferSource | Blob | string`. `BlobPropertyBag` accepts `{ type?: string, endings?: "native" | "transparent" }`.
+
+| `Blob` property / method | Type / Signature | Description |
+|--------------------------|-----------------|-------------|
+| `size` | `number` | Total byte length. |
+| `type` | `string` | MIME type string. |
+| `arrayBuffer()` | `() => Promise<ArrayBuffer>` | Reads content as an `ArrayBuffer`. |
+| `bytes()` | `() => Promise<Uint8Array>` | Reads content as a `Uint8Array`. |
+| `text()` | `() => Promise<string>` | Reads content as a UTF-8 string. |
+| `stream()` | `() => ReadableStream<Uint8Array>` | Returns a `ReadableStream` of the bytes. |
+| `slice(start?, end?, contentType?)` | `(start?: number, end?: number, contentType?: string) => Blob` | Returns a sub-blob. |
+
+##### `File`
+
+```typescript
+new File(fileBits: BlobPart[], fileName: string, options?: FilePropertyBag): File
+```
+
+`File` extends `Blob` and adds:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `name` | `string` | File name as provided to the constructor. |
+| `lastModified` | `number` | Last modified timestamp in milliseconds. |
+
+##### `FormData`
+
+```typescript
+new FormData(): FormData
+```
+
+`FormDataEntryValue` is `File | string`.
+
+| Method | Signature |
+|--------|-----------|
+| `append(name, value)` | `(name: string, value: string \| Blob, fileName?: string) => void` |
+| `delete(name)` | `(name: string) => void` |
+| `get(name)` | `(name: string) => FormDataEntryValue \| null` |
+| `getAll(name)` | `(name: string) => FormDataEntryValue[]` |
+| `has(name)` | `(name: string) => boolean` |
+| `set(name, value)` | `(name: string, value: string \| Blob, fileName?: string) => void` |
+| `forEach(callback)` | `(callback: (value: FormDataEntryValue, key: string, parent: FormData) => void) => void` |
+| `entries()` | `() => IterableIterator<[string, FormDataEntryValue]>` |
+| `keys()` | `() => IterableIterator<string>` |
+| `values()` | `() => IterableIterator<FormDataEntryValue>` |
+
+---
+
+#### Abort API
+
+```typescript
+new AbortController(): AbortController
+```
+
+| `AbortController` member | Type / Signature | Description |
+|--------------------------|-----------------|-------------|
+| `signal` | `AbortSignal` | The associated signal object. |
+| `abort(reason?)` | `(reason?: any) => void` | Triggers the signal's aborted state. |
+
+| `AbortSignal` member | Type / Signature | Description |
+|---------------------|-----------------|-------------|
+| `aborted` | `boolean` | Whether the signal has been aborted. |
+| `reason` | `any` | The abort reason, if any. |
+| `onabort` | `((ev: Event) => any) \| null` | Event handler fired when the signal aborts. |
+| `throwIfAborted()` | `() => void` | Throws the abort reason if the signal is aborted. |
+| `AbortSignal.abort(reason?)` | `(reason?: any) => AbortSignal` | Returns an already-aborted signal. |
+| `AbortSignal.timeout(ms)` | `(milliseconds: number) => AbortSignal` | Returns a signal that aborts after the given delay. |
+| `AbortSignal.any(signals)` | `(signals: AbortSignal[]) => AbortSignal` | Returns a signal that aborts when any input aborts. |
+
+Pass a signal via `RequestInit.signal` to cancel an in-flight `fetch`:
+
+```js
+/// <reference types="@gcoredev/fastedge-sdk-js" />
+
+async function app(event) {
+  try {
+    const response = await fetch("https://slow-origin.example.com/data", {
+      signal: AbortSignal.timeout(5000),
+    });
+    return new Response(await response.text(), { status: 200 });
+  } catch (err) {
+    return new Response("upstream timeout", { status: 504 });
+  }
+}
+
+addEventListener("fetch", event => event.respondWith(app(event)));
+```
+
+---
+
 #### Crypto API
 
 ```typescript
@@ -570,8 +898,23 @@ Available as `crypto.subtle`.
 |--------|-----------|
 | `digest` | `(algorithm: AlgorithmIdentifier, data: BufferSource) => Promise<ArrayBuffer>` |
 | `importKey` | See overloads below |
-| `sign` | `(algorithm: AlgorithmIdentifier, key: CryptoKey, data: BufferSource) => Promise<ArrayBuffer>` |
-| `verify` | `(algorithm: AlgorithmIdentifier, key: CryptoKey, signature: BufferSource, data: BufferSource) => Promise<boolean>` |
+| `sign` | `(algorithm: AlgorithmIdentifier \| EcdsaParams, key: CryptoKey, data: BufferSource) => Promise<ArrayBuffer>` |
+| `verify` | `(algorithm: AlgorithmIdentifier \| EcdsaParams, key: CryptoKey, signature: BufferSource, data: BufferSource) => Promise<boolean>` |
+
+**Supported operations:**
+
+| Operation | Supported Algorithms |
+|-----------|---------------------|
+| `digest()` | SHA-1, SHA-256, SHA-384, SHA-512 |
+| `sign()` / `verify()` | RSASSA-PKCS1-v1_5, ECDSA, HMAC |
+| `importKey()` | JWK, PKCS#8, SPKI, raw (HMAC) |
+| `encrypt()` / `decrypt()` | **Not implemented** |
+| `generateKey()`, `deriveKey()`, `deriveBits()` | **Not implemented** |
+| `exportKey()` | **Not implemented** |
+
+These operations support JWT verification (HMAC / ECDSA / RSASSA-PKCS1-v1_5), SAML assertion verification (SHA-256 digest + RSASSA-PKCS1-v1_5 + SPKI importKey), and general signature verification workflows.
+
+`ECDSA` requires `EcdsaParams` (`{ name: 'ECDSA', hash: AlgorithmIdentifier }`) for `sign` and `verify` so that the hash function can be specified.
 
 `importKey` overloads:
 
@@ -580,22 +923,28 @@ Available as `crypto.subtle`.
 subtle.importKey(
   format: 'jwk',
   keyData: JsonWebKey,
-  algorithm: AlgorithmIdentifier | RsaHashedImportParams | EcKeyImportParams,
+  algorithm: AlgorithmIdentifier | HmacImportParams | RsaHashedImportParams | EcKeyImportParams,
   extractable: boolean,
   keyUsages: ReadonlyArray<KeyUsage>,
 ): Promise<CryptoKey>
 
-// Raw / other formats
+// Raw / SPKI / PKCS#8 formats
 subtle.importKey(
   format: Exclude<KeyFormat, 'jwk'>,
   keyData: BufferSource,
-  algorithm: AlgorithmIdentifier | RsaHashedImportParams | HmacImportParams,
+  algorithm: AlgorithmIdentifier | HmacImportParams | RsaHashedImportParams | EcKeyImportParams,
   extractable: boolean,
   keyUsages: KeyUsage[],
 ): Promise<CryptoKey>
 ```
 
-Supported `KeyFormat` values: `"jwk"`, `"raw"`.
+Supported `(algorithm, format)` combinations:
+
+| Algorithm | Supported formats |
+|-----------|------------------|
+| `HMAC` | `'raw'`, `'jwk'` |
+| `RSASSA-PKCS1-v1_5` | `'jwk'`, `'spki'`, `'pkcs8'` |
+| `ECDSA` | `'jwk'`, `'raw'`, `'spki'`, `'pkcs8'` |
 
 ```js
 // Compute SHA-256 digest
@@ -670,6 +1019,20 @@ console.log(`elapsed: ${elapsed}ms`);
 
 ---
 
+#### DOM Events
+
+The standard `Event`, `EventTarget`, and `CustomEvent` interfaces are available as globals. These underpin the `FetchEvent` mechanism and can be used to implement custom event dispatch within an application.
+
+```typescript
+new Event(type: string, eventInitDict?: EventInit): Event
+new CustomEvent<T>(type: string, eventInitDict?: CustomEventInit<T>): CustomEvent<T>
+new EventTarget(): EventTarget
+```
+
+`EventTarget` exposes `addEventListener`, `removeEventListener`, and `dispatchEvent`. `CustomEvent` extends `Event` and adds a `detail` property carrying application-defined data.
+
+---
+
 #### Additional Globals
 
 | Global | Type / Signature | Description |
@@ -678,6 +1041,21 @@ console.log(`elapsed: ${elapsed}ms`);
 | `location` | `WorkerLocation` | URL of the current worker script. |
 | `queueMicrotask(callback)` | `(callback: () => void) => void` | Queues a microtask. |
 | `structuredClone(value, opts?)` | `(value: any, options?: StructuredSerializeOptions) => any` | Deep-clones a value. Transferable: `ArrayBuffer`. |
+
+`WorkerLocation` exposes `href`, `origin`, `protocol`, `host`, `hostname`, `port`, `pathname`, `search`, and `hash` as read-only string properties.
+
+---
+
+### Unavailable APIs
+
+These APIs are not implemented on the FastEdge JS runtime (StarlingMonkey, WinterCG-style). There is no Node.js compatibility layer.
+
+- `node:crypto` — not implemented; not polyfillable (sync Node crypto cannot bridge to async `crypto.subtle`). See the js-runtime reference for why polyfills don't work.
+- `node:fs`, `node:path`, `node:buffer`, `process`, `require` — not implemented
+- `WebSocket` — not implemented
+- DOM APIs (`document`, `window`, etc.) — not implemented (this is a server-side runtime, not a browser)
+
+For implementation guidance on what to use instead — particularly for crypto-heavy patterns like SAML — see the js-runtime reference.
 
 ---
 

@@ -1,4 +1,17 @@
+<!--
+  auto-updated: true
+  sources:
+    - id: fastedge-sdk-js
+      ref: main
+      commit: df672e9f296361bd9f3d5475ec32c624c2456656
+      updated: 2026-05-20
+-->
+
 # FastEdge JS Runtime — Constraints & Compatibility
+
+> **Note:** This document covers research-derived runtime constraints — particularly those affecting library compatibility and implementation choices. It is NOT an API reference. The canonical list of available Web APIs, SDK imports, and the `crypto.subtle` operation matrix lives in the SDK API reference. Consult that document for the full available surface.
+
+---
 
 ## Runtime: StarlingMonkey
 
@@ -8,48 +21,22 @@ a SpiderMonkey-based JS engine targeting the WASI 0.2 Component Model.
 
 It is a **strict WinterCG-style runtime**. It is NOT Node.js and has NO Node.js
 compatibility layer (unlike Cloudflare Workers' `nodejs_compat` flag — that
-does not exist here).
+does not exist here). Standard Node built-ins and platform APIs are not available,
+and there is no shim or flag that makes them available:
 
----
+**Unavailable Node built-ins:**
+- `node:crypto`
+- `node:fs`
+- `node:path`
+- `node:buffer`
+- `process`
+- `require`
 
-## What is Available
-
-- `fetch()`, `Request`, `Response`, `Headers`
-- `crypto.subtle` (Web Crypto API — partial, see matrix below)
-- `crypto.getRandomValues()`, `crypto.randomUUID()`
-- `TextEncoder` / `TextDecoder`
-- `CompressionStream` / `DecompressionStream` (including `deflate-raw`)
-- `URL`, `URLSearchParams`, `FormData`
-- `ReadableStream`, `WritableStream`, `TransformStream`
-- `Blob`, structured clone, `btoa` / `atob`
-- `console`, `setTimeout`, `setInterval`, `performance.now()`
-- `@gcoredev/fastedge-sdk-js`: `getSecret()`, `getEnv()`, `KvStore`, outbound `fetch`
-
-## What is NOT Available
-
-- `node:crypto` — not implemented, not polyfillable (see below)
-- `node:fs`, `node:path`, `node:buffer`, `process`, `require`
+**Absent platform APIs:**
 - WebSocket
 - DOM APIs
-- No Node.js compatibility flag
 
----
-
-## `crypto.subtle` — Supported Operations
-
-| Operation | Supported Algorithms |
-|---|---|
-| `digest()` | SHA-1, SHA-256, SHA-384, SHA-512, MD5 |
-| `sign()` / `verify()` | RSASSA-PKCS1-v1_5, ECDSA, HMAC |
-| `importKey()` | JWK, PKCS#8, SPKI, raw (HMAC) |
-| `getRandomValues()` | ✓ |
-| `encrypt()` / `decrypt()` | **Not implemented** |
-| `generateKey()`, `deriveKey()`, `deriveBits()` | **Not implemented** |
-| `exportKey()` | **Not implemented** |
-
-The operations available are sufficient for: JWT verification (HMAC/ECDSA/RSASSA-PKCS1-v1_5),
-SAML assertion verification (SHA-256 digest + RSASSA-PKCS1-v1_5 + SPKI importKey),
-and general signature verification workflows.
+For the full available surface (fetch, streams, crypto.subtle, TextEncoder, SDK imports, etc.), see the SDK API reference.
 
 ---
 
@@ -66,6 +53,8 @@ can substitute `node:crypto` with `crypto-browserify`. However:
 4. **No bundler polyfill can bridge synchronous Node.js crypto calls to async
    Promise-returning Web Crypto.** This is a fundamental impedance mismatch, not
    a configuration problem.
+
+The `crypto.subtle` operations actually exposed by the runtime (HMAC, RSASSA-PKCS1-v1_5, ECDSA sign/verify, digest, raw/JWK/PKCS#8/SPKI importKey) are sufficient for JWT verification, SAML assertion verification, and general signature verification workflows. The unavailable operations (`encrypt`, `decrypt`, `generateKey`, `deriveKey`, `deriveBits`, `exportKey`) are the ones that block most Node-style crypto patterns. See the SDK API reference for the exact algorithm matrix.
 
 ---
 
@@ -108,8 +97,8 @@ Use WebCrypto-native libraries that have no Node.js dependencies:
 - `xmldsigjs` is not widely battle-tested in edge/WinterCG environments for SAML
   specifically. There is a known open issue (#81) from a Cloudflare Workers
   developer attempting this. Verify carefully against real IdP responses.
-- Bundle size matters: the Wasm binary limit is 10 MB. Check after adding these
-  dependencies.
+- Bundle size matters: keep the Wasm binary within typical FastEdge limits.
+  Check after adding these dependencies.
 
 ### XMLDSig Verification Steps (manual reference)
 

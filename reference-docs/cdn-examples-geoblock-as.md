@@ -3,8 +3,8 @@
   sources:
     - id: proxy-wasm-sdk-as
       ref: master
-      commit: 20b31c05b39c5537fb1ac7cc8693d9d8ec314f25
-      updated: 2026-04-15
+      commit: 60f25c7bd35564e5bafb421be7f37aa4acf1bf81
+      updated: 2026-05-20
 -->
 
 ---
@@ -16,7 +16,7 @@ capabilities: [geoblock, geo-filtering, country-detection, access-control]
 
 # Geoblock — CDN App Example (AssemblyScript)
 
-Country-based request blocking for CDN apps using the proxy-wasm AssemblyScript SDK. Reads the client country from a request property, checks it against a configurable blacklist, and blocks matching requests before they reach origin.
+Country-based request blocking for CDN apps using the proxy-wasm AssemblyScript SDK. Reads the client country from a request property, checks it against a configurable blacklist, and blocks matching requests before they reach origin. Both blocked and allowed requests are logged at INFO level for audit purposes.
 
 ---
 
@@ -26,7 +26,7 @@ Country-based request blocking for CDN apps using the proxy-wasm AssemblyScript 
 - **Language**: AssemblyScript
 - **Package**: `@gcoredev/proxy-wasm-sdk-as`
 - **Entry export**: `export * from "@gcoredev/proxy-wasm-sdk-as/assembly/proxy"`
-- **Root context name**: `"geoblock"` (passed to `registerRootContext`)
+- **Root context name**: `"geoBlock"` (passed to `registerRootContext`)
 
 ---
 
@@ -44,7 +44,7 @@ If `BLACKLIST` is absent or parses to zero entries, the app returns 500 and halt
 
 | Property path | Type | Description |
 |---|---|---|
-| `request.country` | `ArrayBuffer` (UTF-8 bytes) | Two-letter ISO country code injected by the CDN edge |
+| `request.country` | `ArrayBuffer` (UTF-8 bytes) | Two-letter ISO country code injected by the CDN edge from Geo-IP data — no additional configuration required |
 
 Retrieved via `get_property("request.country")`. Returns an `ArrayBuffer` with `byteLength === 0` if the property is absent.
 
@@ -60,11 +60,11 @@ Extends `RootContext`.
 
 | Method | Return | Description |
 |---|---|---|
-| `createContext(context_id: u32)` | `Context` | Returns a new `GeoBlock` instance for each request |
+| `createContext(context_id: u32)` | `Context` | Sets log level to `LogLevelValues.info` via `setLogLevel`, then returns a new `GeoBlock` instance for each request |
 
 ### `GeoBlock`
 
-Extends `Context`. Field: `allow: bool = true` (unused in current logic — all blocking is done via early return).
+Extends `Context`.
 
 | Method | Signature | Description |
 |---|---|---|
@@ -84,8 +84,8 @@ Executes on every inbound request before forwarding to origin.
 3. If parsed array length is 0 → send 500 `App misconfigured`, return `FilterHeadersStatusValues.StopIteration`.
 4. Read `request.country` via `get_property("request.country")`. Returns `ArrayBuffer`. If `byteLength === 0` → send 502 `Missing country information`, return `FilterHeadersStatusValues.StopIteration`.
 5. Decode country bytes: `String.UTF8.decode(country)` → `countryStr`.
-6. If `blacklistedCountries.includes(countryStr)` → send 403 `Request blacklisted`, return `FilterHeadersStatusValues.StopIteration`.
-7. Otherwise → return `FilterHeadersStatusValues.Continue`.
+6. If `blacklistedCountries.includes(countryStr)` → emit INFO log `"geoBlock: blocked request from " + countryStr`, send 403 `Request blacklisted`, return `FilterHeadersStatusValues.StopIteration`.
+7. Otherwise → emit INFO log `"geoBlock: allowed request from " + countryStr`, return `FilterHeadersStatusValues.Continue`.
 
 ---
 
@@ -118,10 +118,10 @@ const INTERNAL_SERVER_ERROR: u32 = 500;
 ```typescript
 registerRootContext((context_id: u32) => {
   return new GeoBlockRoot(context_id);
-}, "geoblock");
+}, "geoBlock");
 ```
 
-The second argument `"geoblock"` is the filter name used by the proxy runtime.
+The second argument `"geoBlock"` is the filter name used by the proxy runtime.
 
 ---
 
@@ -152,7 +152,7 @@ Build outputs:
 ```json
 {
   "dependencies": {
-    "@gcoredev/proxy-wasm-sdk-as": "file:../.."
+    "@gcoredev/proxy-wasm-sdk-as": "^1.2.3"
   },
   "devDependencies": {
     "@assemblyscript/wasi-shim": "^0.1.0",
@@ -166,17 +166,18 @@ Build outputs:
 ## Gotchas
 
 - **Property type is `ArrayBuffer`**: `get_property("request.country")` returns an `ArrayBuffer`, not a string. Always check `byteLength === 0` for absence, then decode with `String.UTF8.decode(...)`.
-- **Country code format**: The runtime injects a 2-letter ISO 3166-1 alpha-2 code (e.g. `RU`, `CN`). Matching is case-sensitive — `includes()` does exact string comparison. Ensure blacklist entries use uppercase codes.
+- **Country code format**: The runtime injects a 2-letter ISO 3166-1 alpha-2 code from Geo-IP data (e.g. `RU`, `CN`). FastEdge always provides uppercase codes. Matching is case-sensitive — `includes()` does exact string comparison. Ensure blacklist entries use uppercase codes.
 - **Whitespace trimming**: The blacklist parser calls `.trim()` on each split token, so `"RU, CN, KP"` is handled correctly. However, the decoded `countryStr` from the property is not trimmed — trailing bytes in the property would cause a mismatch.
 - **`send_http_response` + `StopIteration`**: All blocking paths call `send_http_response` then return `StopIteration`. The request is halted and the synthetic response is sent to the client; origin is never contacted.
-- **`allow` field**: `GeoBlock` declares `allow: bool = true` but the field is not read anywhere in the current implementation. All flow control is via early returns.
+- **Log level initialization**: `setLogLevel(LogLevelValues.info)` is called in `createContext` (root context), not in `onRequestHeaders`. This sets the log level once per context lifecycle, not per request.
+- **Audit logging**: Both blocked and allowed requests emit an INFO log entry. This provides a full audit trail of all geoblock decisions.
 - **No time-window support**: Unlike the Rust geoblock example, this AssemblyScript implementation does not support time-bounded blocking. The blacklist applies unconditionally.
 
 ---
 
 ## See Also
 
-- proxy-wasm-sdk-as SDK reference (AssemblyScript host API, `get_property`, `send_http_response`, `FilterHeadersStatusValues`)
+- proxy-wasm-sdk-as SDK reference (AssemblyScript host API, `get_property`, `send_http_response`, `FilterHeadersStatusValues`, `getEnv`, `setLogLevel`)
 - FastEdge CDN app platform overview (available request properties, country detection)
 - FastEdge environment variable configuration (setting `BLACKLIST` at deploy time)
 - examples-geoblock-rust reference (equivalent Rust implementation with time-window support)

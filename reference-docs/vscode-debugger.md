@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-test
-      ref: v0.1.7
-      commit: 0f309ee346b81261e66d09d1b50f70f8928e47fa
-      updated: 2026-04-22
+      ref: v0.2.2
+      commit: e5254c8c4b4b3aab0069e783ade1cec435726566
+      updated: 2026-05-20
 -->
 
 # FastEdge Visual Debugger
@@ -121,7 +121,7 @@ Use `/gcore-fastedge:test` to create or update this file. Full schema: see the t
 |---|---|---|---|
 | `PORT` | `number` | `5179` | Port the HTTP server listens on. Defaults to `5179` when not set. |
 | `PROXY_RUNNER_DEBUG` | `"1"` | unset | Enable verbose debug logging for WebSocket and runner activity. |
-| `VSCODE_INTEGRATION` | `"true"` | unset | Set to `"true"` when running in VSCode extension context; enables the `<workspace>` path placeholder in WASM path loading. |
+| `VSCODE_INTEGRATION` | `"true"` | unset | Set to `"true"` when running inside the VSCode extension; enables workspace WASM detection. |
 | `WORKSPACE_PATH` | `string` | unset | Absolute path to the workspace root; used as the `.env` file base and for port file placement. |
 | `FASTEDGE_RUN_PATH` | `string` | unset | Override the path to the `fastedge-run` CLI binary used to execute WASM modules. |
 

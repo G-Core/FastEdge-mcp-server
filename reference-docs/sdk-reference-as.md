@@ -3,13 +3,13 @@
   sources:
     - id: proxy-wasm-sdk-as
       ref: master
-      commit: 20b31c05b39c5537fb1ac7cc8693d9d8ec314f25
-      updated: 2026-04-15
+      commit: 60f25c7bd35564e5bafb421be7f37aa4acf1bf81
+      updated: 2026-05-20
 -->
 
 # AssemblyScript Proxy-Wasm SDK Reference
 
-SDK: `@gcoredev/proxy-wasm-sdk-as` version 1.2.0. Enables writing CDN filter applications (proxy-wasm plugins) in AssemblyScript that compile to WebAssembly and run on the FastEdge platform. CDN-only SDK — all content relates to proxy-wasm CDN app development.
+SDK: `@gcoredev/proxy-wasm-sdk-as` version 1.2.3. Enables writing CDN filter applications (proxy-wasm plugins) in AssemblyScript that compile to WebAssembly and run on the FastEdge platform. CDN-only SDK — all content relates to proxy-wasm CDN app development.
 
 Two import paths:
 - Core: `@gcoredev/proxy-wasm-sdk-as/assembly`
@@ -98,7 +98,7 @@ registerRootContext(
 ```json
 {
   "dependencies": {
-    "@gcoredev/proxy-wasm-sdk-as": "^1.2.0"
+    "@gcoredev/proxy-wasm-sdk-as": "^1.2.3"
   },
   "devDependencies": {
     "assemblyscript": "^0.28.9",
@@ -196,12 +196,13 @@ onResponseBody(body_buffer_length: usize, end_of_stream: bool): FilterDataStatus
 onLog(): void
 ```
 
+`onLog` is part of the proxy-wasm specification, and the SDK exports `proxy_on_log` for forward compatibility. **`onLog` is not dispatched on the FastEdge platform today** — neither the edge runtime nor the local test runner invokes it. Do not implement `onLog` in application code or rely on it for any logic.
+
 **Hook parameter notes:**
 
 - `headers` / `a` in header hooks: count of headers; rarely needed directly since `stream_context` provides header access.
 - `body_buffer_length`: number of bytes buffered so far. Pass to `get_buffer_bytes` to read the body.
 - `end_of_stream`: indicates whether this is the final chunk.
-- `onLog`: called after the request/response cycle is complete; request and response headers are immutable in this phase.
 
 **Constraint**: Response headers (`stream_context.headers.response`) are only accessible during response-phase hooks (`onResponseHeaders`, `onResponseBody`). Accessing them during request-phase hooks will panic.
 
@@ -257,6 +258,8 @@ Consequences:
 - Instance fields on `Context` subclasses are **not** available in subsequent hooks.
 - `this.root_context` references are **not** shared across hooks.
 - The `Context` constructor runs fresh for each hook invocation.
+
+**Exception**: Instance fields on `Context` **do** persist across same-hook re-entry during an `httpCall` resume (see HTTP Call Resume Contract). This exception applies only to same-hook re-entry, not to transitions between different lifecycle hooks.
 
 Do not use patterns like this — they will not work on FastEdge:
 
@@ -323,7 +326,7 @@ Returned from `onRequestHeaders` and `onResponseHeaders`.
 | Value                          | Integer | Description                                               |
 | ------------------------------ | ------- | --------------------------------------------------------- |
 | `Continue`                     | 0       | Pass headers downstream and continue processing.          |
-| `StopIteration`                | 1       | Pause header processing; resume with `continueRequest()`. |
+| `StopIteration`                | 1       | Pause header processing.                                  |
 | `ContinueAndEndStream`         | 2       | Continue processing and mark the stream as ended.         |
 | `StopAllIterationAndBuffer`    | 3       | Stop all iteration and buffer the body.                   |
 | `StopAllIterationAndWatermark` | 4       | Stop all iteration until the buffer watermark is reached. |
@@ -489,7 +492,7 @@ function set_buffer_bytes(
 ): WasmResultValues;
 ```
 
-`get_buffer_bytes`: reads a slice of the body or buffer starting at `start` for `length` bytes. Returns an empty `ArrayBuffer` (byteLength 0) on failure or when the buffer is empty.
+`get_buffer_bytes`: reads a slice of the body or buffer starting at `start` for `length` bytes. Returns an empty `ArrayBuffer` (`byteLength == 0`) on failure or when the buffer is empty.
 
 `set_buffer_bytes`: replaces the range `[start, start+length)` in the body or buffer with `value`. To replace the entire body, pass `start=0` and `length=body_buffer_length`.
 
@@ -512,7 +515,7 @@ onRequestBody(body_buffer_length: usize, end_of_stream: bool): FilterDataStatusV
   const body = get_buffer_bytes(
     BufferTypeValues.HttpRequestBody,
     0,
-    body_buffer_length as u32
+    body_buffer_length as u32,
   );
   const text = String.UTF8.decode(body);
   log(LogLevelValues.info, "Body: " + text);
@@ -522,7 +525,7 @@ onRequestBody(body_buffer_length: usize, end_of_stream: bool): FilterDataStatusV
     BufferTypeValues.HttpRequestBody,
     0,
     body_buffer_length as u32,
-    modified
+    modified,
   );
   return FilterDataStatusValues.Continue;
 }
@@ -547,7 +550,7 @@ function get_property(path: string): ArrayBuffer;
 function set_property(path: string, data: ArrayBuffer): WasmResultValues;
 ```
 
-`get_property`: returns an empty `ArrayBuffer` (byteLength 0) when the property is not found. Check `byteLength > 0` before decoding.
+`get_property`: returns an empty `ArrayBuffer` (`byteLength == 0`) when the property is not found. Check `byteLength > 0` before decoding.
 
 `set_property`: stores a custom property value accessible in later hooks via `get_property`. Does not modify the built-in properties listed below.
 
@@ -572,7 +575,7 @@ All properties below are UTF-8 encoded strings decoded with `String.UTF8.decode(
 | `request.asn`          | UTF-8 string          | Autonomous System Number.                                               |
 | `request.geo.lat`      | UTF-8 string          | Latitude of the client IP.                                              |
 | `request.geo.long`     | UTF-8 string          | Longitude of the client IP.                                             |
-| `response.status`      | 2-byte big-endian u16 | Response status code — binary, not a UTF-8 string (see note below).     |
+| `response.status`      | 2-byte big-endian u16 | Response status code — **binary, not a UTF-8 string** (see note below). |
 
 Geo properties (`request.country`, `request.country.name`, `request.city`, `request.region`, `request.continent`, `request.asn`, `request.geo.lat`, `request.geo.long`) are lazily computed from the client IP address.
 
@@ -653,7 +656,7 @@ onRequestHeaders(headers: u32, end_of_stream: bool): FilterHeadersStatusValues {
       [
         makeHeaderPair("content-type", "text/plain"),
         makeHeaderPair("www-authenticate", "Bearer"),
-      ]
+      ],
     );
     return FilterHeadersStatusValues.StopIteration;
   }
@@ -665,7 +668,7 @@ onRequestHeaders(headers: u32, end_of_stream: bool): FilterHeadersStatusValues {
 
 ## Outbound HTTP (httpCall)
 
-Make an outbound HTTP call from the `RootContext`. The call is non-blocking: the host invokes the provided callback when the response arrives.
+Make an outbound HTTP call from the `RootContext`. The call is non-blocking: the host invokes the provided callback when the response arrives, then re-invokes the originating hook so processing can continue.
 
 **Import path**: `@gcoredev/proxy-wasm-sdk-as/assembly` (method on `RootContext`)
 
@@ -700,9 +703,21 @@ class RootContext {
 | `origin_context`       | `BaseContext`                                                                          | The context to pass back to the callback. Pass `this` from within a `Context`.                                           |
 | `cb`                   | `(origin_context: BaseContext, headers: u32, body_size: usize, trailers: u32) => void` | Callback invoked when the response is received.                                                                          |
 
-In the callback, read response headers via `stream_context.headers.http_callback` and the body via `get_buffer_bytes(BufferTypeValues.HttpCallResponseBody, 0, body_size as u32)`.
+In the callback, read response headers via `stream_context.headers.http_callback` and the body via `get_buffer_bytes(BufferTypeValues.HttpCallResponseBody, 0, body_size as u32)`. If `headers == 0`, the call failed (timeout or DNS failure).
 
-**Full example:**
+### HTTP Call Resume Contract
+
+The FastEdge runtime uses a host-driven resume model that differs from the generic proxy-wasm specification. When a lifecycle hook dispatches an outbound HTTP call and returns a pause value (`FilterHeadersStatusValues.StopIteration` or `StopAllIterationAndBuffer`), the runtime:
+
+1. Awaits the HTTP response.
+2. Invokes the `cb` callback. The SDK sets the effective context to `origin_context` before calling `cb`, so `stream_context.headers.http_callback` and `get_buffer_bytes(BufferTypeValues.HttpCallResponseBody, ...)` resolve against the originating request inside the callback.
+3. **Re-invokes the same lifecycle hook** on the same `Context` instance. The hook must return `FilterHeadersStatusValues.Continue` to proceed, or dispatch another call and return a pause value again.
+
+Because step 3 re-fires the hook, every hook that dispatches `httpCall` must gate re-dispatch with an instance-field latch. Without the latch, the hook dispatches a new HTTP call on every re-entry and the request loops until timeout.
+
+Instance fields on `Context` do persist across the re-invocation in step 3. This is the one exception to the Hook State Isolation rule: it applies only to same-hook re-entry during an `httpCall` resume, not to transitions between different lifecycle hooks.
+
+Use a **named module-level function** as the callback, not an anonymous arrow function. Named functions cannot close over mutable state and keep the dispatch call site readable:
 
 ```typescript
 import {
@@ -721,6 +736,25 @@ import {
 } from "@gcoredev/proxy-wasm-sdk-as/assembly";
 export * from "@gcoredev/proxy-wasm-sdk-as/assembly/proxy";
 
+function onUpstreamResponse(
+  ctx: BaseContext,
+  hdrs: u32,
+  bodySize: usize,
+  trls: u32,
+): void {
+  if (hdrs == 0) {
+    log(LogLevelValues.warn, "HTTP call failed — timeout or DNS");
+    return;
+  }
+  const body = get_buffer_bytes(
+    BufferTypeValues.HttpCallResponseBody,
+    0,
+    bodySize as u32,
+  );
+  const self = ctx as MyContext;
+  log(LogLevelValues.info, "Response: " + String.UTF8.decode(body));
+}
+
 class MyRootContext extends RootContext {
   createContext(context_id: u32): Context {
     return new MyContext(context_id, this);
@@ -728,6 +762,8 @@ class MyRootContext extends RootContext {
 }
 
 class MyContext extends Context {
+  httpCallDispatched: bool = false;
+
   constructor(context_id: u32, root_context: MyRootContext) {
     super(context_id, root_context);
   }
@@ -736,26 +772,33 @@ class MyContext extends Context {
     headers: u32,
     end_of_stream: bool,
   ): FilterHeadersStatusValues {
+    if (this.httpCallDispatched) {
+      return FilterHeadersStatusValues.Continue;
+    }
+
     const result = (this.root_context as MyRootContext).httpCall(
-      "https://api.example.com/check",
-      [makeHeaderPair("accept", "application/json")],
+      "api.example.com",
+      [
+        makeHeaderPair(":method", "GET"),
+        makeHeaderPair(":path", "/data"),
+        makeHeaderPair(":scheme", "https"),
+        makeHeaderPair(":authority", "api.example.com"),
+        makeHeaderPair("accept", "application/json"),
+      ],
       new ArrayBuffer(0),
       [],
       5000,
       this,
-      (ctx: BaseContext, respHeaders: u32, bodySize: usize, trailers: u32) => {
-        const body = get_buffer_bytes(
-          BufferTypeValues.HttpCallResponseBody,
-          0,
-          bodySize as u32,
-        );
-        log(LogLevelValues.info, "Response: " + String.UTF8.decode(body));
-      },
+      onUpstreamResponse,
     );
-    if (result == WasmResultValues.Ok) {
-      return FilterHeadersStatusValues.StopAllIterationAndBuffer;
+
+    if (result != WasmResultValues.Ok) {
+      log(LogLevelValues.error, "httpCall dispatch failed: " + result.toString());
+      return FilterHeadersStatusValues.Continue;
     }
-    return FilterHeadersStatusValues.Continue;
+
+    this.httpCallDispatched = true;
+    return FilterHeadersStatusValues.StopIteration;
   }
 }
 
@@ -764,6 +807,8 @@ registerRootContext(
   "http-call-example",
 );
 ```
+
+If the response handler needs access to `Context` state, downcast `ctx` inside the handler: `const self = ctx as MyContext;`.
 
 ---
 
@@ -801,7 +846,7 @@ function registerRootContext(
 ): void;
 ```
 
-Call exactly once at module scope, after class definitions. The `name` parameter is accepted for backwards compatibility but is ignored by the runtime.
+Call exactly once at module scope, after class definitions. The `name` parameter is accepted for API compatibility with the proxy-wasm spec but is ignored by the FastEdge runtime. The value does not need to match any configuration — pass any descriptive string.
 
 ```typescript
 registerRootContext(
@@ -820,7 +865,7 @@ APIs specific to the FastEdge platform; not part of the core proxy-wasm specific
 
 ### Environment Variables (getEnv)
 
-Read environment variables configured at deployment time via the FastEdge platform.
+Read environment variables configured at deployment time via the FastEdge platform. Uses the standard WASI environment interface (subject to a 64 KB per-variable size limit).
 
 ```typescript
 function getEnv(name: string): string;
@@ -838,6 +883,29 @@ if (blocklist.length == 0) {
 }
 ```
 
+### Dictionary (getDictionary)
+
+Read dictionary values using the proxy-wasm `proxy_dictionary_get` host call. This bypasses the 64 KB WASI environment variable size limit and should be used when a value may be larger than 64 KB (e.g. large JSON configs, PEM certificates, policy documents).
+
+```typescript
+function getDictionary(name: string): string;
+```
+
+Returns the value, or an empty string if not found.
+
+| Function              | Use when                                   |
+| --------------------- | ------------------------------------------ |
+| `getEnv(name)`        | Variable value is under 64 KB (most cases) |
+| `getDictionary(name)` | Variable value may exceed 64 KB            |
+
+```typescript
+import { getDictionary } from "@gcoredev/proxy-wasm-sdk-as/assembly/fastedge";
+import { log, LogLevelValues } from "@gcoredev/proxy-wasm-sdk-as/assembly";
+
+const config = getDictionary("LARGE_CONFIG");
+log(LogLevelValues.info, "Config size: " + config.length.toString() + " bytes");
+```
+
 ### Secrets (getSecret, getSecretEffectiveAt)
 
 Read secret values stored in the FastEdge secrets store. Secrets are configured via the platform and are not visible in logs or configuration files.
@@ -849,7 +917,7 @@ function getSecretEffectiveAt(name: string, effectiveAt: u32): string;
 
 `getSecret`: returns the current value of the named secret, or an empty string if not found.
 
-`getSecretEffectiveAt`: reads a secret from a specific rotation slot. Pass the current Unix timestamp in seconds as `effectiveAt`. The host selects the slot where `effectiveAt >= secret_slots.slot`.
+`getSecretEffectiveAt`: reads a secret from a specific rotation slot. Slots are defined in the FastEdge UI and are always numeric (e.g., incremental integers, or timestamp-style values representing a point in time). Use this for secret rotation: pass the current Unix timestamp in seconds as `effectiveAt`. The host selects the slot where `effectiveAt >= secret_slots.slot`.
 
 ```typescript
 import {
@@ -1014,6 +1082,6 @@ Exported but must not be used in new code. Will be removed in a future version.
 ## See Also
 
 - FastEdge quickstart guide (step-by-step guide to creating your first FastEdge plugin)
-- FastEdge CDN app examples (usage patterns for http and CDN filter applications)
+- FastEdge CDN app examples (usage patterns for CDN filter applications)
 - Platform overview (FastEdge platform architecture and deployment model)
 - Best practices (performance, security, and reliability guidance for FastEdge plugins)
