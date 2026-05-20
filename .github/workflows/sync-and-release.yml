@@ -56,7 +56,18 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Syncing from fastedge-plugin ref: ${REF}, version: ${VERSION}"
 
-      - name: Sparse checkout fastedge-plugin
+      # repository_dispatch: download + verify tarball from GitHub Release.
+      - name: Sync from release artifact (repository_dispatch)
+        if: github.event_name == 'repository_dispatch'
+        run: |
+          bash scripts/sync-from-artifact.sh \
+            --artifact-url "${{ github.event.client_payload.artifact_url }}" \
+            --sha256-url   "${{ github.event.client_payload.artifact_sha256_url }}" \
+            --version      "${{ github.event.client_payload.version }}"
+
+      # workflow_dispatch: sparse checkout at the given ref (dev/testing path).
+      - name: Sparse checkout fastedge-plugin (workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
         run: |
           REF="${{ steps.inputs.outputs.ref }}"
           git clone --depth 1 --sparse --branch "$REF" \
@@ -67,7 +78,8 @@ jobs:
             plugins/gcore-fastedge/skills/test/reference \
             plugins/gcore-fastedge/docs-index.json
 
-      - name: Sync reference docs
+      - name: Sync reference docs (workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
         run: PLUGIN_PATH=/tmp/fastedge-plugin bash scripts/sync-reference-docs.sh
 
       - name: Check for changes
