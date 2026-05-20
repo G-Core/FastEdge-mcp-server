@@ -137,14 +137,14 @@ jobs:
 
           if [ -n "$VERSION" ]; then
             BRANCH="release/v${VERSION}"
-            git checkout -b "$BRANCH"
+            git checkout -B "$BRANCH"
             git commit -m "release: v${VERSION} — sync reference docs from fastedge-plugin ${REF}"
             git tag -a "v${VERSION}" -m "Release v${VERSION} (synced from fastedge-plugin ${REF})"
             git push origin "$BRANCH" --follow-tags
             echo "Tagged and pushed v${VERSION} on ${BRANCH}"
           else
             BRANCH="docs/sync-$(date +%Y%m%d-%H%M%S)"
-            git checkout -b "$BRANCH"
+            git checkout -B "$BRANCH"
             git commit -m "docs: sync reference docs from fastedge-plugin ${REF}"
             git push origin "$BRANCH"
             echo "Pushed docs sync on ${BRANCH}"
