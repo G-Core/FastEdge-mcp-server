@@ -93,33 +93,25 @@ To manually deploy environment variables from `dotenv` files use:
 /setEnvironmentVariables
 ```
 
-For more information on how Environment Variables work in `dotenv` files read [here](./assets/context/dotenv.md)
+For more information on how Environment Variables work in `dotenv` files read [here](./docs/dotenv.md)
 
 # Available Tools
 
-### FastEdge Application Development
+### Local Tools (workspace operations)
 
-- **get-fastedge-context** - Get comprehensive FastEdge development context and patterns for coding assistance
 - **scaffold-fastedge-project** - Create a new FastEdge project from templates.
-- **list-fastedge-templates** - List all available FastEdge templates with descriptions, languages, and application types
-
-### FastEdge Binary Management
-
+- **list-fastedge-templates** - List all available FastEdge templates with descriptions, languages, and application types.
 - **build-wasm** - Build a FastEdge WASM binary from source code within the workspace.
-- **upload-binary** - Upload a WASM binary to the FastEdge API for deployment
+- **deployment-comments** - Generate "Magic Comments" for tracking deployment information within code files.
+- **fastedge-docs** - Search and read FastEdge SDK reference docs, platform guides, error codes, and testing documentation. Three modes: topics (list all), search (keyword match), read (full document).
 
-### FastEdge Application Deployment
+### API Tools (direct Gcore API calls)
 
-- **update-or-create-app** - Update an existing FastEdge application or create a new one using a binary ID
-
-### FastEdge Environment Variable Deployment
-
-- **update-env-vars-app** - Update an existing FastEdge application with "Environment Variables", "Secrets" and "Response Headers"
-- **get-secret-id** - Get a secrets id from its name
-
-### Documentation & Magic Comments
-
-- **deployment-comments** - Generate "Magic Comments" for tracking deployment information within code files
+- **upload-binary** - Upload a WASM binary to the FastEdge API for deployment.
+- **gcore_api** - Execute any Gcore API call. Use `describe_api` first to understand available endpoints.
+- **describe_api** - Get endpoint documentation and TypeScript type definitions for a Gcore API resource group (e.g. `fastedge-apps`, `cdn-resources`). Covers FastEdge, CDN, DNS, WAAP, and Storage.
+- **workflows_list** - Discover pre-built multi-step API workflows (e.g. `create-app`, `update-app-binary`). Returns templates for `batch_execute`.
+- **batch_execute** - Execute multiple sequential API calls in one invocation with `$name.path` reference resolution between steps. Max 5 calls per batch (configurable via `BATCH_MAX_CALLS`); total runtime capped at 3 minutes.
 
 # Available Resources
 
@@ -140,7 +132,11 @@ For more information on how Environment Variables work in `dotenv` files read [h
 
 Make sure to set the following environment variables:
 
-- `FASTEDGE_API_KEY` - Your FastEdge API key for authentication
+- `GCORE_API_KEY` (required) - Your Gcore API key for authentication (legacy `FASTEDGE_API_KEY` also accepted).
+- `GCORE_API_BASE` (optional) - Runtime override for the Gcore API base URL. Defaults to `https://api.gcore.com` (baked at build time). In-house devs can set this to `https://api.preprod.world` to test against preprod endpoints using prod schemas.
+- `BATCH_MAX_CALLS` (optional) - Override the default max calls per `batch_execute` (default: 5).
+
+See [DEVELOPMENT.md](./DEVELOPMENT.md) for the full env var table and the preprod build recipe.
 
 ## Supported FastEdge Templates
 
