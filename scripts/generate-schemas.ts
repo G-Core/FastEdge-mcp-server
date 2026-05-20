@@ -98,11 +98,13 @@ function toPascal(s: string): string {
 
 /** Strip HTML tags and clean up whitespace */
 function stripHtml(s: string): string {
-  return s
-    .replace(/<br\s*\/?>/gi, " ")
-    .replace(/<[^>]+>/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  let sanitized = s.replace(/<br\s*\/?>/gi, " ");
+  let previous: string;
+  do {
+    previous = sanitized;
+    sanitized = sanitized.replace(/<[^>]+>/g, "");
+  } while (sanitized !== previous);
+  return sanitized.replace(/\s+/g, " ").trim();
 }
 
 /**
