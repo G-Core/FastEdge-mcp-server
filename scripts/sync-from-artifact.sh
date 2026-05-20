@@ -41,10 +41,14 @@ SHA256_FILE="$TMPDIR_WORK/artifact.tar.gz.sha256"
 ARTIFACT_BASENAME="fastedge-reference-docs-v${VERSION}"
 EXTRACT_DIR="$TMPDIR_WORK/$ARTIFACT_BASENAME"
 
-# Download
+# Download (auth header required for internal GitHub repos)
 echo "Downloading artifact v${VERSION}..."
-curl -fsSL "$ARTIFACT_URL" -o "$TARBALL"
-curl -fsSL "$SHA256_URL"   -o "$SHA256_FILE"
+CURL_AUTH=()
+if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+  CURL_AUTH=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+fi
+curl -fsSL "${CURL_AUTH[@]}" "$ARTIFACT_URL" -o "$TARBALL"
+curl -fsSL "${CURL_AUTH[@]}" "$SHA256_URL"   -o "$SHA256_FILE"
 
 # Verify checksum
 echo "Verifying checksum..."
