@@ -60,7 +60,7 @@ jobs:
       - name: Sync from release artifact (repository_dispatch)
         if: github.event_name == 'repository_dispatch'
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           bash scripts/sync-from-artifact.sh \
             --artifact-url "${{ github.event.client_payload.artifact_url }}" \
