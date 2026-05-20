@@ -29,7 +29,7 @@ export function registerDeploymentPrompts(server: McpServer) {
                 3. Upload the wasm binary to the FastEdge network using the upload-binary tool. Keep track of the new binary id.
                 4. Use describe_api with group "fastedge-apps" to understand the app endpoints, then use gcore_api to create or update the app (POST /fastedge/v1/apps to create, PUT /fastedge/v1/apps/{id} to update). Include the binary id from step 3.
                 5. Check if the user wants to save the application data in "Magic Comments"?
-                6. If so, use the deployment-comment tool to create them and insert them into the top of the active file (i.e. the entryFile from building).
+                6. If so, use the deployment-comments tool to create them and insert them into the top of the active file (i.e. the entryFile from building).
                 7. Validate that the "Magic Comments" were inserted correctly, if they were requested.
                 8. Finally, provide a summary of the deployment with relevant details ( app name, id, url, etc. ).
               `,
@@ -37,7 +37,7 @@ export function registerDeploymentPrompts(server: McpServer) {
           },
         ],
       };
-    }
+    },
   );
 
   server.registerPrompt(
@@ -66,7 +66,7 @@ export function registerDeploymentPrompts(server: McpServer) {
           },
         ],
       };
-    }
+    },
   );
 
   server.registerPrompt(
@@ -110,6 +110,6 @@ export function registerDeploymentPrompts(server: McpServer) {
           },
         ],
       };
-    }
+    },
   );
 }

@@ -47,12 +47,16 @@ export interface ApiCallResult {
  * the Gcore gateway's OpenAPI validator rejects that with "value must be an
  * object". If the string isn't valid JSON, pass it through unchanged.
  *
- * For non-JSON content types, coerce to string.
+ * For `application/octet-stream`, Uint8Array/Buffer/ArrayBuffer values pass
+ * through unchanged; strings are decoded from base64 so the wire body is raw
+ * bytes rather than the base64 text representation.
+ *
+ * For all other content types, coerce to string.
  */
 export function serializeBody(
   body: unknown,
   contentType: string,
-): string | undefined {
+): string | Uint8Array | undefined {
   if (body === undefined || body === null) return undefined;
   if (contentType === "application/json") {
     if (typeof body === "string") {
@@ -63,6 +67,11 @@ export function serializeBody(
       }
     }
     return JSON.stringify(body);
+  }
+  if (contentType === "application/octet-stream") {
+    if (body instanceof Uint8Array) return body;
+    if (body instanceof ArrayBuffer) return new Uint8Array(body);
+    if (typeof body === "string") return Buffer.from(body, "base64");
   }
   return String(body);
 }
@@ -96,7 +105,7 @@ export async function callGcoreApi(
     Authorization: authorization,
   };
 
-  let body: string | undefined;
+  let body: string | Uint8Array | undefined;
   if (opts.body !== undefined && opts.body !== null) {
     const ct = opts.contentType ?? "application/json";
     headers["Content-Type"] = ct;
@@ -111,7 +120,8 @@ export async function callGcoreApi(
     const response = await fetch(url.toString(), {
       method: opts.method,
       headers,
-      body,
+      // Uint8Array is valid BodyInit in Node 18+ but missing from @types/node fetch overloads
+      body: body as BodyInit | undefined,
       signal: controller.signal,
     });
 

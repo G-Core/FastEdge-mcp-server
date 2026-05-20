@@ -408,9 +408,19 @@ test("serializeBody: passes through unparseable string verbatim for application/
   assert.equal(out, "not-json-just-text");
 });
 
-test("serializeBody: passes a string body through for application/octet-stream", () => {
-  const out = serializeBody("<binary-bytes>", "application/octet-stream");
-  assert.equal(out, "<binary-bytes>");
+test("serializeBody: decodes a base64 string to Uint8Array for application/octet-stream", () => {
+  // "hello wasm" base64-encoded
+  const input = "aGVsbG8gd2FzbQ==";
+  const out = serializeBody(input, "application/octet-stream");
+  assert.ok(out instanceof Uint8Array);
+  const decoded = new TextDecoder().decode(out as Uint8Array);
+  assert.equal(decoded, "hello wasm");
+});
+
+test("serializeBody: passes a Uint8Array through unchanged for application/octet-stream", () => {
+  const bytes = new Uint8Array([0x00, 0x61, 0x73, 0x6d]);
+  const out = serializeBody(bytes, "application/octet-stream");
+  assert.strictEqual(out, bytes);
 });
 
 test("serializeBody: returns undefined for null/undefined body", () => {
@@ -418,11 +428,13 @@ test("serializeBody: returns undefined for null/undefined body", () => {
   assert.equal(serializeBody(null, "application/json"), undefined);
 });
 
-// ── Integration: real HTTP against local server ──────────────────────────────
-// Confirms GCORE_API_BASE env override works, auth header forwards,
-// and request path/method/body round-trip correctly.
+// ── Integration: HTTP wire against local server ──────────────────────────────
+// Confirms method, path, Authorization header, and JSON body are forwarded
+// correctly over the wire. Does NOT exercise callGcoreApi() — that function's
+// GCORE_API_BASE resolution is fixed at module-load time, so we call fetch()
+// directly to verify the HTTP layer independently of module caching.
 
-test("callGcoreApi: integration smoke against local HTTP server", async (t) => {
+test("HTTP wire: integration smoke — method/path/auth/body round-trip against local server", async (t) => {
   const recorded: Array<{ method: string; path: string; auth: string; body: string }> = [];
   const server: Server = createServer((req, res) => {
     let body = "";
@@ -455,10 +467,6 @@ test("callGcoreApi: integration smoke against local HTTP server", async (t) => {
     else process.env.GCORE_API_KEY = prevKey;
   });
 
-  // Use a dynamic import so GCORE_API_BASE env is picked up at module load.
-  // (The baked BAKED_GCORE_API_BASE constant is only consulted when env var is unset.)
-  // In practice api-client.ts was already loaded before these env vars were set,
-  // so GCORE_API_BASE is fixed. We call fetch directly to exercise the wire path.
   const res = await fetch(
     `${process.env.GCORE_API_BASE}/fastedge/v1/apps?limit=5`,
     {
