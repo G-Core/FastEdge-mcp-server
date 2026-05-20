@@ -43,9 +43,13 @@ jobs:
               echo "Invalid tag format: $TAG_VERSION"
               exit 1
             fi
-            echo "Creating new release tag: $TAG_VERSION"
-            git tag -a "$TAG_VERSION" -m "Release $TAG_VERSION"
-            git push origin "$TAG_VERSION"
+            if git ls-remote --tags origin "refs/tags/$TAG_VERSION" | grep -q "$TAG_VERSION"; then
+              echo "Tag $TAG_VERSION already exists on remote — using it"
+            else
+              echo "Creating new release tag: $TAG_VERSION"
+              git tag -a "$TAG_VERSION" -m "Release $TAG_VERSION"
+              git push origin "$TAG_VERSION"
+            fi
             echo "has_tag=true" >> $GITHUB_OUTPUT
             echo "TAG_VERSION=$TAG_VERSION" >> $GITHUB_ENV
           else
