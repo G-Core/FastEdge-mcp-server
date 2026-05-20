@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-test
-      ref: v0.1.4
-      commit: 5b7f9b5172519a95a3f28edef45aaa160ff7562e
-      updated: 2026-04-09
+      ref: v0.1.7
+      commit: 0f309ee346b81261e66d09d1b50f70f8928e47fa
+      updated: 2026-04-22
 -->
 
 # Runner Internals — Low-Level Runner API
@@ -172,6 +172,14 @@ load(bufferOrPath: Buffer | string, config?: RunnerConfig): Promise<void>
 - **ProxyWasmRunner**: Compiles the module; loads dotenv files.
 - **HttpWasmRunner**: Writes binary to temp file; spawns `fastedge-run` process.
 
+**`httpPort` pinning (HTTP-WASM only).** When `config.httpPort` is set, the spawned `fastedge-run` process is bound to that specific port instead of allocating from the dynamic pool (8100–8199). If the port is already in use, `load()` throws:
+
+```
+fastedge-run port <N> is not available — release it or choose a different httpPort in fastedge-config.test.json
+```
+
+There is no fallback to dynamic allocation. Intended for Codespaces/Docker port-forwarding setups, live-preview URLs, or external tooling that requires a fixed target. For proxy-wasm runners, `httpPort` is ignored.
+
 ---
 
 #### `execute` — HTTP-WASM only
@@ -182,7 +190,35 @@ Executes an HTTP request through the WASM module. Forwards the request to the lo
 execute(request: HttpRequest): Promise<HttpResponse>
 ```
 
+`request.path` is a path on the locally spawned `fastedge-run` server, not a full URL.
+
 **Constraint**: Only available on `HttpWasmRunner`. Calling on `ProxyWasmRunner` throws.
+
+**Redirects are not followed.** The underlying fetch uses `redirect: "manual"`, so 3xx responses reach the caller intact — status code and `Location` header — rather than being transparently followed. This matches FastEdge edge behavior, where redirects are returned to the client rather than followed server-side, and lets tests assert on redirect status and `Location`.
+
+To follow a redirect, inspect `response.headers.location` and handle by `Location` shape:
+
+- **Relative Location** (e.g. `/new-path`) — reuse directly as `request.path`.
+- **Absolute same-host Location** (e.g. `http://localhost:8100/new-path`) — parse via `new URL()` and re-issue with `pathname + search` as `request.path`.
+- **Absolute cross-host Location** (e.g. `https://other.example.com/`) — cannot be followed through the runner; the 3xx response is the terminal state for the test.
+
+```typescript
+import { createRunner } from '@gcoredev/fastedge-test';
+
+const runner = await createRunner('./my-http-app.wasm');
+
+// Relative Location: reuse directly as path
+let response = await runner.execute({ path: '/moved', method: 'GET', headers: {} });
+if (response.status >= 300 && response.status < 400 && response.headers['location']) {
+  response = await runner.execute({
+    path: response.headers['location'], // e.g. "/new-location"
+    method: 'GET',
+    headers: {},
+  });
+}
+
+await runner.cleanup();
+```
 
 ---
 
@@ -328,6 +364,7 @@ interface RunnerConfig {
   };
   enforceProductionPropertyRules?: boolean;
   runnerType?: WasmType;
+  httpPort?: number;
 }
 ```
 
@@ -337,6 +374,7 @@ interface RunnerConfig {
 | `dotenv.path` | `string` | `undefined` | Directory to load dotenv files from. When omitted, `fastedge-run` uses the process CWD — correct for most npm package users whose `.env` files live at the project root. Only set when dotenv files are in a non-standard location (e.g. test fixture directories). |
 | `enforceProductionPropertyRules` | `boolean` | `true` | Restrict property access to match CDN production behavior |
 | `runnerType` | `WasmType` | auto-detected | Override WASM type detection |
+| `httpPort` | `number` | `undefined` | HTTP-WASM only. Pin the spawned `fastedge-run` subprocess to a specific port instead of allocating from the dynamic pool (8100–8199). `load()` throws if the port is busy — there is no fallback to dynamic allocation. Intended for Codespaces/Docker port-forwarding or external tooling requiring a fixed address. Ignored for proxy-wasm runners. |
 
 ---
 
@@ -489,20 +527,71 @@ enum ProxyStatus {
 Event emission interface used by runners to broadcast lifecycle events. In headless use, pass `new NullStateManager()` (no-op) or omit `setStateManager` entirely.
 
 ```typescript
+type EventSource = 'ui' | 'ai_agent' | 'api' | 'system';
+
 interface IStateManager {
-  emitRequestStarted(url, method, headers, source?): void;
-  emitHookExecuted(hook, returnCode, logCount, input, output, source?): void;
-  emitRequestCompleted(hookResults, finalResponse, calculatedProperties?, source?): void;
-  emitRequestFailed(error, details?, source?): void;
-  emitWasmLoaded(filename, size, source?): void;
-  emitPropertiesUpdated(properties, source?): void;
-  emitHttpWasmRequestCompleted(response, source?): void;
-  emitHttpWasmLog(log, source?): void;
-  emitReloadWorkspaceWasm(path, source?): void;
+  emitRequestStarted(
+    url: string,
+    method: string,
+    headers: Record<string, string>,
+    source?: EventSource,
+  ): void;
+
+  emitHookExecuted(
+    hook: string,
+    returnCode: number | null,
+    logCount: number,
+    input: {
+      request: { headers: Record<string, string>; body: string };
+      response: { headers: Record<string, string>; body: string };
+    },
+    output: {
+      request: { headers: Record<string, string>; body: string };
+      response: { headers: Record<string, string>; body: string };
+    },
+    source?: EventSource,
+  ): void;
+
+  emitRequestCompleted(
+    hookResults: Record<string, unknown>,
+    finalResponse: {
+      status: number;
+      statusText: string;
+      headers: Record<string, string>;
+      body: string;
+      contentType: string;
+      isBase64?: boolean;
+    },
+    calculatedProperties?: Record<string, unknown>,
+    source?: EventSource,
+  ): void;
+
+  emitRequestFailed(error: string, details?: string, source?: EventSource): void;
+
+  emitWasmLoaded(filename: string, size: number, source?: EventSource): void;
+
+  emitPropertiesUpdated(
+    properties: Record<string, string>,
+    source?: EventSource,
+  ): void;
+
+  emitHttpWasmRequestCompleted(
+    response: {
+      status: number;
+      statusText: string;
+      headers: Record<string, string>;
+      body: string;
+      contentType: string | null;
+      isBase64?: boolean;
+    },
+    source?: EventSource,
+  ): void;
+
+  emitHttpWasmLog(log: { level: number; message: string }, source?: EventSource): void;
+
+  emitReloadWorkspaceWasm(path: string, source?: EventSource): void;
 }
 ```
-
-`EventSource` is `"ui" | "ai_agent" | "api" | "system"`.
 
 ---
 
@@ -571,9 +660,8 @@ async function testCdnAppOffline() {
   const runner = await createRunner('./my-cdn-app.wasm');
 
   try {
-    // Use built-in responder — no origin server required
     const result: FullFlowResult = await runner.callFullFlow(
-      BUILTIN_SHORTHAND,  // generates a local response instead of fetching
+      BUILTIN_SHORTHAND,
       'GET',
       { 'accept': 'application/json' },
       '',

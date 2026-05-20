@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-test
-      ref: v0.1.4
-      commit: 5b7f9b5172519a95a3f28edef45aaa160ff7562e
-      updated: 2026-04-09
+      ref: v0.1.7
+      commit: 0f309ee346b81261e66d09d1b50f70f8928e47fa
+      updated: 2026-04-22
 -->
 
 # FastEdge Visual Debugger
@@ -42,6 +42,13 @@ Custom port:
 PORT=8080 npx @gcoredev/fastedge-test
 ```
 
+Anchor workspace root discovery to a specific starting location by passing a path as the first argument:
+```bash
+npx fastedge-debug /path/to/my-app
+```
+
+The CLI automatically discovers the workspace root by walking up from the current directory, looking first for an existing `.fastedge-debug/` directory, then for a `package.json` or `Cargo.toml`. The resolved root is used as the base for port file and configuration file placement.
+
 Programmatic usage:
 ```typescript
 import { startServer } from "@gcoredev/fastedge-test/server";
@@ -70,6 +77,8 @@ The returned promise resolves once the server is bound and ready to accept conne
 |---|---|
 | `npx @gcoredev/fastedge-test` (no args) | Visual debugger UI at `http://localhost:5179` |
 | Import `@gcoredev/fastedge-test/test` + call `runAndExit(defineTestSuite(...))` | Headless test runner — exits with pass/fail |
+
+If port `5179` is already in use, the server auto-increments through up to 50 sequential ports (e.g. `5179` through `5228`). If no free port is found in that range, the server exits with an error. The bound port is written to `.fastedge-debug/.debug-port` and deleted on shutdown.
 
 There is **no CLI argument mode** for running tests. Tests are always run programmatically by importing the test API and calling `runAndExit`. See the test-framework reference for the full test framework API.
 
@@ -110,11 +119,11 @@ Use `/gcore-fastedge:test` to create or update this file. Full schema: see the t
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `PORT` | `number` | `5179` | Port the HTTP server listens on |
-| `PROXY_RUNNER_DEBUG` | `"1"` | unset | Enable verbose debug logging for WebSocket and runner activity |
-| `VSCODE_INTEGRATION` | `"true"` | unset | Set to `"true"` when running in VSCode extension context; enables the `<workspace>` path placeholder in WASM path loading |
-| `WORKSPACE_PATH` | `string` | unset | Absolute path to the workspace root; used as the `.env` file base and for port file placement |
-| `FASTEDGE_RUN_PATH` | `string` | unset | Override the path to the `fastedge-run` CLI binary used to execute WASM modules |
+| `PORT` | `number` | `5179` | Port the HTTP server listens on. Defaults to `5179` when not set. |
+| `PROXY_RUNNER_DEBUG` | `"1"` | unset | Enable verbose debug logging for WebSocket and runner activity. |
+| `VSCODE_INTEGRATION` | `"true"` | unset | Set to `"true"` when running in VSCode extension context; enables the `<workspace>` path placeholder in WASM path loading. |
+| `WORKSPACE_PATH` | `string` | unset | Absolute path to the workspace root; used as the `.env` file base and for port file placement. |
+| `FASTEDGE_RUN_PATH` | `string` | unset | Override the path to the `fastedge-run` CLI binary used to execute WASM modules. |
 
 Usage examples:
 ```bash
@@ -146,47 +155,30 @@ Returns `200 OK`:
 }
 ```
 
+The `service` field is always `"fastedge-debugger"`.
+
 ```bash
 curl http://localhost:5179/health
 ```
 
 ---
 
-## Graceful Shutdown
-
-The server handles `SIGTERM` and `SIGINT`:
-
-1. Logs the received signal.
-2. Cleans up the active WASM runner (frees memory, closes child processes).
-3. Closes all WebSocket connections.
-4. Deletes the `.fastedge-debug/.debug-port` file (if `WORKSPACE_PATH` is set).
-5. Closes the HTTP server.
-6. Exits with code `0`.
-
-Send `SIGTERM` to trigger shutdown programmatically:
-
-```bash
-kill -SIGTERM <pid>
-```
-
-Or press `Ctrl+C` in the terminal to send `SIGINT`.
-
----
-
 ## Port File
 
-When `WORKSPACE_PATH` is set, the server writes the bound port number to `$WORKSPACE_PATH/.fastedge-debug/.debug-port` on startup and deletes it on shutdown.
+When `WORKSPACE_PATH` is set, the server writes the bound port number to `$WORKSPACE_PATH/.fastedge-debug/.debug-port` on startup and deletes it on shutdown. When `WORKSPACE_PATH` is not set, the file is written under the current working directory. Use this file for programmatic port discovery when starting the server as a subprocess.
 
 ---
 
 ## Port Conflicts
 
-The debugger uses port `5179` by default. If it won't open, check whether the port is occupied:
+The debugger uses port `5179` by default. If it is already in use, the server auto-increments through up to 50 sequential ports. If no free port is found, the server exits with an error.
+
+Check whether a port is occupied:
 ```bash
 lsof -i :5179
 ```
 
-When `WORKSPACE_PATH` is set, the server writes the bound port number to `$WORKSPACE_PATH/.fastedge-debug/.debug-port` on startup and deletes it on shutdown.
+Set `PORT` to a specific value to bypass auto-increment when a predictable port is required.
 
 ---
 
@@ -197,7 +189,7 @@ The server handles `SIGTERM` and `SIGINT`:
 1. Logs the received signal.
 2. Cleans up the active WASM runner (frees memory, closes child processes).
 3. Closes all WebSocket connections.
-4. Deletes the `.fastedge-debug/.debug-port` file (if `WORKSPACE_PATH` is set).
+4. Deletes the `.fastedge-debug/.debug-port` file.
 5. Closes the HTTP server.
 6. Exits with code `0`.
 

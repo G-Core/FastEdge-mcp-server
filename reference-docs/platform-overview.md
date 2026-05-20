@@ -80,10 +80,13 @@ Return `FilterHeadersStatusValues.Continue` to pass through, or call `stream_con
 |----------|-----------|----------|
 | Execution time | 50ms | 200ms |
 | Memory | 128MB | 256MB |
-| Binary size | 10MB | 10MB |
 | Outbound requests | 5 per invocation | 20 per invocation |
 | Request body size | 1MB | 5MB |
 | Response body size | 1MB | 5MB |
+
+### Binary size
+
+There is no fixed per-plan limit. The platform rejects uploads beyond ~50MB; treat that as a hard ceiling, not a target. Typical JavaScript apps land near 10MB; bundling static assets into the Wasm pushes that higher. Aim to stay under 20MB, but it is not a strict threshold — size depends on what the developer chooses to include.
 
 ## Plans
 

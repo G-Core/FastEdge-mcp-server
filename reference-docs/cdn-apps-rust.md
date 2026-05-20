@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-rust
       ref: main
-      commit: 1205d9296bb39a024e2d07820f56a85e76d0eca9
-      updated: 2026-04-09
+      commit: 4f748b10fa04226e76218e88195b6b1f02fce032
+      updated: 2026-04-20
 -->
 
 # FastEdge Rust SDK — CDN Apps (Proxy-Wasm)
@@ -94,7 +94,7 @@ proxy_wasm::main! {{
 
 ### Root Context
 
-A singleton created once when the filter loads. Primary role: create a new HTTP context for each incoming request.
+A singleton created once when the filter loads. Primary role: create a new HTTP context for each lifecycle callback invocation.
 
 ```rust,no_run
 # use proxy_wasm::traits::*;
@@ -114,11 +114,11 @@ impl RootContext for MyAppRoot {
 }
 ```
 
-`get_type()` must return `Some(ContextType::HttpContext)` for HTTP traffic interception. `create_http_context` is called once per request and receives a unique `context_id`.
+`get_type()` must return `Some(ContextType::HttpContext)` for HTTP traffic interception. `create_http_context` is called once per lifecycle callback invocation and receives a unique `context_id`.
 
 ### HTTP Context
 
-A new instance is created for each request by `create_http_context`. Both `Context` and `HttpContext` must be implemented; the `Context` impl can be empty if no shared context callbacks are needed.
+A new instance is created for each lifecycle callback invocation by `create_http_context` — not once per request. Both `Context` and `HttpContext` must be implemented; the `Context` impl can be empty if no shared context callbacks are needed.
 
 ```rust,no_run
 # use proxy_wasm::traits::*;
@@ -139,7 +139,61 @@ impl HttpContext for MyApp {
 }
 ```
 
-### Lifecycle Callbacks
+### Minimal Complete Example
+
+```rust,no_run
+use log::info;
+use proxy_wasm::traits::*;
+use proxy_wasm::types::*;
+
+proxy_wasm::main! {{
+    proxy_wasm::set_log_level(LogLevel::Trace);
+    proxy_wasm::set_root_context(|_| -> Box<dyn RootContext> { Box::new(HelloWorldRoot) });
+}}
+
+struct HelloWorldRoot;
+
+impl Context for HelloWorldRoot {}
+
+impl RootContext for HelloWorldRoot {
+    fn get_type(&self) -> Option<ContextType> {
+        Some(ContextType::HttpContext)
+    }
+
+    fn create_http_context(&self, _: u32) -> Option<Box<dyn HttpContext>> {
+        Some(Box::new(HelloWorld))
+    }
+}
+
+struct HelloWorld;
+
+impl Context for HelloWorld {}
+
+impl HttpContext for HelloWorld {
+    fn on_http_request_headers(&mut self, _: usize, _: bool) -> Action {
+        info!("Hello from on_http_request_headers");
+        Action::Continue
+    }
+
+    fn on_http_request_body(&mut self, _: usize, _: bool) -> Action {
+        info!("Hello from on_http_request_body");
+        Action::Continue
+    }
+
+    fn on_http_response_headers(&mut self, _: usize, _: bool) -> Action {
+        self.add_http_response_header("x-powered-by", "FastEdge");
+        info!("Hello from on_http_response_headers");
+        Action::Continue
+    }
+
+    fn on_http_response_body(&mut self, _: usize, _: bool) -> Action {
+        info!("Hello from on_http_response_body");
+        Action::Continue
+    }
+}
+```
+
+## Lifecycle Callbacks
 
 | Callback                                                          | Phase            | Description                                         |
 | ----------------------------------------------------------------- | ---------------- | --------------------------------------------------- |
@@ -150,7 +204,7 @@ impl HttpContext for MyApp {
 
 All callbacks have default no-op implementations. Override only the phases your app needs to process.
 
-### Action Return Values
+## Action Return Values
 
 Every lifecycle callback returns an `Action`.
 
@@ -173,6 +227,40 @@ impl HttpContext for MyApp {
             return Action::StopIterationAndBuffer;
         }
         // process complete body here
+        Action::Continue
+    }
+}
+```
+
+## Hook State Isolation
+
+On the FastEdge CDN platform, an HTTP context instance exists only for the duration of a single lifecycle callback invocation. It does **not** persist across the request. Different hooks may run on entirely different servers: `on_http_request_headers` runs in nginx, while `on_http_request_body`, `on_http_response_headers`, and `on_http_response_body` run in core-proxy.
+
+Critical consequences for application design:
+
+- Struct fields on the HTTP context do **not** persist between callbacks.
+- A fresh context instance is created for each callback invocation.
+- Storing data as a struct field in one callback and reading it in another callback does **not** work.
+
+To pass data between callbacks, use `self.set_property` and `self.get_property` with a custom property path. The host preserves these values across callback invocations for the same logical request:
+
+```rust,no_run
+# use proxy_wasm::traits::*;
+# use proxy_wasm::types::*;
+# struct MyApp;
+# impl Context for MyApp {}
+impl HttpContext for MyApp {
+    fn on_http_request_headers(&mut self, _: usize, _: bool) -> Action {
+        // Store a value for use in a later callback
+        self.set_property(vec!["my_custom_key"], Some(b"my_value"));
+        Action::Continue
+    }
+
+    fn on_http_response_headers(&mut self, _: usize, _: bool) -> Action {
+        // Retrieve the value set in a previous callback
+        if let Some(value) = self.get_property(vec!["my_custom_key"]) {
+            let _ = value; // use value
+        }
         Action::Continue
     }
 }
@@ -206,7 +294,7 @@ impl HttpContext for MyApp {
 }
 ```
 
-Properties return `Option<Vec<u8>>`. Most properties are UTF-8 strings; `response.status` is binary-encoded (see Request Properties section).
+Properties return `Option<Vec<u8>>`. Most properties are UTF-8 strings; see the Request Properties section for encoding details.
 
 ### Modifying Headers
 
@@ -233,6 +321,8 @@ impl HttpContext for MyApp {
     }
 }
 ```
+
+**Known limitation**: On the FastEdge CDN platform, passing `None` to `set_http_request_header` or `set_http_response_header` sets the header value to an empty string rather than removing the header entirely. When checking for header absence, test for an empty string as well as a missing value.
 
 ### Generating Responses
 
@@ -261,18 +351,34 @@ impl HttpContext for MyApp {
 }
 ```
 
-### Request Properties
+## Request Properties
 
 Access request metadata via `self.get_property(vec![...])`. Return type: `Option<Vec<u8>>`.
 
-| Property path              | Type                  | Description                                 |
-| -------------------------- | --------------------- | ------------------------------------------- |
-| `["request.path"]`         | UTF-8 string          | Request URL path                            |
-| `["request.query"]`        | UTF-8 string          | Query string                                |
-| `["request.country"]`      | UTF-8 string          | Client country code (geo-IP lookup)         |
-| `["response", "status"]`   | 2-byte big-endian u16 | Response status code (response phase only)  |
+**Path format**: Always pass the property identifier as a single dotted string in a one-element vec — e.g., `vec!["request.path"]`, `vec!["response.status"]`, `vec!["request.geo.long"]`. Do **not** split on dots (e.g., `vec!["response", "status"]` is incorrect).
 
-Most properties are UTF-8 strings decoded with `std::str::from_utf8()`. The `response.status` property is a binary-encoded integer — must be decoded as a big-endian `u16`. Do NOT use `String::from_utf8` on it.
+| Property               | Encoding              | Description                                                                        |
+| ---------------------- | --------------------- | ---------------------------------------------------------------------------------- |
+| `request.path`         | UTF-8 string          | URL path                                                                           |
+| `request.query`        | UTF-8 string          | Query string                                                                       |
+| `request.url`          | UTF-8 string          | Full request URL                                                                   |
+| `request.host`         | UTF-8 string          | Domain (may have `shield_` prefix on edge shield nodes)                            |
+| `request.scheme`       | UTF-8 string          | HTTP scheme (from X-Forwarded-Proto)                                               |
+| `request.extension`    | UTF-8 string          | File extension                                                                     |
+| `request.x_real_ip`    | UTF-8 string          | Client IP address                                                                  |
+| `request.country`      | UTF-8 string          | 2-letter ISO country code (geo-IP)                                                 |
+| `request.country.name` | UTF-8 string          | Full country name                                                                  |
+| `request.city`         | UTF-8 string          | City name                                                                          |
+| `request.region`       | UTF-8 string          | Region/state                                                                       |
+| `request.continent`    | UTF-8 string          | Continent                                                                          |
+| `request.asn`          | UTF-8 string          | Autonomous System Number                                                           |
+| `request.geo.lat`      | UTF-8 string          | Latitude                                                                           |
+| `request.geo.long`     | UTF-8 string          | Longitude                                                                          |
+| `response.status`      | 2-byte big-endian u16 | Response status code (**binary, NOT a string** — decode with `u16::from_be_bytes`) |
+
+Most properties are UTF-8 strings decoded with `std::str::from_utf8()`. The `response.status` property is binary-encoded and must be decoded as a big-endian `u16`. Do NOT use `String::from_utf8` on it.
+
+Geo-IP properties (`request.country`, `request.country.name`, `request.city`, `request.region`, `request.continent`, `request.geo.lat`, `request.geo.long`) are derived from the client IP address.
 
 ```rust,no_run
 # use proxy_wasm::traits::*;
@@ -281,7 +387,8 @@ Most properties are UTF-8 strings decoded with `std::str::from_utf8()`. The `res
 # impl Context for MyApp {}
 impl HttpContext for MyApp {
     fn on_http_response_headers(&mut self, _: usize, _: bool) -> Action {
-        if let Some(bytes) = self.get_property(vec!["response", "status"]) {
+        // response.status is a 2-byte big-endian u16 — do NOT use String::from_utf8
+        if let Some(bytes) = self.get_property(vec!["response.status"]) {
             if bytes.len() == 2 {
                 let status = u16::from_be_bytes([bytes[0], bytes[1]]);
                 println!("upstream status: {}", status);
@@ -639,5 +746,5 @@ The `log` crate macros (`info!`, `warn!`, `error!`, etc.) work when `proxy_wasm:
 
 ## See Also
 
-- SDK_API — HTTP app handler macro, `Body` type, outbound HTTP (`send_request`)
-- HOST_SERVICES — Component Model host services (KV, secrets, dictionary) for HTTP apps
+- SDK API reference — HTTP app handler macro, `Body` type, outbound HTTP (`send_request`)
+- Host services reference — Component Model host services (KV, secrets, dictionary) for HTTP apps

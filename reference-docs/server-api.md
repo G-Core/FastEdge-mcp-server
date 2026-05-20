@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-test
-      ref: v0.1.4
-      commit: 5b7f9b5172519a95a3f28edef45aaa160ff7562e
-      updated: 2026-04-09
+      ref: v0.1.7
+      commit: 0f309ee346b81261e66d09d1b50f70f8928e47fa
+      updated: 2026-04-22
 -->
 
 # Server API — REST and WebSocket Endpoints
@@ -100,16 +100,19 @@ curl http://localhost:5179/api/client-count
 
 Loads a WASM binary into the runner. Accepts a file path or base64-encoded binary. Automatically detects `http-wasm` or `proxy-wasm` type.
 
-**Request Body** — exactly one of `wasmPath` or `wasmBase64` must be provided.
+**Request Body** — exactly one of `wasmPath` or `wasmBase64` must be provided; providing both is an error.
 
 ```typescript
 {
   wasmPath?: string;      // Absolute path to a .wasm file on the server filesystem
-  wasmBase64?: string;    // Base64-encoded WASM binary
+  wasmBase64?: string;    // Base64-encoded WASM binary; mutually exclusive with wasmPath
   dotenv?: {
-    enabled: boolean;     // Whether to load .env files for this module
+    enabled?: boolean;    // Whether to load .env files for this module
     path?: string;        // Directory containing .env files (defaults to server CWD)
   };
+  httpPort?: number;      // HTTP-WASM only. Pin the runner subprocess to this port (1024–65535).
+                          // Load fails immediately if the port is already in use.
+                          // Ignored for proxy-wasm modules.
 }
 ```
 
@@ -160,11 +163,31 @@ curl -X POST http://localhost:5179/api/load \
 }
 ```
 
+**Example — pin HTTP-WASM to a specific port**
+
+```bash
+curl -X POST http://localhost:5179/api/load \
+  -H "Content-Type: application/json" \
+  -d '{
+    "wasmPath": "/home/user/project/build/app.wasm",
+    "httpPort": 8100
+  }'
+```
+
+```json
+{
+  "ok": true,
+  "wasmType": "http-wasm",
+  "resolvedPath": "/home/user/project/build/app.wasm"
+}
+```
+
 **Error Responses**
 
 | Status | Condition |
 |---|---|
 | `400` | Validation failed, missing both `wasmPath` and `wasmBase64`, invalid path, or path does not end in `.wasm` |
+| `400` | `httpPort` is specified and already in use (HTTP-WASM only) |
 | `500` | WASM load failed or runner initialization error |
 
 ---
@@ -522,7 +545,7 @@ Requires a WASM module loaded via `POST /api/load`. Accepts optional `X-Source` 
 
 ```typescript
 {
-  url: string;                            // Full request URL (required)
+  url: string | "built-in";               // Full request URL, or "built-in" to use URL from loaded config
   request?: {
     method?: string;                      // HTTP method (default: "GET")
     url?: string;
@@ -536,6 +559,8 @@ Requires a WASM module loaded via `POST /api/load`. Accepts optional `X-Source` 
   properties: Record<string, unknown>;    // CDN properties (required; use {} if none)
 }
 ```
+
+The `response` object does not accept `status` or `statusText` — the full flow always uses `200 OK` as the simulated upstream status. Use `POST /api/execute` if you need to control those values.
 
 **Response**
 
@@ -690,6 +715,7 @@ type HttpWasmConfig = {
   description?: string;
   appType: "http-wasm";
   wasm?: { path: string; description?: string };
+  httpPort?: number;  // Pin the runner subprocess to this port (1024–65535)
   request: {
     method: string;
     path: string;
@@ -1363,6 +1389,14 @@ Start the debugger server programmatically via the `@gcoredev/fastedge-test/serv
 import { startServer } from '@gcoredev/fastedge-test/server';
 ```
 
-The server listens on port `5179` by default. Override with the `PORT` environment variable.
+The server listens on port `5179` by default. Override with the `PORT` environment variable. When the preferred port is busy, the server tries up to 10 sequential ports before failing.
 
 When `WORKSPACE_PATH` is set, the active port is written to `$WORKSPACE_PATH/.fastedge-debug/.debug-port` on startup and removed on shutdown. Use this file to discover the port dynamically in CI or multi-process tooling.
+
+## See Also
+
+- API reference: REST endpoints for triggering requests, loading WASM, and managing configuration
+- WEBSOCKET reference: WebSocket protocol and event types
+- DEBUGGER reference: Server startup, configuration, and environment variables
+- TEST_FRAMEWORK reference: Programmatic test framework API
+- RUNNER reference: Runner API and WASM type detection

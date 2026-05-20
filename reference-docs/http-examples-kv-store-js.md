@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-js
       ref: main
-      commit: 26ae6629dd6abc3f09fc5e58afc2095f19d67436
-      updated: 2026-04-09
+      commit: f52d9220499e073755091cb39b28915d86d2c8d9
+      updated: 2026-04-14
 -->
 
 ## KV Store — Example Reference
@@ -109,15 +109,28 @@ Checks membership in a Bloom filter stored at `key`.
 
 ### Supported Actions (Query Parameter Dispatch)
 
-| `action`    | Required params              | KvStoreInstance method called            |
-|-------------|------------------------------|------------------------------------------|
-| `get`       | `store`, `key`               | `kvStore.get(key)`                       |
-| `scan`      | `store`, `match`             | `kvStore.scan(match)`                    |
-| `zrange`    | `store`, `key`, `min`, `max` | `kvStore.zrangeByScore(key, min, max)`   |
-| `zscan`     | `store`, `key`, `match`      | `kvStore.zscan(key, match)`              |
-| `bfExists`  | `store`, `key`, `item`       | `kvStore.bfExists(key, item)`            |
+| `action`   | Required params              | KvStoreInstance method called          |
+|------------|------------------------------|----------------------------------------|
+| `get`      | `store`, `key`               | `kvStore.get(key)`                     |
+| `scan`     | `store`, `match`             | `kvStore.scan(match)`                  |
+| `zrange`   | `store`, `key`, `min`, `max` | `kvStore.zrangeByScore(key, min, max)` |
+| `zscan`    | `store`, `key`, `match`      | `kvStore.zscan(key, match)`            |
+| `bfExists` | `store`, `key`, `item`       | `kvStore.bfExists(key, item)`          |
 
 Default action when `action` param is absent: `get`.
+
+---
+
+### Parameter Validation
+
+Validation is performed by `validateQueryParams(queryParams: URLSearchParams)` in `utils.ts`. It returns a `Params` object with either all required fields populated or an `error` field set.
+
+- `action` defaults to `'get'` if not provided.
+- `store` is required for all actions.
+- `key` is required for: `get`, `zrange`, `zscan`, `bfExists`.
+- `match` is required for: `scan`, `zscan`.
+- `min` and `max` are required for: `zrange`.
+- `item` is required for: `bfExists`.
 
 ---
 
@@ -129,25 +142,92 @@ Default action when `action` param is absent: `get`.
 
 ---
 
+### Response Shape
+
+The success response is a JSON object with the following fields (present fields depend on action):
+
+| Field      | Type     | Always present | Description                              |
+|------------|----------|---------------|------------------------------------------|
+| `Store`    | `string` | Yes           | Name of the KV store used                |
+| `Action`   | `string` | Yes           | Action that was executed                 |
+| `Key`      | `string` | When used     | Key parameter                            |
+| `Match`    | `string` | When used     | Match pattern parameter                  |
+| `Min`      | `string` | When used     | Min score parameter (zrange)             |
+| `Max`      | `string` | When used     | Max score parameter (zrange)             |
+| `Item`     | `string` | When used     | Item parameter (bfExists)                |
+| `Response` | `string` | Yes           | Stringified result of the KV operation   |
+
+For `zrangeByScore` and `zscan`, `Response` is formatted as: `[{ Value: <decoded>, Score: <number> }, ...]`.
+
+---
+
 ### Full Event Handler Pattern
 
 ```ts
 import { KvStore } from 'fastedge::kv';
+import { Action, decodeValueArray, stringifyValueScoreTuples, validateQueryParams } from './utils';
 
 async function eventHandler(event: FetchEvent): Promise<Response> {
   try {
     const { request: req } = event;
     const url = new URL(req.url);
-    const store = url.searchParams.get('store');
-    const key = url.searchParams.get('key');
 
-    const myStore = KvStore.open(store!);
-    const value = myStore.get(key!);
+    const params = validateQueryParams(url.searchParams);
+    if (params.error) {
+      throw new Error(params.error);
+    }
 
-    const decoder = new TextDecoder();
-    return Response.json({ value: value ? decoder.decode(value) : null });
-  } catch (error) {
-    return Response.json({ error: (error as Error).message }, { status: 500 });
+    const myStore = KvStore.open(params.store);
+    const action = params.action as Action;
+
+    const responseObj: Record<string, string> = {
+      Store: params.store,
+      Action: action,
+    };
+
+    switch (action) {
+      case 'get': {
+        const response = myStore.get(params.key);
+        responseObj.Key = params.key;
+        responseObj.Response = decodeValueArray(response);
+        break;
+      }
+      case 'scan': {
+        const response = myStore.scan(params.match);
+        responseObj.Match = params.match;
+        responseObj.Response = response.join(', ');
+        break;
+      }
+      case 'zrange': {
+        const { key, min, max } = params;
+        const response = myStore.zrangeByScore(key, Number.parseFloat(min), Number.parseFloat(max));
+        responseObj.Key = key;
+        responseObj.Min = min;
+        responseObj.Max = max;
+        responseObj.Response = stringifyValueScoreTuples(response);
+        break;
+      }
+      case 'zscan': {
+        const { key, match } = params;
+        const response = myStore.zscan(key, match);
+        responseObj.Key = key;
+        responseObj.Match = match;
+        responseObj.Response = stringifyValueScoreTuples(response);
+        break;
+      }
+      case 'bfExists': {
+        const { key, item } = params;
+        const exists = myStore.bfExists(key, item);
+        responseObj.Key = key;
+        responseObj.Item = item;
+        responseObj.Response = exists ? 'true' : 'false';
+        break;
+      }
+    }
+
+    return Response.json(responseObj);
+  } catch (error: Error | unknown) {
+    return Response.json({ error: `${(error as Error).message}` }, { status: 500 });
   }
 }
 
@@ -155,6 +235,18 @@ addEventListener('fetch', (event: FetchEvent) => {
   event.respondWith(eventHandler(event));
 });
 ```
+
+---
+
+### Utility Functions
+
+#### `decodeValueArray(arrVal: ArrayBuffer | null): string`
+
+Decodes an `ArrayBuffer` to a UTF-8 string. Returns `''` if `arrVal` is `null`.
+
+#### `stringifyValueScoreTuples(tupleList: Array<[ArrayBuffer, number]>): string`
+
+Formats sorted-set result tuples as a string: `[{ Value: <decoded>, Score: <number> }, ...]`.
 
 ---
 
@@ -168,7 +260,7 @@ addEventListener('fetch', (event: FetchEvent) => {
   "description": "FastEdge JS example: KV Store operations via query params",
   "type": "module",
   "scripts": { "build": "fastedge-build -c" },
-  "dependencies": { "@gcoredev/fastedge-sdk-js": "^2.1.0" }
+  "dependencies": { "@gcoredev/fastedge-sdk-js": "^2.2.2" }
 }
 ```
 
@@ -206,3 +298,4 @@ TypeScript types for FastEdge globals (`FetchEvent`, etc.) are provided by `@gco
 - `bfExists` returning `true` is probabilistic (Bloom filter); `false` is definitive.
 - `min` and `max` for `zrangeByScore` are parsed from query strings with `Number.parseFloat` — ensure numeric string inputs.
 - `"type": "module"` must be set in `package.json` for ESM compatibility with `fastedge-build`.
+- The SDK dependency version is `^2.2.2` (updated from `^2.1.0`).

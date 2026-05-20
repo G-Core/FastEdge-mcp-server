@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-js
       ref: main
-      commit: 26ae6629dd6abc3f09fc5e58afc2095f19d67436
-      updated: 2026-04-09
+      commit: f52d9220499e073755091cb39b28915d86d2c8d9
+      updated: 2026-04-14
 -->
 
 ## Headers Example — FastEdge JS
@@ -143,11 +143,11 @@ All method names are **case-insensitive** with respect to the header name argume
     "build": "fastedge-build src/index.js dist/headers.wasm"
   },
   "dependencies": {
-    "@gcoredev/fastedge-sdk-js": "^2.1.0"
+    "@gcoredev/fastedge-sdk-js": "^2.2.2"
   }
 }
 ```
 
 - `"type": "module"` — ES module syntax required (`import`/`export`).
 - Build output: `dist/headers.wasm` — the binary uploaded to FastEdge.
-- SDK version: `@gcoredev/fastedge-sdk-js ^2.1.0`.
+- SDK version: `@gcoredev/fastedge-sdk-js ^2.2.2`.

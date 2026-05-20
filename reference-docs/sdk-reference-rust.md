@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-rust
       ref: main
-      commit: 1205d9296bb39a024e2d07820f56a85e76d0eca9
-      updated: 2026-04-09
+      commit: 4f748b10fa04226e76218e88195b6b1f02fce032
+      updated: 2026-04-20
 -->
 
 # Rust SDK Reference (`fastedge` crate + `fastedge-derive`)
@@ -397,14 +397,14 @@ Enable non-default features:
 
 ```toml
 [dependencies]
-fastedge = { version = "0.3", features = ["json"] }
+fastedge = { version = "0.3.5", features = ["json"] }
 ```
 
 Disable the default `proxywasm` feature:
 
 ```toml
 [dependencies]
-fastedge = { version = "0.3", default-features = false }
+fastedge = { version = "0.3.5", default-features = false }
 ```
 
 ---

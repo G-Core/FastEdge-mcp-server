@@ -3,13 +3,38 @@
   sources:
     - id: fastedge-sdk-js
       ref: main
-      commit: 26ae6629dd6abc3f09fc5e58afc2095f19d67436
-      updated: 2026-04-09
+      commit: f52d9220499e073755091cb39b28915d86d2c8d9
+      updated: 2026-04-14
 -->
 
 # JavaScript SDK Reference (`@gcoredev/fastedge-sdk-js`)
 
 **Source:** `FastEdge-sdk-js` repo — `types/*.d.ts` are the authoritative API surface.
+
+---
+
+### Import Patterns
+
+All FastEdge-specific modules use the `fastedge::` specifier — these are NOT Node.js module paths:
+
+```ts
+import { getEnv } from "fastedge::env";
+import { getSecret, getSecretEffectiveAt } from "fastedge::secret";
+import { KvStore } from "fastedge::kv";
+import { readFileSync } from "fastedge::fs";
+```
+
+Add the type reference to your entry file:
+
+```ts
+/// <reference types="@gcoredev/fastedge-sdk-js" />
+```
+
+Or in `tsconfig.json`:
+
+```json
+{ "compilerOptions": { "types": ["@gcoredev/fastedge-sdk-js"] } }
+```
 
 ---
 
@@ -44,31 +69,6 @@ app.post("/data", async (c) => {
   return c.json({ received: body });
 });
 app.fire();  // Not export default, not Deno.serve — use fire()
-```
-
----
-
-### Import Patterns
-
-All FastEdge-specific modules use the `fastedge::` specifier — these are NOT Node.js module paths:
-
-```ts
-import { getEnv } from "fastedge::env";
-import { getSecret, getSecretEffectiveAt } from "fastedge::secret";
-import { KvStore } from "fastedge::kv";
-import { readFileSync } from "fastedge::fs";
-```
-
-Add the type reference to your entry file:
-
-```ts
-/// <reference types="@gcoredev/fastedge-sdk-js" />
-```
-
-Or in `tsconfig.json`:
-
-```json
-{ "compilerOptions": { "types": ["@gcoredev/fastedge-sdk-js"] } }
 ```
 
 ---

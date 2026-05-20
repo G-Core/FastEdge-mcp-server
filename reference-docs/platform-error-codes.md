@@ -14,7 +14,7 @@ FastEdge returns specific HTTP status codes (530-533) when the Wasm runtime enco
 - Missing required environment variables that the app reads during initialization
 - Corrupted or invalid Wasm binary
 - Binary was compiled for the wrong target (not `wasm32-wasip1`)
-- Binary exceeds the 10MB size limit
+- Binary too large (platform rejects uploads beyond ~50MB; investigate what was bundled)
 
 **Debugging Steps:**
 1. Verify the binary was built correctly:

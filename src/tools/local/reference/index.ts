@@ -43,8 +43,12 @@ function sliceByLineRange(
 }
 
 /**
- * Resolve local markdown filename from canonical/local index paths.
- * reference-docs is flat in MCP server; basename(path) is authoritative.
+ * Resolve local markdown filename from the index.
+ * reference-docs is flat in MCP server; sync-reference-docs.sh writes each
+ * file as `<topic.id>.md` (the slug id is unique across the corpus, so
+ * files sharing a basename across cdn/ vs http/ no longer collide).
+ * local_path is the authoritative resolver; basename(path) and id.md are
+ * legacy fallbacks for indexes written before the slug-id migration.
  */
 function resolveLocalDocPath(
   docsDir: string,
@@ -52,8 +56,8 @@ function resolveLocalDocPath(
 ): string | null {
   const candidates = [
     topic.local_path ? join(docsDir, basename(topic.local_path)) : "",
-    join(docsDir, basename(topic.path)),
     join(docsDir, `${topic.id}.md`),
+    join(docsDir, basename(topic.path)),
   ].filter(Boolean);
 
   for (const candidate of candidates) {

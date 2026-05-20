@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-test
-      ref: v0.1.4
-      commit: 5b7f9b5172519a95a3f28edef45aaa160ff7562e
-      updated: 2026-04-09
+      ref: v0.1.7
+      commit: 0f309ee346b81261e66d09d1b50f70f8928e47fa
+      updated: 2026-04-22
 -->
 
 # FastEdge Test Framework API
@@ -121,7 +121,7 @@ interface TestResult {
 
 ### `runFlow(runner: IWasmRunner, options: FlowOptions): Promise<FullFlowResult>`
 
-**CDN / proxy-wasm only.** Executes a complete request/response lifecycle through all hooks.
+**CDN / proxy-wasm only.** Executes a complete request/response lifecycle through all hooks. Object-based wrapper around the runner's low-level `callFullFlow` method — callers do not need to construct pseudo-headers manually.
 
 ```typescript
 interface FlowOptions {
@@ -141,7 +141,7 @@ interface FlowOptions {
 Returns `FullFlowResult`:
 
 ```typescript
-interface FullFlowResult {
+type FullFlowResult = {
   hookResults: {
     onRequestHeaders:  HookResult;
     onRequestBody:     HookResult;
@@ -150,10 +150,14 @@ interface FullFlowResult {
   };
   finalResponse: {
     status: number;
+    statusText: string;
     headers: Record<string, string>;
     body: string;
+    contentType: string;
+    isBase64?: boolean;
   };
-}
+  calculatedProperties?: Record<string, unknown>;
+};
 
 // HookResult shape:
 hookResult.returnCode                   // number: 0 = Continue, 1 = Pause
@@ -167,6 +171,11 @@ hookResult.logs                         // LogEntry[]
 ### `runHttpRequest(runner: IWasmRunner, options: HttpRequestOptions): Promise<HttpResponse>`
 
 **HTTP-WASM only.** Object-based wrapper around the runner's `execute` method. Executes a single HTTP request against the WASM app.
+
+**Redirects are not followed.** The underlying fetch uses `redirect: "manual"`, so a 3xx returned by the WASM is surfaced verbatim. To follow a redirect:
+- **Relative location** (e.g. `/auth/complete`) — pass it directly as `path` in a second `runHttpRequest` call.
+- **Absolute, same host** — extract `pathname + search` via `new URL()` and re-issue with that path.
+- **Absolute, external host** — cannot be followed through the runner; assert on status and `Location` and stop.
 
 ```typescript
 interface HttpRequestOptions {
@@ -220,6 +229,8 @@ All helpers throw `Error` on failure. Compatible with any test framework or plai
 | `assertResponseHeader(result, name, expected?)` | `HookResult` | Named header exists in output response headers; optionally exact value |
 | `assertNoResponseHeader(result, name)` | `HookResult` | Named header absent from output response headers |
 | `assertReturnCode(result, expected)` | `HookResult` | Hook return code equals expected (0 = Continue, 1 = Pause) |
+| `assertFinalStatus(result, expected)` | `FullFlowResult` | Final response status code equals expected |
+| `assertFinalHeader(result, name, expected?)` | `FullFlowResult` | Named header exists in final response headers; optionally exact value |
 | `assertLog(result, substring)` | `HookResult` | At least one log entry contains substring |
 | `assertNoLog(result, substring)` | `HookResult` | No log entry contains substring |
 | `logsContain(result, substring)` | `HookResult` | Returns `boolean` — non-throwing predicate |

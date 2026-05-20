@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-test
-      ref: v0.1.4
-      commit: 5b7f9b5172519a95a3f28edef45aaa160ff7562e
-      updated: 2026-04-09
+      ref: v0.1.7
+      commit: 0f309ee346b81261e66d09d1b50f70f8928e47fa
+      updated: 2026-04-22
 -->
 
 # test-config Reference
@@ -30,7 +30,6 @@ The config schema is a union of two variants selected by `appType`:
 | `wasm` | object | no* | — | WASM binary configuration. Required when running without a programmatic `wasmBuffer` |
 | `wasm.path` | string | yes (if `wasm` present) | — | Relative or absolute path to the compiled `.wasm` binary |
 | `wasm.description` | string | no | — | Human-readable label for the loaded binary |
-| `appType` | string | yes (schema) / CDN has runtime default | `"proxy-wasm"` | App variant. `"proxy-wasm"` for CDN mode; `"http-wasm"` for HTTP mode. HTTP-WASM has no default — must be specified explicitly |
 | `request` | object | **yes** | — | Incoming HTTP request to simulate |
 | `request.method` | string | yes (schema) / runtime default | `"GET"` | HTTP method (e.g. `"GET"`, `"POST"`) |
 | `request.url` | string | **yes** (CDN only) | — | Full URL for the simulated upstream request (e.g. `"https://example.com/api"`). CDN (`proxy-wasm`) mode only |
@@ -44,6 +43,7 @@ The config schema is a union of two variants selected by `appType`:
 | `dotenv` | object | no | — | Dotenv file loading configuration |
 | `dotenv.enabled` | boolean | no | — | Whether to load a `.env` file before execution |
 | `dotenv.path` | string | no | — | Path to the `.env` file. If omitted, resolves `.env` relative to the config file directory |
+| `httpPort` | integer | no | — | HTTP-WASM only. Pin the subprocess to a specific port (1024–65535) instead of dynamic allocation from the 8100–8199 pool. Throws if the port is busy. Not valid on `proxy-wasm` configs |
 
 *`wasm` is optional only if you supply the binary manually via a programmatic `wasmBuffer`. It is required for file-based test runs and debugger auto-load.
 
@@ -52,6 +52,14 @@ The config schema is a union of two variants selected by `appType`:
 The JSON Schema `required` arrays drive editor validation. Fields like `appType`, `request.method`, `request.headers`, `request.body`, and `properties` appear in the schema's `required` array, so a strict JSON Schema validator will flag them as missing. At runtime the Zod schema fills in their defaults (`"proxy-wasm"`, `"GET"`, `{}`, `""`, and `{}` respectively), so the test runner accepts configs that omit them — with the exception of `appType: "http-wasm"`, which has no Zod default and must always be specified for HTTP-WASM configs.
 
 Supply fields explicitly to avoid editor warnings, or add the `$schema` field and accept that your editor may warn on omission.
+
+### HTTP Port Pinning
+
+`httpPort` is an optional integer available only in HTTP-WASM configs. It pins the `fastedge-run` subprocess to a fixed port instead of dynamically allocating one from the 8100–8199 pool. The schema rejects `httpPort` on `proxy-wasm` configs.
+
+Without `httpPort`, the runner allocates a port from the 8100–8199 range for each test run. The allocated port is not stable across runs.
+
+If the pinned port is already in use, `HttpWasmRunner.load()` throws immediately with a descriptive error. There is no fallback to dynamic allocation. Pinning a port inside the 8100–8199 dynamic pool is allowed by the schema but risks collisions with other concurrent debug sessions. For shared environments, choose a port outside the pool (e.g. 8250).
 
 ---
 
@@ -121,6 +129,8 @@ Supply fields explicitly to avoid editor warnings, or add the `$schema` field an
 ```
 
 `appType` must be `"http-wasm"` — there is no runtime default for this variant. Use `request.path` (not `request.url`); the WASM module acts as the origin server and receives only the path portion of the request. HTTP-WASM apps omit `response` (no mock origin).
+
+To pin the subprocess to a fixed port (e.g. for Codespaces or Docker port-forwarding), add `"httpPort": 8250`.
 
 ---
 

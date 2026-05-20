@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-rust
       ref: main
-      commit: 1205d9296bb39a024e2d07820f56a85e76d0eca9
-      updated: 2026-04-09
+      commit: 4f748b10fa04226e76218e88195b6b1f02fce032
+      updated: 2026-04-20
 -->
 
 ---
@@ -34,12 +34,14 @@ wstd = "0.6"
 fastedge = "0.3"
 anyhow = "1"
 querystring = "1.1"
+serde_json = "1"
 ```
 
 ## Imports
 
 ```rust
 use fastedge::key_value::{Store, Error as StoreError};
+use serde_json::json;
 use wstd::http::body::Body;
 use wstd::http::{Request, Response};
 ```
@@ -65,7 +67,7 @@ The example dispatches on the `action` query parameter:
 ?store=<name>&action=bfExists&key=<key>&item=<item>
 ```
 
-`action` defaults to `get` if not specified. An unrecognized `action` returns HTTP 400.
+`action` defaults to `get` if not specified. An unrecognized `action` returns HTTP 400 with a JSON error body listing supported actions. The `store` parameter is required on all requests.
 
 ## Store API
 
@@ -89,12 +91,14 @@ let store = match Store::open(store_name) {
     Err(StoreError::AccessDenied) => {
         return Ok(Response::builder()
             .status(403)
-            .body(Body::from("access denied"))?);
+            .header("content-type", "application/json")
+            .body(Body::from(json!({"error": "access denied"}).to_string()))?);
     }
     Err(e) => {
         return Ok(Response::builder()
             .status(500)
-            .body(Body::from(format!("store open error: {e}")))?);
+            .header("content-type", "application/json")
+            .body(Body::from(json!({"error": format!("store open error: {e}")}).to_string()))?);
     }
 };
 ```
@@ -115,9 +119,19 @@ fn handle_get(store: &Store, params: &HashMap<&str, &str>) -> anyhow::Result<Str
     match store.get(key) {
         Ok(Some(value)) => {
             let value_str = String::from_utf8_lossy(&value);
-            Ok(format!(r#"{{"key":"{}","response":"{}"}}"#, key, value_str))
+            Ok(json!({
+                "store": params.get("store").unwrap_or(&""),
+                "action": "get",
+                "key": key,
+                "response": value_str.as_ref()
+            }).to_string())
         }
-        Ok(None) => Ok(format!(r#"{{"key":"{}","response":null}}"#, key)),
+        Ok(None) => Ok(json!({
+            "store": params.get("store").unwrap_or(&""),
+            "action": "get",
+            "key": key,
+            "response": null
+        }).to_string()),
         Err(e) => Err(anyhow!("KV get error: {e}")),
     }
 }
@@ -137,10 +151,12 @@ Returns a list of keys matching the given pattern. Pattern syntax is store-defin
 fn handle_scan(store: &Store, params: &HashMap<&str, &str>) -> anyhow::Result<String> {
     let pattern = *params.get("match").ok_or(anyhow!("missing param 'match'"))?;
     match store.scan(pattern) {
-        Ok(keys) => {
-            let keys_json: Vec<String> = keys.iter().map(|k| format!(r#""{}""#, k)).collect();
-            Ok(format!(r#"{{"match":"{}","response":[{}]}}"#, pattern, keys_json.join(",")))
-        }
+        Ok(keys) => Ok(json!({
+            "store": params.get("store").unwrap_or(&""),
+            "action": "scan",
+            "match": pattern,
+            "response": keys
+        }).to_string()),
         Err(e) => Err(anyhow!("KV scan error: {e}")),
     }
 }
@@ -165,12 +181,21 @@ fn handle_zrange(store: &Store, params: &HashMap<&str, &str>) -> anyhow::Result<
         .parse().map_err(|_| anyhow!("invalid 'max': must be a number"))?;
     match store.zrange_by_score(key, min, max) {
         Ok(entries) => {
-            let entries_json: Vec<String> = entries.iter().map(|(value, score)| {
-                let value_str = String::from_utf8_lossy(value);
-                format!(r#"{{"value":"{}","score":{}}}"#, value_str, score)
-            }).collect();
-            Ok(format!(r#"{{"key":"{}","min":{},"max":{},"response":[{}]}}"#,
-                key, min, max, entries_json.join(",")))
+            let entries_json: Vec<serde_json::Value> = entries
+                .iter()
+                .map(|(value, score)| {
+                    let value_str = String::from_utf8_lossy(value);
+                    json!({"value": value_str.as_ref(), "score": score})
+                })
+                .collect();
+            Ok(json!({
+                "store": params.get("store").unwrap_or(&""),
+                "action": "zrange",
+                "key": key,
+                "min": min,
+                "max": max,
+                "response": entries_json
+            }).to_string())
         }
         Err(e) => Err(anyhow!("KV zrange error: {e}")),
     }
@@ -189,16 +214,24 @@ Returns sorted-set entries under `key` whose value matches `pattern`. Each entry
 
 ```rust
 fn handle_zscan(store: &Store, params: &HashMap<&str, &str>) -> anyhow::Result<String> {
-    let key = *params.get("key").ok_or(anyhow!("missing param 'key'"))?;
+    let key = *params.get("key").ok_or(anyhow!("missing param 'match'"))?;
     let pattern = *params.get("match").ok_or(anyhow!("missing param 'match'"))?;
     match store.zscan(key, pattern) {
         Ok(entries) => {
-            let entries_json: Vec<String> = entries.iter().map(|(value, score)| {
-                let value_str = String::from_utf8_lossy(value);
-                format!(r#"{{"value":"{}","score":{}}}"#, value_str, score)
-            }).collect();
-            Ok(format!(r#"{{"key":"{}","match":"{}","response":[{}]}}"#,
-                key, pattern, entries_json.join(",")))
+            let entries_json: Vec<serde_json::Value> = entries
+                .iter()
+                .map(|(value, score)| {
+                    let value_str = String::from_utf8_lossy(value);
+                    json!({"value": value_str.as_ref(), "score": score})
+                })
+                .collect();
+            Ok(json!({
+                "store": params.get("store").unwrap_or(&""),
+                "action": "zscan",
+                "key": key,
+                "match": pattern,
+                "response": entries_json
+            }).to_string())
         }
         Err(e) => Err(anyhow!("KV zscan error: {e}")),
     }
@@ -220,7 +253,13 @@ fn handle_bf_exists(store: &Store, params: &HashMap<&str, &str>) -> anyhow::Resu
     let key = *params.get("key").ok_or(anyhow!("missing param 'key'"))?;
     let item = *params.get("item").ok_or(anyhow!("missing param 'item'"))?;
     match store.bf_exists(key, item) {
-        Ok(exists) => Ok(format!(r#"{{"key":"{}","item":"{}","response":{}}}"#, key, item, exists)),
+        Ok(exists) => Ok(json!({
+            "store": params.get("store").unwrap_or(&""),
+            "action": "bfExists",
+            "key": key,
+            "item": item,
+            "response": exists
+        }).to_string()),
         Err(e) => Err(anyhow!("KV bfExists error: {e}")),
     }
 }
@@ -228,13 +267,13 @@ fn handle_bf_exists(store: &Store, params: &HashMap<&str, &str>) -> anyhow::Resu
 
 ## Supported Operations Summary
 
-| Action      | Required params              | Optional params | Method                                  |
-|-------------|------------------------------|-----------------|-----------------------------------------|
-| `get`       | `store`, `key`               | —               | `store.get(key)`                        |
-| `scan`      | `store`, `match`             | —               | `store.scan(pattern)`                   |
-| `zrange`    | `store`, `key`, `min`, `max` | —               | `store.zrange_by_score(key, min, max)`  |
-| `zscan`     | `store`, `key`, `match`      | —               | `store.zscan(key, pattern)`             |
-| `bfExists`  | `store`, `key`, `item`       | —               | `store.bf_exists(key, item)`            |
+| Action     | Required params               | Optional params | Method                                 |
+|------------|-------------------------------|-----------------|----------------------------------------|
+| `get`      | `store`, `key`                | —               | `store.get(key)`                       |
+| `scan`     | `store`, `match`              | —               | `store.scan(pattern)`                  |
+| `zrange`   | `store`, `key`, `min`, `max`  | —               | `store.zrange_by_score(key, min, max)` |
+| `zscan`    | `store`, `key`, `match`       | —               | `store.zscan(key, pattern)`            |
+| `bfExists` | `store`, `key`, `item`        | —               | `store.bf_exists(key, item)`           |
 
 ## Error Handling Pattern
 
@@ -250,13 +289,39 @@ match store.get(key) {
 
 ## Response Format
 
-All operations return JSON with `content-type: application/json`:
+All operations return JSON with `content-type: application/json`. Successful responses include `store`, `action`, and operation-specific fields alongside `response`. Error responses include only an `error` field.
 
 ```rust
-Response::builder()
+// Success
+Ok(Response::builder()
     .status(200)
     .header("content-type", "application/json")
-    .body(Body::from(body))?
+    .body(Body::from(body))?)
+
+// Error (open errors)
+Response::builder()
+    .status(403)  // or 500, 400
+    .header("content-type", "application/json")
+    .body(Body::from(json!({"error": "..."}).to_string()))?
+```
+
+Successful response shape (varies by action):
+
+```json
+// get
+{"store": "mystore", "action": "get", "key": "k", "response": "value or null"}
+
+// scan
+{"store": "mystore", "action": "scan", "match": "prefix*", "response": ["k1", "k2"]}
+
+// zrange
+{"store": "mystore", "action": "zrange", "key": "zk", "min": 0.0, "max": 1.0, "response": [{"value": "v", "score": 0.5}]}
+
+// zscan
+{"store": "mystore", "action": "zscan", "key": "zk", "match": "pat*", "response": [{"value": "v", "score": 0.5}]}
+
+// bfExists
+{"store": "mystore", "action": "bfExists", "key": "bf", "item": "x", "response": true}
 ```
 
 ## Constraints and Notes
@@ -269,6 +334,7 @@ Response::builder()
 - Store names must match stores configured and granted to the app at the platform level. Mismatched or unconfigured store names produce `AccessDenied` or open errors.
 - `crate-type = ["cdylib"]` is required for WASM compilation.
 - Query parameters are parsed via the `querystring` crate into a `HashMap<&str, &str>`. Missing required parameters return `anyhow::Error` which propagates as HTTP 500 from the handler.
+- JSON serialization uses the `serde_json` crate (`json!` macro). Add `serde_json = "1"` to `[dependencies]`.
 
 ## See Also
 
