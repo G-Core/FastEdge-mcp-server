@@ -3,8 +3,8 @@
   sources:
     - id: proxy-wasm-sdk-as
       ref: master
-      commit: 20b31c05b39c5537fb1ac7cc8693d9d8ec314f25
-      updated: 2026-04-15
+      commit: 60f25c7bd35564e5bafb421be7f37aa4acf1bf81
+      updated: 2026-05-20
 -->
 
 ---
@@ -176,19 +176,21 @@ if (!end_of_stream) {
 - Sets `response.status` to `545` via `set_property("response.status", ...)`
 - Replaces body with `{ "error": "<msg>" }`
 
+> **Note — error responses:** When query parameters are missing or invalid, or when the store cannot be opened, the app sets `response.status` to `545` via `set_property` and writes a JSON error body. Because this hook runs in `onResponseBody` (after response headers have already been transmitted), the status property is advisory to the CDN runtime and the origin HTTP status passes through to the client. The JSON error body is the authoritative signal.
+
 ---
 
 ## Query Parameters
 
-| Parameter | Type     | Required for                     | Description                                      |
-|-----------|----------|----------------------------------|--------------------------------------------------|
-| `store`   | `string` | all actions                      | Name of the KV Store attached to the application |
-| `action`  | `string` | all (defaults to `get`)          | One of: `get`, `scan`, `zrange`, `zscan`, `bfExists` |
-| `key`     | `string` | `get`, `zrange`, `zscan`, `bfExists` | Key to access in the store                   |
-| `match`   | `string` | `scan`, `zscan`                  | Glob-style pattern; must include wildcard        |
-| `min`     | `string` | `zrange`                         | Minimum score bound (parsed as `f64`)            |
-| `max`     | `string` | `zrange`                         | Maximum score bound (parsed as `f64`)            |
-| `item`    | `string` | `bfExists`                       | Item to check in the Bloom filter                |
+| Parameter | Type     | Required for                         | Description                                      |
+|-----------|----------|--------------------------------------|--------------------------------------------------|
+| `store`   | `string` | all actions                          | Name of the KV Store attached to the application |
+| `action`  | `string` | all (defaults to `get`)              | One of: `get`, `scan`, `zrange`, `zscan`, `bfExists` |
+| `key`     | `string` | `get`, `zrange`, `zscan`, `bfExists` | Key to access in the store                       |
+| `match`   | `string` | `scan`, `zscan`                      | Glob-style pattern; must include wildcard        |
+| `min`     | `string` | `zrange`                             | Minimum score bound (parsed as `f64`)            |
+| `max`     | `string` | `zrange`                             | Maximum score bound (parsed as `f64`)            |
+| `item`    | `string` | `bfExists`                           | Item to check in the Bloom filter                |
 
 **Example request**:
 ```
@@ -202,24 +204,34 @@ GET /?store=my-store&action=get&key=some-key
 ```typescript
 switch (action) {
   case "get": {
+    const key = params.get("key");
     const storeArrBuff = myStore.get(key);
-    // null → "null (Not found)", non-null → String.UTF8.decode(storeArrBuff)
+    // null → responseBodyMap.set("Response", "null (Not found)")
+    // non-null → responseBodyMap.set("Response", String.UTF8.decode(storeArrBuff))
   }
   case "scan": {
+    const match = params.get("match");
     const keys = myStore.scan(match);
-    // returns string[] — joined with ", "
+    // returns string[] — responseBodyMap.set("Response", keys.join(", "))
   }
   case "zrange": {
+    const key = params.get("key");
+    const min = params.get("min");
+    const max = params.get("max");
     const tuples = myStore.zrangeByScore(key, parseFloat(min), parseFloat(max));
     // returns ValueScoreTuple[]
   }
   case "zscan": {
+    const key = params.get("key");
+    const match = params.get("match");
     const tuples = myStore.zscan(key, match);
     // returns ValueScoreTuple[]
   }
   case "bfExists": {
+    const key = params.get("key");
+    const item = params.get("item");
     const exists = myStore.bfExists(key, item);
-    // returns bool → "true" | "false"
+    // returns bool → responseBodyMap.set("Response", exists ? "true" : "false")
   }
 }
 ```
@@ -248,10 +260,19 @@ Error HTTP status: `545` (set via `response.status` property).
 
 Implemented in `utils.ts` via `validateQueryParams(queryParams: string): Map<string, string>`.
 
-- Validates `action` is one of the five supported values
+- Validates `action` is one of the five supported values: `get`, `scan`, `zscan`, `zrange`, `bfExists`
+- If `action` is absent, defaults to `get`
 - Validates all action-specific required parameters are present and non-empty
 - Returns a map with key `"error"` if validation fails; calling code checks `params.has("error")`
 - Parses raw query string including URL-encoded characters (`%xx`) and `+` as space
+
+### `parseQueryParams(queryString: string): Map<string, string>`
+
+Internal helper (not exported). Splits query string on `&`, handles `key=value` and bare `key` (value set to `""`), URL-decodes both key and value via `urlDecode`.
+
+### `urlDecode(str: string): string`
+
+Decodes `%xx` hex sequences and converts `+` to space. If `%xx` is not a valid hex sequence, passes through literally.
 
 ---
 
@@ -259,8 +280,8 @@ Implemented in `utils.ts` via `validateQueryParams(queryParams: string): Map<str
 
 ```typescript
 setLogLevel(LogLevelValues.info);  // set in createContext; reduce to .trace for verbose output
-log(LogLevelValues.debug, "onResponseHeaders >>");
-log(LogLevelValues.debug, errorMsg);
+log(LogLevelValues.info, "onResponseHeaders >>");
+log(LogLevelValues.info, errorMsg);
 ```
 
 ---
@@ -284,7 +305,9 @@ npm run asbuild:release # release only
 
 - Upload `build/kvStore.wasm` to the FastEdge portal
 - Attach the binary to a CDN application
-- Configure and link at least one KV Store to the application under the name used in the `store` query parameter
+- Create a KV Store in the FastEdge portal under the Key-Value storage section
+- Populate the store with the keys and values to query
+- Link the store to the app under the app's KV store bindings; the binding name must exactly match the `store` query parameter at runtime
 - For Bloom filter operations (`bfExists`), the target key must contain a Bloom filter data structure
 - For sorted set operations (`zrange`, `zscan`), the target key must contain a sorted set
 
@@ -297,6 +320,7 @@ npm run asbuild:release # release only
 - `content-length` must be removed in `onResponseHeaders` before body replacement; failing to do so causes a mismatch
 - `onResponseBody` must buffer until `end_of_stream` is `true`; return `StopIterationAndBuffer` otherwise
 - `min` and `max` for `zrange` are received as strings from query params and must be parsed with `parseFloat`
+- `response.status` set via `set_property` in `onResponseBody` is advisory only — the origin HTTP status passes through to the client; the JSON error body is the authoritative error signal
 
 ---
 

@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-js
       ref: main
-      commit: f52d9220499e073755091cb39b28915d86d2c8d9
-      updated: 2026-04-14
+      commit: df672e9f296361bd9f3d5475ec32c624c2456656
+      updated: 2026-05-20
 -->
 
 ## KV Store — Example Reference
@@ -223,6 +223,8 @@ async function eventHandler(event: FetchEvent): Promise<Response> {
         responseObj.Response = exists ? 'true' : 'false';
         break;
       }
+      default:
+        break;
     }
 
     return Response.json(responseObj);
@@ -260,7 +262,7 @@ Formats sorted-set result tuples as a string: `[{ Value: <decoded>, Score: <numb
   "description": "FastEdge JS example: KV Store operations via query params",
   "type": "module",
   "scripts": { "build": "fastedge-build -c" },
-  "dependencies": { "@gcoredev/fastedge-sdk-js": "^2.2.2" }
+  "dependencies": { "@gcoredev/fastedge-sdk-js": "^2.3.0" }
 }
 ```
 
@@ -268,19 +270,16 @@ Formats sorted-set result tuples as a string: `[{ Value: <decoded>, Score: <numb
 ```json
 {
   "compilerOptions": {
-    "target": "ES2020",
+    "target": "ES2023",
     "module": "ESNext",
+    "moduleResolution": "Bundler",
     "strict": true,
-    "esModuleInterop": true,
-    "moduleResolution": "Node",
-    "rootDir": "./",
-    "noEmit": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "lib": ["ES2020", "DOM"],
+    "noEmit": true,
+    "lib": ["ES2023"],
     "types": ["@gcoredev/fastedge-sdk-js"]
   },
-  "include": ["src/**/*", "./node_modules/@gcoredev/fastedge-sdk-js/types"],
+  "include": ["src/**/*"],
   "exclude": ["node_modules"]
 }
 ```
@@ -298,4 +297,5 @@ TypeScript types for FastEdge globals (`FetchEvent`, etc.) are provided by `@gco
 - `bfExists` returning `true` is probabilistic (Bloom filter); `false` is definitive.
 - `min` and `max` for `zrangeByScore` are parsed from query strings with `Number.parseFloat` — ensure numeric string inputs.
 - `"type": "module"` must be set in `package.json` for ESM compatibility with `fastedge-build`.
-- The SDK dependency version is `^2.2.2` (updated from `^2.1.0`).
+- The SDK dependency version is `^2.3.0` (updated from `^2.2.2`).
+- `tsconfig.json` `target` updated to `ES2023` (from `ES2020`); `moduleResolution` updated to `Bundler` (from `Node`); `lib` updated to `["ES2023"]` (from `["ES2020", "DOM"]`); `esModuleInterop` and `forceConsistentCasingInFileNames` removed; `include` simplified to `["src/**/*"]` (node_modules types path removed).

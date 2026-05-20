@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-js
       ref: main
-      commit: f52d9220499e073755091cb39b28915d86d2c8d9
-      updated: 2026-04-14
+      commit: df672e9f296361bd9f3d5475ec32c624c2456656
+      updated: 2026-05-20
 -->
 
 ## fetch — Outbound HTTP Requests
@@ -57,7 +57,7 @@ addEventListener('fetch', (event) => {
 |---------|---------|
 | `@gcoredev/fastedge-sdk-js` | `^2.2.2` |
 
-**Build command**: `fastedge-build src/index.js dist/downstream-fetch.wasm`
+**Build command**: `fastedge-build src/index.js dist/outbound-fetch.wasm`
 
 **Module format**: ESM (`"type": "module"` in `package.json`). CommonJS `require()` is not supported.
 

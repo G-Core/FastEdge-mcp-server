@@ -3,8 +3,8 @@
   sources:
     - id: proxy-wasm-sdk-as
       ref: master
-      commit: 20b31c05b39c5537fb1ac7cc8693d9d8ec314f25
-      updated: 2026-04-15
+      commit: 60f25c7bd35564e5bafb421be7f37aa4acf1bf81
+      updated: 2026-05-20
 -->
 ---
 type: example
@@ -97,7 +97,7 @@ import {
 
 class VariablesRoot extends RootContext {
   createContext(context_id: u32): Context {
-    setLogLevel(LogLevelValues.debug);
+    setLogLevel(LogLevelValues.info);
     return new VariablesContext(context_id, this);
   }
 }
@@ -112,7 +112,7 @@ class VariablesContext extends Context {
     const password = getSecret("PASSWORD");
 
     log(LogLevelValues.info, "USERNAME: " + username);
-    log(LogLevelValues.info, "PASSWORD: " + password);
+    log(LogLevelValues.info, "PASSWORD: [set, length " + password.length.toString() + "]");
 
     stream_context.headers.request.add("x-env-username", username);
     stream_context.headers.request.add("x-env-password", password);
@@ -132,9 +132,28 @@ registerRootContext((context_id: u32) => {
 
 - **Hook**: Read env vars and secrets in `onRequestHeaders` before forwarding the request upstream.
 - **Forwarding values**: Use `stream_context.headers.request.add(headerName, value)` to inject retrieved values as request headers.
-- **Logging**: Both `getEnv` and `getSecret` return plain strings; log them with `log(LogLevelValues.info, ...)`. Avoid logging secrets in production — use `LogLevelValues.debug` and disable debug logging via `setLogLevel` at release time.
-- **Return value type**: Both functions return `string`, not `ArrayBuffer`. No decoding step is needed.
+- **Secret logging**: Never log secret values verbatim. Log the secret's length instead — `"[set, length " + password.length.toString() + "]"` — to confirm presence without exposing the value. Logs are often persisted and accessible to operators who should not see credential values.
+- **Return value type**: Both `getEnv` and `getSecret` return `string`, not `ArrayBuffer`. No decoding step is needed.
 - **Missing values**: Both functions return an empty string `""` when the variable or secret is not found. Callers must handle this case explicitly if a missing value is an error condition.
+- **Forwarding scope**: Be deliberate about which upstream systems receive secret values via forwarded headers. Limit forwarding to systems that require the value.
+
+---
+
+## Local Testing
+
+The test fixture at `fixtures/happy-path.test.json` uses `"dotenv": {"enabled": true}` to load values from `fixtures/.env`. The runner maps environment variable names as follows:
+
+| Runner env var | Maps to |
+|---|---|
+| `FASTEDGE_VAR_ENV_<NAME>` | `getEnv("<NAME>")` |
+| `FASTEDGE_VAR_SECRET_<NAME>` | `getSecret("<NAME>")` |
+
+Create `fixtures/.env` for local testing:
+
+```
+FASTEDGE_VAR_ENV_USERNAME=my-username
+FASTEDGE_VAR_SECRET_PASSWORD=my-password
+```
 
 ---
 
@@ -153,6 +172,26 @@ Build commands (from `package.json`):
 Entry point: `assembly/index.ts`  
 Compiler: `asc` (AssemblyScript compiler, `assemblyscript ^0.28.9`)  
 Runtime shim: `@assemblyscript/wasi-shim ^0.1.0`
+
+Build output:
+
+| File | Description |
+|---|---|
+| `build/variablesAndSecrets.wasm` | Optimised release binary — upload this to FastEdge |
+| `build/variablesAndSecrets-debug.wasm` | Debug binary with source maps |
+
+---
+
+## Deployment Configuration
+
+Set the following on your FastEdge application:
+
+| Name | Type | Description |
+|---|---|---|
+| `USERNAME` | Environment variable | The username value to forward upstream |
+| `PASSWORD` | Secret | The password value to forward upstream |
+
+Upload `build/variablesAndSecrets.wasm` to the FastEdge portal and attach it to your CDN application. Configure the `USERNAME` environment variable and the `PASSWORD` secret in the application settings.
 
 ---
 

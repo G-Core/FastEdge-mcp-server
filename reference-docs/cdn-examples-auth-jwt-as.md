@@ -3,8 +3,8 @@
   sources:
     - id: proxy-wasm-sdk-as
       ref: master
-      commit: 20b31c05b39c5537fb1ac7cc8693d9d8ec314f25
-      updated: 2026-04-15
+      commit: 60f25c7bd35564e5bafb421be7f37aa4acf1bf81
+      updated: 2026-05-20
 -->
 ---
 capabilities:
@@ -65,7 +65,7 @@ Reads a named secret variable configured on the FastEdge application.
 - **Type note**: returns `string`, not `ArrayBuffer`; pass directly to `jwtVerify`
 
 ```typescript
-const secret = getSecret("secret");
+const secret = getSecret("SECRET");
 if (!secret) {
   send_http_response(INTERNAL_SERVER_ERROR, "internal server error",
     String.UTF8.encode("App misconfigured"), []);
@@ -117,13 +117,14 @@ Emits a log entry. Used to record token rejection reasons.
 
 ```
 onRequestHeaders
-  ├── getSecret("secret")          → null → 500 (app misconfigured)
-  ├── get "Authorization" header   → null or empty → 401
-  ├── strip "Bearer " prefix       → empty → 401
+  ├── getSecret("SECRET")              → null → 500 (app misconfigured)
+  ├── get "Authorization" header       → null → 401 "No Authorization header"
+  ├── check startsWith("Bearer ")      → false → 401 "Authorization header must use Bearer scheme"
+  ├── slice(7) to strip "Bearer "      → empty → 401 "Token not found"
   └── jwtVerify(token, secret)
-        ├── JwtValidation.Ok       → Continue (pass request upstream)
-        ├── JwtValidation.Expired  → 403 "Expired token"
-        └── other                  → 403 "Invalid token"
+        ├── JwtValidation.Ok           → Continue (pass request upstream)
+        ├── JwtValidation.Expired      → 403 "Expired token"
+        └── other                      → 403 "Invalid token"
 ```
 
 ---
@@ -133,7 +134,8 @@ onRequestHeaders
 | Condition | Status | Body |
 |---|---|---|
 | Secret not configured | `500` | `App misconfigured` |
-| `Authorization` header missing or empty | `401` | `No Authorization header` |
+| `Authorization` header missing | `401` | `No Authorization header` |
+| `Authorization` header does not use Bearer scheme | `401` | `Authorization header must use Bearer scheme` |
 | Token missing after stripping `Bearer ` prefix | `401` | `Token not found` |
 | Token expired (`JwtValidation.Expired`) | `403` | `Expired token` |
 | Token invalid (any other failure) | `403` | `Invalid token` |
@@ -146,7 +148,7 @@ All blocked responses return `FilterHeadersStatusValues.StopIteration`.
 
 | Secret name | Type | Constraint |
 |---|---|---|
-| `secret` | HMAC-SHA256 signing key | String; minimum 256 bits / 32 characters |
+| `SECRET` | HMAC-SHA256 signing key | String; minimum 256 bits / 32 characters |
 
 Configure this secret variable on the FastEdge application before deployment. For secret rotation, see `getSecretEffectiveAt` in the FastEdge secrets reference.
 
@@ -157,7 +159,8 @@ Configure this secret variable on the FastEdge application before deployment. Fo
 ```json
 {
   "@gcoredev/as-jwt": "^1.0.3",
-  "@gcoredev/proxy-wasm-sdk-as": "file:../.."
+  "@gcoredev/proxy-wasm-sdk-as": "^1.2.3",
+  "assemblyscript-json": "^1.1.0"
 }
 ```
 
@@ -199,9 +202,10 @@ Root context name: `"auth"`.
 
 ## Gotchas
 
+- The secret variable name is `SECRET` (uppercase). Using a different case will cause a 500 at runtime.
 - `getSecret` returns `string | null`, not `ArrayBuffer`. Pass the returned string directly to `jwtVerify` without encoding.
 - `@gcoredev/as-jwt` must be declared as an explicit dependency in `package.json`. It is not re-exported by proxy-wasm-sdk-as.
-- Both `null` check and `.length == 0` check are required for the `Authorization` header — an empty-string header passes the null check but must still be rejected.
+- The `Authorization` header is validated in two steps: first a null check (missing header → 401), then a `startsWith("Bearer ")` check (wrong scheme → 401). An empty-string header would fail the Bearer scheme check.
 - `jwtVerify` does not throw; always check the return value against `JwtValidation.Ok`.
 - Validation happens in `onRequestHeaders` only. There is no body or response hook in this example.
 - For HMAC secret rotation using slot-based secrets, use `getSecretEffectiveAt` instead of `getSecret`. See the FastEdge secrets reference.

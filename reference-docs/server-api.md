@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-test
-      ref: v0.1.7
-      commit: 0f309ee346b81261e66d09d1b50f70f8928e47fa
-      updated: 2026-04-22
+      ref: v0.2.2
+      commit: e5254c8c4b4b3aab0069e783ade1cec435726566
+      updated: 2026-05-20
 -->
 
 # Server API — REST and WebSocket Endpoints
@@ -14,6 +14,8 @@ The `@gcoredev/fastedge-test` debugger server exposes REST and WebSocket interfa
 **Base URL:** `http://localhost:5179`
 
 The port can be overridden via the `PORT` environment variable. When `WORKSPACE_PATH` is set, the active port is written to `$WORKSPACE_PATH/.fastedge-debug/.debug-port` on startup and deleted on shutdown.
+
+> **Note on header values.** Response-side and hook-result headers use `Record<string, string | string[]>` — single-valued headers are a `string`, multi-valued headers (notably `Set-Cookie` per RFC 6265) are a `string[]`. Request-side header inputs are single-valued `Record<string, string>`.
 
 ---
 
@@ -266,21 +268,15 @@ Provide either `path` (preferred) or `url` (legacy). When `path` is given, it is
 
 **Request Body — Proxy-WASM**
 
-The top-level `url` field is required. The full CDN flow is controlled via nested `request`, `response`, and `properties` fields.
+The top-level `url` field is required. The upstream response is generated at runtime — either by a real fetch against `url`, or by the built-in responder when `url === "built-in"`. The full CDN flow is controlled via nested `request` and `properties` fields.
 
 ```typescript
 {
-  url: string;                          // Request URL (required)
+  url: string;                          // Request URL, or "built-in" (required)
   request?: {
     method?: string;                    // HTTP method (default: "GET")
     headers?: Record<string, string>;   // Request headers (default: {})
     body?: string;                      // Request body (default: "")
-  };
-  response?: {
-    headers?: Record<string, string>;   // Simulated upstream response headers (default: {})
-    body?: string;                      // Simulated upstream response body (default: "")
-    status?: number;                    // Simulated upstream response status (default: 200)
-    statusText?: string;                // Simulated upstream response status text (default: "OK")
   };
   properties?: Record<string, unknown>; // CDN properties (default: {})
 }
@@ -294,7 +290,7 @@ The top-level `url` field is required. The full CDN flow is controlled via neste
   result: {
     status: number;
     statusText: string;
-    headers: Record<string, string>;
+    headers: Record<string, string | string[]>;
     body: string;
     contentType: string | null;
     isBase64?: boolean;
@@ -312,7 +308,7 @@ The top-level `url` field is required. The full CDN flow is controlled via neste
   finalResponse: {
     status: number;
     statusText: string;
-    headers: Record<string, string>;
+    headers: Record<string, string | string[]>;
     body: string;
     contentType: string;
     isBase64?: boolean;
@@ -330,13 +326,13 @@ type HookResult = {
   returnCode: number | null;
   logs: Array<{ level: number; message: string }>;
   input: {
-    request: { headers: Record<string, string>; body: string };
-    response: { headers: Record<string, string>; body: string };
+    request: { headers: Record<string, string | string[]>; body: string };
+    response: { headers: Record<string, string | string[]>; body: string };
     properties?: Record<string, unknown>;
   };
   output: {
-    request: { headers: Record<string, string>; body: string };
-    response: { headers: Record<string, string>; body: string };
+    request: { headers: Record<string, string | string[]>; body: string };
+    response: { headers: Record<string, string | string[]>; body: string };
     properties?: Record<string, unknown>;
   };
   properties: Record<string, unknown>;
@@ -385,12 +381,6 @@ curl -X POST http://localhost:5179/api/execute \
       "method": "GET",
       "headers": { "host": "example.com" },
       "body": ""
-    },
-    "response": {
-      "headers": { "content-type": "text/html" },
-      "body": "<html/>",
-      "status": 200,
-      "statusText": "OK"
     },
     "properties": {}
   }'
@@ -539,28 +529,24 @@ curl -X POST http://localhost:5179/api/call \
 
 Executes the full Proxy-WASM CDN request/response flow with stricter Zod schema validation than `POST /api/execute`. Only valid for Proxy-WASM modules.
 
+The upstream response is generated at runtime — either by a real fetch against `url`, or by the built-in responder when `url === "built-in"`.
+
 Requires a WASM module loaded via `POST /api/load`. Accepts optional `X-Source` header.
 
 **Request Body**
 
 ```typescript
 {
-  url: string | "built-in";               // Full request URL, or "built-in" to use URL from loaded config
+  url: string | "built-in";               // Full request URL, or "built-in" to use the built-in responder
   request?: {
     method?: string;                      // HTTP method (default: "GET")
     url?: string;
     headers?: Record<string, string>;     // Request headers (default: {})
     body?: string;                        // Request body (default: "")
   };
-  response?: {
-    headers?: Record<string, string>;     // Simulated upstream response headers (default: {})
-    body?: string;                        // Simulated upstream response body (default: "")
-  };
   properties: Record<string, unknown>;    // CDN properties (required; use {} if none)
 }
 ```
-
-The `response` object does not accept `status` or `statusText` — the full flow always uses `200 OK` as the simulated upstream status. Use `POST /api/execute` if you need to control those values.
 
 **Response**
 
@@ -571,7 +557,7 @@ The `response` object does not accept `status` or `statusText` — the full flow
   finalResponse: {
     status: number;
     statusText: string;
-    headers: Record<string, string>;
+    headers: Record<string, string | string[]>;
     body: string;
     contentType: string;
     isBase64?: boolean;
@@ -594,10 +580,6 @@ curl -X POST http://localhost:5179/api/send \
       "method": "POST",
       "headers": { "content-type": "application/json" },
       "body": "{\"key\":\"value\"}"
-    },
-    "response": {
-      "headers": { "content-type": "application/json" },
-      "body": "{\"result\":\"ok\"}"
     },
     "properties": {
       "client.geo.country": "DE"
@@ -670,7 +652,7 @@ curl -X POST http://localhost:5179/api/send \
 
 #### GET /api/config
 
-Reads `fastedge-config.test.json` from the project root and returns it with a validation result.
+Reads `fastedge-config.test.json` from the `.fastedge-debug/` directory (relative to `WORKSPACE_PATH` if set, otherwise the current working directory) and returns it with a validation result.
 
 **Response**
 
@@ -698,10 +680,6 @@ type ProxyWasmConfig = {
   request: {
     method: string;
     url: string;
-    headers: Record<string, string>;
-    body: string;
-  };
-  response?: {
     headers: Record<string, string>;
     body: string;
   };
@@ -747,10 +725,6 @@ curl http://localhost:5179/api/config
       "headers": {},
       "body": ""
     },
-    "response": {
-      "headers": {},
-      "body": ""
-    },
     "properties": {}
   },
   "valid": true
@@ -767,7 +741,7 @@ curl http://localhost:5179/api/config
 
 #### POST /api/config
 
-Saves the provided configuration to `fastedge-config.test.json` in the project root. Broadcasts a WebSocket event to connected clients when `properties` is included.
+Saves the provided configuration to `.fastedge-debug/fastedge-config.test.json` (relative to `WORKSPACE_PATH` if set, otherwise the current working directory). Broadcasts a WebSocket event to connected clients when `properties` is included.
 
 Accepts optional `X-Source` header.
 
@@ -803,10 +777,6 @@ curl -X POST http://localhost:5179/api/config \
         "method": "GET",
         "url": "https://example.com/",
         "headers": { "accept": "text/html" },
-        "body": ""
-      },
-      "response": {
-        "headers": {},
         "body": ""
       },
       "properties": {
@@ -1064,7 +1034,7 @@ Fired when the server begins processing an incoming request through the WASM fil
   data: {
     url: string;
     method: string;
-    headers: Record<string, string>;
+    headers: Record<string, string | string[]>;
   };
 }
 ```
@@ -1103,12 +1073,12 @@ Fired after each individual Proxy-WASM hook completes. Multiple events are emitt
     returnCode: number | null;  // Return code from the WASM filter, or null if unavailable
     logCount: number;           // Number of log lines emitted during this hook
     input: {
-      request: { headers: Record<string, string>; body: string };
-      response: { headers: Record<string, string>; body: string };
+      request: { headers: Record<string, string | string[]>; body: string };
+      response: { headers: Record<string, string | string[]>; body: string };
     };
     output: {
-      request: { headers: Record<string, string>; body: string };
-      response: { headers: Record<string, string>; body: string };
+      request: { headers: Record<string, string | string[]>; body: string };
+      response: { headers: Record<string, string | string[]>; body: string };
     };
   };
 }
@@ -1153,7 +1123,7 @@ Fired when all hook phases have completed and a final response is available. `ho
     finalResponse: {
       status: number;
       statusText: string;
-      headers: Record<string, string>;
+      headers: Record<string, string | string[]>;
       body: string;                    // May be base64 if isBase64 is true
       contentType: string;
       isBase64?: boolean;
@@ -1259,6 +1229,8 @@ Fired when the set of active properties changes (e.g. after a properties configu
 
 Fired when an http-wasm filter finishes processing a request and a response is available.
 
+`response.headers` mirrors Node's `IncomingHttpHeaders` — `undefined` values are dropped during JSON serialization and will not appear on the wire.
+
 ```typescript
 {
   type: 'http_wasm_request_completed';
@@ -1268,7 +1240,7 @@ Fired when an http-wasm filter finishes processing a request and a response is a
     response: {
       status: number;
       statusText: string;
-      headers: Record<string, string>;
+      headers: Record<string, string | string[] | undefined>;  // undefined values omitted in JSON
       body: string;                   // May be base64 if isBase64 is true
       contentType: string | null;
       isBase64?: boolean;
@@ -1392,6 +1364,8 @@ import { startServer } from '@gcoredev/fastedge-test/server';
 The server listens on port `5179` by default. Override with the `PORT` environment variable. When the preferred port is busy, the server tries up to 10 sequential ports before failing.
 
 When `WORKSPACE_PATH` is set, the active port is written to `$WORKSPACE_PATH/.fastedge-debug/.debug-port` on startup and removed on shutdown. Use this file to discover the port dynamically in CI or multi-process tooling.
+
+---
 
 ## See Also
 

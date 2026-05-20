@@ -3,8 +3,8 @@
   sources:
     - id: proxy-wasm-sdk-as
       ref: master
-      commit: 20b31c05b39c5537fb1ac7cc8693d9d8ec314f25
-      updated: 2026-04-15
+      commit: 60f25c7bd35564e5bafb421be7f37aa4acf1bf81
+      updated: 2026-05-20
 -->
 
 ---
@@ -175,8 +175,11 @@ if (!end_of_stream) {
 const urlBytes = get_property("request.url");
 const url = urlBytes.byteLength === 0 ? "" : String.UTF8.decode(urlBytes);
 
-const contentTypeBytes = get_property("request.content_type");
-const contentType = contentTypeBytes.byteLength === 0 ? "" : String.UTF8.decode(contentTypeBytes);
+const contentTypeBytes = get_property("response.content_type");
+const contentType =
+  contentTypeBytes.byteLength === 0
+    ? ""
+    : String.UTF8.decode(contentTypeBytes);
 ```
 
 **Body read:**
@@ -253,7 +256,7 @@ Reads a named runtime property. Returns empty `ArrayBuffer` (`byteLength === 0`)
 | Property path | Description |
 |---|---|
 | `"request.url"` | Full request URL |
-| `"request.content_type"` | Request content-type (previously stored via `set_property`) |
+| `"response.content_type"` | Response content-type (stored via `set_property` in `onResponseHeaders`) |
 
 ---
 
@@ -320,7 +323,7 @@ When modifying body content:
 - **`get_property` empty check**: Always check `byteLength === 0` before decoding a property value. Skipping this check causes a decode error on empty buffers.
 - **`set_property` scope**: Properties are scoped to the current request lifecycle. They are not persisted across requests.
 - **Log level filtering**: `setLogLevel` is called per-context in `createContext`. Set to `LogLevelValues.debug` to see all debug-level hook entry logs.
-- **`content-type` property name**: The example stores `content-type` under `"response.content_type"` (underscore) but reads it back under `"request.content_type"` — this is a property naming distinction in the example; property paths are arbitrary strings and both read and write paths must match.
+- **`content-type` property path**: The example stores `content-type` from the response headers under `"response.content_type"` in `onResponseHeaders` and reads it back under `"response.content_type"` in `onResponseBody`. Property paths are arbitrary strings — both the write path and read path must match exactly.
 
 ## Deployment
 
