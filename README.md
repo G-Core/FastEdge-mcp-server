@@ -1,6 +1,6 @@
 # FastEdge MCP Server
 
-The FastEdge MCP server is the **executor layer** for AI-assisted FastEdge development. It exposes Model Context Protocol tools that any MCP-compatible client can call directly — Cursor, VSCode, Claude Desktop, Codex, and Claude Code (via the [gcore-fastedge plugin](https://github.com/G-Core/fastedge-plugin)).
+The FastEdge MCP server is the **executor layer** for AI-assisted FastEdge development. It exposes Model Context Protocol tools that any MCP-compatible client can call directly — Cursor, VS Code, Claude Desktop, Codex, and Claude Code (via the [gcore-fastedge plugin](https://github.com/G-Core/fastedge-plugin)).
 
 What it does:
 
@@ -18,7 +18,7 @@ Higher-level workflow orchestration — deciding *when* to build, *what* to depl
 - Claude Code → [`gcore-fastedge` plugin](https://github.com/G-Core/fastedge-plugin)
 - Codex → `gcore-fastedge-codex` plugin (same repo)
 
-The rest of this README covers running the MCP server **standalone** for clients without plugin support (Cursor, Claude Desktop, VSCode MCP, etc.).
+The rest of this README covers running the MCP server **standalone** for clients without plugin support (Cursor, Claude Desktop, VS Code MCP, etc.).
 
 ### Standalone setup
 
