@@ -54,11 +54,14 @@ jobs:
               echo "Invalid tag format: $TAG_VERSION"
               exit 1
             fi
+            # Set up auth and identity before any remote operation (ls-remote or push).
+            GH_TOKEN="${{ steps.app-token.outputs.token }}" gh auth setup-git
+            git config user.name "fastedge-plugin-sync[bot]"
+            git config user.email "fastedge-plugin-sync[bot]@users.noreply.github.com"
             if git ls-remote --tags origin "refs/tags/$TAG_VERSION" | grep -q "$TAG_VERSION"; then
               echo "Tag $TAG_VERSION already exists on remote — using it"
             else
               echo "Creating new release tag: $TAG_VERSION"
-              GH_TOKEN="${{ steps.app-token.outputs.token }}" gh auth setup-git
               git tag -a "$TAG_VERSION" -m "Release $TAG_VERSION"
               git push origin "$TAG_VERSION"
             fi
