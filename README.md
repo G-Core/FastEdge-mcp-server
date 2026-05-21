@@ -1,22 +1,29 @@
-# FastEdge MCP Tools
+# FastEdge MCP Server
 
-This project provides MCP (Model Context Protocol) tools for building, deploying, and scaffolding FastEdge applications. It includes comprehensive context, documentation, and automated workflows to help developers create FastEdge applications more effectively.
+The FastEdge MCP server is the **executor layer** for AI-assisted FastEdge development. It exposes Model Context Protocol tools that any MCP-compatible client can call directly — Cursor, VSCode, Claude Desktop, Codex, and Claude Code (via the [gcore-fastedge plugin](https://github.com/G-Core/fastedge-plugin)).
+
+What it does:
+
+- **Containerised build toolchains** for JS/TS, Rust, and AssemblyScript (no local toolchain needed) — `build-wasm`, `upload-binary`
+- **Schema-aware Gcore API access** — `gcore_api`, `describe_api`, `workflows_list`, `batch_execute`
+- **Bundled FastEdge reference docs** kept current via the plugin's docs pipeline — `fastedge-docs`
+- **Project scaffolding** from FastEdge SDK templates — `scaffold-fastedge-project`, `list-fastedge-templates`
+
+Higher-level workflow orchestration — deciding *when* to build, *what* to deploy, *how* to wire CDN rules — lives in the [`gcore-fastedge` plugin](https://github.com/G-Core/fastedge-plugin) skills. This server runs the steps.
 
 ## Getting Started
 
-#### Step 1
+**If you're on Claude Code or Codex, use the plugin instead.** It wraps this server with the intelligence layer (blueprint-driven scaffolding, deploy/manage/live-test/debug skills) and is the recommended path:
 
-[Setting up your own MCP Server](./STANDALONE-SETUP.md)
+- Claude Code → [`gcore-fastedge` plugin](https://github.com/G-Core/fastedge-plugin)
+- Codex → `gcore-fastedge-codex` plugin (same repo)
 
-#### Step 2
+The rest of this README covers running the MCP server **standalone** for clients without plugin support (Cursor, Claude Desktop, VSCode MCP, etc.).
 
-Setup a basic repo and project with:
+### Standalone setup
 
-```prompt
-/createFastEdgeApp
-```
-
-Follow the prompts and get started coding with AI Agent support.
+1. Wire the Docker image into your client's MCP config — see [STANDALONE-SETUP.md](./STANDALONE-SETUP.md).
+2. Invoke the `createFastEdgeApp` prompt to scaffold your first project. (The exact form depends on your client — `/createFastEdgeApp`, `/mcp__fastedge-assistant__createFastEdgeApp`, or a UI prompt picker.)
 
 # Usage Examples
 
@@ -52,7 +59,7 @@ This automated workflow will:
 
 1. Build the current code into a WASM binary using `build-wasm`
 2. Upload the binary to FastEdge using `upload-binary`
-3. Create or update the application using `update-or-create-app`
+3. Use `describe_api` to inspect the `fastedge-apps` endpoints, then call `gcore_api` to create or update the application (POST `/fastedge/v1/apps` or PUT `/fastedge/v1/apps/{id}`) with the new binary ID
 4. Optionally generate Magic Comments for tracking deployment info
 
 ### Individual Build and Deployment Steps
@@ -115,18 +122,20 @@ For more information on how Environment Variables work in `dotenv` files read [h
 
 # Available Resources
 
-- **fastedge-context** - Comprehensive FastEdge development documentation including:
-  - FastEdge Core concepts and patterns
-  - JavaScript SDK documentation and examples
-  - Real-world examples from the FastEdge examples repository
-  - Environment variables and secrets management patterns
+MCP resources are read-only guidance documents that agents can read on demand.
+
+- **fastedge-scaffolding-guide** (`fastedge://guides/scaffolding`) — Decision tree and recipes for scaffolding FastEdge apps across new repos, mixed-language monorepos, and existing projects.
+- **fastedge-template-guide** (`fastedge://guides/templates`) — Template selection guide covering `http-base`, `http-react`, `http-react-hono`, and `cdn-base`.
+
+Up-to-date SDK, platform, and example documentation is served through the `fastedge-docs` tool (above) rather than as a static resource.
 
 # Available Prompts
 
-- **createFastEdgeApp** - Interactive guided creation of new FastEdge applications with template selection
-- **deployFastEdgeApp** - Automated workflow to build, upload, and deploy a FastEdge application
-- **setEnvironmentVariables** - Automated workflow to collect "Environment Variables", "Secrets" or "Response Headers" and deploy to a FastEdge application.
-- **insertMagicComments** - Generate Magic Comments for deployment tracking
+- **createFastEdgeApp** — Intelligent project creation that detects new vs existing repos, mixed-language scenarios, and routes to the right scaffold action
+- **deployFastEdgeApp** — Build, upload, and deploy via `build-wasm` + `upload-binary` + `describe_api`/`gcore_api`
+- **setEnvironmentVariables** — Collect environment variables, secrets, and response headers from `.env` files and apply them to a deployed app via `gcore_api`
+- **insertMagicComments** — Generate Magic Comments for deployment tracking
+- **explainFastEdgeTemplate** — Walk through the available templates and recommend one for the user's use case
 
 ## Environment Setup
 
@@ -185,12 +194,14 @@ When developing FastEdge applications:
 
 ## Integration with FastEdge Ecosystem
 
-This MCP server integrates seamlessly with:
+This MCP server is consumed by, and integrates with:
 
-- **FastEdge API** for binary uploads and application management
-- **FastEdge SDK** for JavaScript/TypeScript development
-- **FastEdge Examples Repository** for proven code patterns
-- **VS Code FastEdge Launcher Extension** for enhanced development experience
+- **[`gcore-fastedge` plugin for Claude Code](https://github.com/G-Core/fastedge-plugin)** — primary consumer; ships a bundled `.mcp.json` that launches this server and delegates build/deploy/manage execution to it
+- **`gcore-fastedge-codex` plugin** — Codex variant of the same plugin, also launches this server
+- **Gcore API** — direct REST access via `gcore_api` (FastEdge, CDN, DNS, WAAP, Storage)
+- **FastEdge SDKs** (`@gcoredev/fastedge-sdk-js`, `fastedge` Rust crate, `@gcoredev/proxy-wasm-sdk-as`) — bundled in the container's build toolchain
+- **FastEdge Examples Repository** — source of truth for the bundled reference docs and scaffold blueprints
+- **VS Code FastEdge Launcher Extension** — generates the `.vscode/mcp.json` config that points at this server
 
 ## Resources
 
