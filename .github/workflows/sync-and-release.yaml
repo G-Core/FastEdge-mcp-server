@@ -125,7 +125,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.plugin-token.outputs.token }}
         run: |
-          gh auth setup-git
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/G-Core/FastEdge-mcp-server.git"
           git config user.name "fastedge-plugin-sync[bot]"
           git config user.email "fastedge-plugin-sync[bot]@users.noreply.github.com"
 
