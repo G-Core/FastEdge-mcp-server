@@ -104,7 +104,7 @@ export function registerDeploymentPrompts(server: McpServer) {
 
                 Note: Check to see if my application uses any specific environment variables or secrets.
                   1. Warn me if any are missing.
-                  2. If none are required then just set an empty object for that field and verify that I still want to run the update-env-vars-app tool.
+                  2. If none are required then just set an empty object for that field and verify that I still want to proceed with the gcore_api PUT call.
               `,
             },
           },
