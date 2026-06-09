@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0.0",
-  "generated_at": "2026-05-22T12:59:22.116Z",
+  "generated_at": "2026-06-09T10:28:55.721Z",
   "source": {
     "repo": "fastedge-plugin",
-    "commit": "1c219f4",
+    "commit": "348fd3d",
     "pipeline": "sync-reference-docs"
   },
   "topics": [
@@ -17429,10 +17429,10 @@
       ]
     },
     {
-      "id": "http-examples-kv-store-rust",
+      "id": "http-examples-kv-store-wasi-rust",
       "title": "KV Store — Rust (WASI HTTP)",
       "description": "auto-updated: true sources: - id: fastedge-sdk-rust ref: main commit: 4f748b10fa04226e76218e88195b6b1f02fce032 updated: 2026-04-20 -->",
-      "path": "reference/fastedge-docs/http/examples-kv-store-rust.md",
+      "path": "reference/fastedge-docs/http/examples-kv-store-wasi-rust.md",
       "skill": "fastedge-docs",
       "category": "examples",
       "app_types": [
@@ -17468,7 +17468,7 @@
       "content_sha256": "fb7410e917a16cc79179e41e3ac12ba0232fd70fcdb6a33b0de7be12e6b1dff8",
       "sections": [
         {
-          "id": "http-examples-kv-store-rust#introduction",
+          "id": "http-examples-kv-store-wasi-rust#introduction",
           "heading": "Introduction",
           "level": 1,
           "anchor": "introduction",
@@ -17506,7 +17506,7 @@
           ]
         },
         {
-          "id": "http-examples-kv-store-rust#cargotoml",
+          "id": "http-examples-kv-store-wasi-rust#cargotoml",
           "heading": "Cargo.toml",
           "level": 2,
           "anchor": "cargotoml",
@@ -17537,7 +17537,7 @@
           ]
         },
         {
-          "id": "http-examples-kv-store-rust#imports",
+          "id": "http-examples-kv-store-wasi-rust#imports",
           "heading": "Imports",
           "level": 2,
           "anchor": "imports",
@@ -17562,7 +17562,7 @@
           ]
         },
         {
-          "id": "http-examples-kv-store-rust#entry-point",
+          "id": "http-examples-kv-store-wasi-rust#entry-point",
           "heading": "Entry Point",
           "level": 2,
           "anchor": "entry-point",
@@ -17590,7 +17590,7 @@
           ]
         },
         {
-          "id": "http-examples-kv-store-rust#query-parameter-routing",
+          "id": "http-examples-kv-store-wasi-rust#query-parameter-routing",
           "heading": "Query Parameter Routing",
           "level": 2,
           "anchor": "query-parameter-routing",
@@ -17633,7 +17633,7 @@
           ]
         },
         {
-          "id": "http-examples-kv-store-rust#store-api",
+          "id": "http-examples-kv-store-wasi-rust#store-api",
           "heading": "Store API",
           "level": 2,
           "anchor": "store-api",
@@ -17674,7 +17674,7 @@
           ]
         },
         {
-          "id": "http-examples-kv-store-rust#supported-operations-summary",
+          "id": "http-examples-kv-store-wasi-rust#supported-operations-summary",
           "heading": "Supported Operations Summary",
           "level": 2,
           "anchor": "supported-operations-summary",
@@ -17707,7 +17707,7 @@
           ]
         },
         {
-          "id": "http-examples-kv-store-rust#error-handling-pattern",
+          "id": "http-examples-kv-store-wasi-rust#error-handling-pattern",
           "heading": "Error Handling Pattern",
           "level": 2,
           "anchor": "error-handling-pattern",
@@ -17746,7 +17746,7 @@
           ]
         },
         {
-          "id": "http-examples-kv-store-rust#response-format",
+          "id": "http-examples-kv-store-wasi-rust#response-format",
           "heading": "Response Format",
           "level": 2,
           "anchor": "response-format",
@@ -17787,7 +17787,7 @@
           ]
         },
         {
-          "id": "http-examples-kv-store-rust#constraints-and-notes",
+          "id": "http-examples-kv-store-wasi-rust#constraints-and-notes",
           "heading": "Constraints and Notes",
           "level": 2,
           "anchor": "constraints-and-notes",
@@ -17837,7 +17837,7 @@
           ]
         },
         {
-          "id": "http-examples-kv-store-rust#see-also",
+          "id": "http-examples-kv-store-wasi-rust#see-also",
           "heading": "See Also",
           "level": 2,
           "anchor": "see-also",
