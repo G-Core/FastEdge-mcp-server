@@ -198,4 +198,5 @@ Rules are managed through their own endpoints under `/cdn/resources/{resource_id
 - Rust CDN apps reference — proxy-wasm lifecycle methods, host services, request/response manipulation in Rust
 - AssemblyScript SDK reference — proxy-wasm lifecycle and FastEdge host APIs in AssemblyScript
 - Platform overview — CDN apps vs HTTP apps, architecture, request lifecycle
+- HTTP apps as CDN origins — routing CDN traffic to a FastEdge HTTP app via origin groups and CDN rules (a different integration model from proxy-wasm hooks)
 - The deploy and manage skills — for creating and updating the FastEdge apps that get attached here

@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-js
       ref: main
-      commit: df672e9f296361bd9f3d5475ec32c624c2456656
-      updated: 2026-05-20
+      commit: 36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9
+      updated: 2026-06-11
 -->
 
 # FastEdge JavaScript Quickstart
@@ -147,6 +147,58 @@ KvStoreInstance.bfExists(key: string, value: string): boolean
 - `arrayBuffer(): Promise<ArrayBuffer>`
 - `text(): Promise<string>`
 - `json(): Promise<unknown>`
+
+### Cache
+
+The `fastedge::cache` module provides a POP-local key/value store with TTL and atomic counter primitives. Unlike `fastedge::kv`, which is globally replicated across all data centers, the cache is strongly consistent within a single point of presence and invisible to other POPs — suited for request-time state such as rate limiting, hit counters, and response memoisation where low latency within a POP matters more than global durability.
+
+```
+Cache.get(key: string): Promise<CacheEntry | null>
+Cache.set(key: string, value: CacheValue, options?: WriteOptions): Promise<void>
+Cache.getOrSet(key: string, populate: () => CacheValue | Promise<CacheValue>, options?: WriteOptions): Promise<CacheEntry>
+Cache.incr(key: string, delta?: number): Promise<number>
+Cache.expire(key: string, options: WriteOptions): Promise<boolean>
+```
+
+Example — rate limiting with cache:
+
+```js
+/// <reference types="@gcoredev/fastedge-sdk-js" />
+import { Cache } from 'fastedge::cache';
+
+addEventListener('fetch', (event) => {
+  event.respondWith(
+    (async () => {
+      const ip = event.request.headers.get('x-forwarded-for') ?? 'unknown';
+
+      // Atomic per-IP counter; initialised to 0 on first call
+      const count = await Cache.incr(`rl:${ip}`);
+      if (count === 1) await Cache.expire(`rl:${ip}`, { ttl: 60 });
+      if (count > 100) {
+        return new Response('Too Many Requests', { status: 429 });
+      }
+
+      // Cache-aside: serve from cache, populate on miss
+      const entry = await Cache.getOrSet(
+        'upstream-data',
+        async () => {
+          const r = await fetch('https://example.com/data');
+          return r.ok ? r : null;
+        },
+        { ttl: 30 },
+      );
+
+      if (entry === null) {
+        return new Response('Upstream unavailable', { status: 503 });
+      }
+
+      return new Response(await entry.text());
+    })(),
+  );
+});
+```
+
+See the SDK Runtime API reference for the complete `Cache` method reference, `CacheValue` type, and `WriteOptions` fields.
 
 ## Next Steps
 

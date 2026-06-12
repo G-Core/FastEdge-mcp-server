@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-js
       ref: main
-      commit: df672e9f296361bd9f3d5475ec32c624c2456656
-      updated: 2026-05-20
+      commit: 36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9
+      updated: 2026-06-11
 -->
 
 # A/B Testing — FastEdge Example
@@ -165,3 +165,118 @@ When the `x-fastedge-abid` cookie is present:
 - **Variant consistency**: Consistency is guaranteed only while the cookie persists. Clearing cookies resets variant assignment.
 - **`xid` range**: `Math.random()` can return `0` but not `1`. `slice(1, 5)` on `"0.473..."` yields `".473"` — always a 4-character string starting with `.`.
 - **Empty cookie after strip**: If `x-fastedge-abid` was the only cookie, the `cookie` header is deleted entirely rather than set to an empty string.
+
+## Source Material
+
+### FILE: examples/ab-testing/src/index.js
+
+import { getEnv } from 'fastedge::env';
+
+const testConfig = {
+  logo: [
+    { variant: 'hops', weight: 50 },
+    { variant: 'bottle', weight: 50 },
+  ],
+  font: [
+    { variant: 'exo2', weight: 40 },
+    { variant: 'gloria', weight: 65 },
+    { variant: 'standard', weight: 45 },
+  ],
+};
+
+async function eventHandler({ request }) {
+  const [xid, slicedHeaders] = sliceAbTestIdFromCookie(request);
+
+  const headers = createAbTestHeaders(slicedHeaders, testConfig, xid);
+
+  // This is the URL of the outbound service - i.e. could be a url to your origin
+  // e.g. https://template-invoice-ab-test-123456.fastedge.cdn.gc.onl/
+  const outboundUrl = getEnv('OUTBOUND_URL');
+  if (!outboundUrl || !String(outboundUrl).trim()) {
+    return new Response('OUTBOUND_URL environment variable is not configured', {
+      status: 500,
+    });
+  }
+
+  const response = await fetch(outboundUrl, { headers });
+
+  // Request/Response Headers are immutable, so we need to create a new Headers object
+  const resHeaders = new Headers(response.headers);
+  resHeaders.set(
+    'set-cookie',
+    `x-fastedge-abid=${xid}; Max-Age=31536000; Path=/; Secure; HttpOnly; SameSite=Lax;`,
+  );
+
+  return new Response(response.body, {
+    status: response.status,
+    headers: resHeaders,
+  });
+}
+
+addEventListener('fetch', (event) => {
+  event.respondWith(eventHandler(event));
+});
+
+const sliceAbTestIdFromCookie = ({ headers: reqHeaders }) => {
+  // Request/Response Headers are immutable, so we need to create a new Headers object
+  const headers = new Headers(reqHeaders);
+  const cookie = headers.get('cookie') || '';
+  // Read the existing `xid` cookie value.
+  const xid = (cookie.match(/(?:^|;) *x-fastedge-abid=((0|1|)\.\d+) *(?:;|$)/u) || [])[1];
+  if (xid) {
+    // Request contains A/B cookie, hide it from the origin
+    const newCookie = cookie.replace(/x-fastedge-abid=[^;]+;?\s*/gu, '');
+    if (newCookie) {
+      headers.set('cookie', newCookie);
+    } else {
+      headers.delete('cookie');
+    }
+    return [xid, headers];
+  }
+  const randomXid = `${Math.random()}`.slice(1, 5);
+  // Request does not contain A/B cookie, return random number
+  return [randomXid, headers];
+};
+
+const forceWeightsToPercentages = (testValues) => {
+  const total = testValues.reduce((acc, { weight }) => acc + weight, 0);
+  return testValues.map(({ variant, weight }) => ({
+    variant,
+    percentage: (weight / total) * 100,
+  }));
+};
+
+const createAbTestHeaders = (reqHeaders, testConfig, xid) => {
+  const headers = new Headers(reqHeaders);
+  for (const testName of Object.keys(testConfig)) {
+    const xidPercentage = Number.parseFloat(xid) * 100;
+    const testValues = forceWeightsToPercentages(testConfig[testName]);
+    let start = 0;
+    for (const { variant, percentage } of testValues) {
+      const end = start + percentage;
+      if (xidPercentage >= start && xidPercentage < end) {
+        headers.set(`ab-test-${testName}`, variant);
+        break;
+      }
+      start = end;
+    }
+  }
+  return headers;
+};
+
+
+### FILE: examples/ab-testing/package.json
+
+{
+  "name": "fastedge-example-ab-testing",
+  "version": "1.0.0",
+  "description": "FastEdge JS example: cookie-based A/B testing",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "build": "fastedge-build src/index.js dist/ab-testing.wasm"
+  },
+  "dependencies": {
+    "@gcoredev/fastedge-sdk-js": "^2.3.0"
+  }
+}

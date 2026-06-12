@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-test
-      ref: v0.2.2
-      commit: e5254c8c4b4b3aab0069e783ade1cec435726566
-      updated: 2026-05-20
+      ref: v0.2.4
+      commit: cbb5bebd8bad7e9fee4f1a006a39c8511f951717
+      updated: 2026-06-11
 -->
 
 # FastEdge Visual Debugger
@@ -31,15 +31,17 @@ npm install --save-dev @gcoredev/fastedge-test
 # Start the visual debugger
 npx @gcoredev/fastedge-test
 
-# Or using the explicit binary name:
+# Or using the explicit binary name (preferred):
 npx fastedge-debug
 ```
+
+> The shorthand `npx @gcoredev/fastedge-test` works because the package declares exactly one `bin` entry. Prefer the explicit `fastedge-debug` form — it stays correct if a second binary is ever added.
 
 Opens the debugger UI at `http://localhost:5179`.
 
 Custom port:
 ```bash
-PORT=8080 npx @gcoredev/fastedge-test
+PORT=8080 npx fastedge-debug
 ```
 
 Anchor workspace root discovery to a specific starting location by passing a path as the first argument:
@@ -48,6 +50,24 @@ npx fastedge-debug /path/to/my-app
 ```
 
 The CLI automatically discovers the workspace root by walking up from the current directory, looking first for an existing `.fastedge-debug/` directory, then for a `package.json` or `Cargo.toml`. The resolved root is used as the base for port file and configuration file placement.
+
+#### `--project-dir <path>` (or `-C <path>`)
+
+For setups where the CLI is invoked from a subdirectory of the project (for example, a Rust app with a `fastedge-test/` Node sandbox holding the debugger install), pass `--project-dir` to anchor workspace discovery at a different path:
+
+```bash
+# From inside fastedge-test/, point the debugger at the parent project root
+cd fastedge-test
+npx fastedge-debug --project-dir ..
+```
+
+The flag accepts both `--project-dir <path>` and `--project-dir=<path>`. `-C` is a short alias. The resolved path drives `WORKSPACE_PATH` and all config / fixture / dotenv resolution. The flag is stripped before any remaining positional arguments are forwarded, so you can combine it with a fixture path:
+
+```bash
+npx fastedge-debug --project-dir .. ../fixtures/scenario-1.test.json
+```
+
+When omitted, behavior is unchanged — the positional argument or `process.cwd()` is used as the starting point.
 
 Programmatic usage:
 ```typescript

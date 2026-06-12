@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-js
       ref: main
-      commit: df672e9f296361bd9f3d5475ec32c624c2456656
-      updated: 2026-05-20
+      commit: 36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9
+      updated: 2026-06-11
 -->
 
 ## Headers Example — FastEdge JS
@@ -68,6 +68,17 @@ addEventListener('fetch', (event) => {
 - Overwrites any existing header with the same name.
 - Does not throw on reserved header names at the JS layer, but the runtime may strip or reject certain headers (e.g., `host`, `content-length`).
 
+#### `headers.get(name)`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | `string` | Header name. Case-insensitive per HTTP spec. |
+
+**Returns**: `string | null` — the header value, or `null` if the header is absent.
+
+- Use to read individual request headers by name.
+- Header name lookup is case-insensitive.
+
 #### `getEnv(name)`
 
 | Parameter | Type | Description |
@@ -103,6 +114,29 @@ responseHeaders.set('my-custom-header', value);
 
 Environment variables are read at request time. Missing variables produce an empty string via the `??` fallback.
 
+#### Read a specific request header
+
+```js
+const value = request.headers.get('x-some-header');
+if (value !== null) {
+  // header is present
+}
+```
+
+`get` returns `null` when the header is absent; check explicitly before using the value.
+
+#### Add a custom response header conditionally
+
+```js
+const responseHeaders = new Headers(request.headers);
+const incoming = request.headers.get('x-forwarded-for');
+if (incoming) {
+  responseHeaders.set('x-client-ip', incoming);
+}
+```
+
+Conditional header injection based on presence of a request header.
+
 ---
 
 ### Headers API Reference (Web-Standard Subset)
@@ -128,6 +162,7 @@ All method names are **case-insensitive** with respect to the header name argume
 | Header name case | HTTP headers are case-insensitive; the `Headers` API normalises names to lowercase internally. |
 | Reserved headers | Some headers (`host`, `content-length`, `transfer-encoding`) may be stripped or overridden by the runtime regardless of what is set. |
 | Missing env var | `getEnv` returns `null` (not `undefined`) when the variable is unset. Use `?? ''` or an explicit null check. |
+| `get` on absent header | Returns `null`, not `undefined` or empty string. Always null-check before string operations. |
 
 ---
 
