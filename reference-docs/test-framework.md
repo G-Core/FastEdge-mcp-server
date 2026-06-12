@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-test
-      ref: v0.2.2
-      commit: e5254c8c4b4b3aab0069e783ade1cec435726566
-      updated: 2026-05-20
+      ref: v0.2.4
+      commit: cbb5bebd8bad7e9fee4f1a006a39c8511f951717
+      updated: 2026-06-11
 -->
 
 # FastEdge Test Framework API

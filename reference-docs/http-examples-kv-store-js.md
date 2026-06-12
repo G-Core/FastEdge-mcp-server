@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-js
       ref: main
-      commit: df672e9f296361bd9f3d5475ec32c624c2456656
-      updated: 2026-05-20
+      commit: 36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9
+      updated: 2026-06-11
 -->
 
 ## KV Store — Example Reference
@@ -147,15 +147,15 @@ Validation is performed by `validateQueryParams(queryParams: URLSearchParams)` i
 The success response is a JSON object with the following fields (present fields depend on action):
 
 | Field      | Type     | Always present | Description                              |
-|------------|----------|---------------|------------------------------------------|
-| `Store`    | `string` | Yes           | Name of the KV store used                |
-| `Action`   | `string` | Yes           | Action that was executed                 |
-| `Key`      | `string` | When used     | Key parameter                            |
-| `Match`    | `string` | When used     | Match pattern parameter                  |
-| `Min`      | `string` | When used     | Min score parameter (zrange)             |
-| `Max`      | `string` | When used     | Max score parameter (zrange)             |
-| `Item`     | `string` | When used     | Item parameter (bfExists)                |
-| `Response` | `string` | Yes           | Stringified result of the KV operation   |
+|------------|----------|----------------|------------------------------------------|
+| `Store`    | `string` | Yes            | Name of the KV store used                |
+| `Action`   | `string` | Yes            | Action that was executed                 |
+| `Key`      | `string` | When used      | Key parameter                            |
+| `Match`    | `string` | When used      | Match pattern parameter                  |
+| `Min`      | `string` | When used      | Min score parameter (zrange)             |
+| `Max`      | `string` | When used      | Max score parameter (zrange)             |
+| `Item`     | `string` | When used      | Item parameter (bfExists)                |
+| `Response` | `string` | Yes            | Stringified result of the KV operation   |
 
 For `zrangeByScore` and `zscan`, `Response` is formatted as: `[{ Value: <decoded>, Score: <number> }, ...]`.
 
@@ -297,5 +297,5 @@ TypeScript types for FastEdge globals (`FetchEvent`, etc.) are provided by `@gco
 - `bfExists` returning `true` is probabilistic (Bloom filter); `false` is definitive.
 - `min` and `max` for `zrangeByScore` are parsed from query strings with `Number.parseFloat` — ensure numeric string inputs.
 - `"type": "module"` must be set in `package.json` for ESM compatibility with `fastedge-build`.
-- The SDK dependency version is `^2.3.0` (updated from `^2.2.2`).
-- `tsconfig.json` `target` updated to `ES2023` (from `ES2020`); `moduleResolution` updated to `Bundler` (from `Node`); `lib` updated to `["ES2023"]` (from `["ES2020", "DOM"]`); `esModuleInterop` and `forceConsistentCasingInFileNames` removed; `include` simplified to `["src/**/*"]` (node_modules types path removed).
+- The SDK dependency version is `^2.3.0`.
+- `tsconfig.json` `target` is `ES2023`; `moduleResolution` is `Bundler`; `lib` is `["ES2023"]`; `types` is `["@gcoredev/fastedge-sdk-js"]`.

@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0.0",
-  "generated_at": "2026-06-09T14:10:40.469Z",
+  "generated_at": "2026-06-12T07:08:19.154Z",
   "source": {
     "repo": "fastedge-plugin",
-    "commit": "fe83dfe",
+    "commit": "b571f78",
     "pipeline": "sync-reference-docs"
   },
   "topics": [
@@ -14865,7 +14865,7 @@
     {
       "id": "dotenv",
       "title": "Dotenv — Runtime Secrets and Environment Variables",
-      "description": "auto-updated: true sources: - id: fastedge-test ref: v0.2.2 commit: e5254c8c4b4b3aab0069e783ade1cec435726566 updated: 2026-05-20 -->",
+      "description": "auto-updated: true sources: - id: fastedge-test ref: v0.2.4 commit: cbb5bebd8bad7e9fee4f1a006a39c8511f951717 updated: 2026-06-11 -->",
       "path": "reference/test/dotenv.md",
       "skill": "test",
       "category": "testing",
@@ -14882,11 +14882,11 @@
         "sources",
         "fastedge-test",
         "ref",
-        "v0.2.2",
+        "v0.2.4",
         "commit",
-        "e5254c8c4b4b3aab0069e783ade1cec435726566",
+        "cbb5bebd8bad7e9fee4f1a006a39c8511f951717",
         "updated",
-        "2026-05-20",
+        "2026-06-11",
         "dotenv",
         "runtime",
         "secrets",
@@ -14897,7 +14897,7 @@
         "debugger",
         "inject"
       ],
-      "content_sha256": "3bf17b2d2316a9560b211302921bf46d7dca7ef2dd5b5c1a4eede5f7672e5a0a",
+      "content_sha256": "d9091882d314cec365e07990bc7d5c0ab6df1a53c0e5d63cdbf8599c91790220",
       "sections": [
         {
           "id": "dotenv#introduction",
@@ -14912,11 +14912,11 @@
             "sources",
             "fastedge-test",
             "ref",
-            "v0.2.2",
+            "v0.2.4",
             "commit",
-            "e5254c8c4b4b3aab0069e783ade1cec435726566",
+            "cbb5bebd8bad7e9fee4f1a006a39c8511f951717",
             "updated",
-            "2026-05-20",
+            "2026-06-11",
             "dotenv",
             "runtime",
             "secrets",
@@ -15482,7 +15482,7 @@
     {
       "id": "http-examples-ab-testing-js",
       "title": "A/B Testing — FastEdge Example",
-      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: df672e9f296361bd9f3d5475ec32c624c2456656 updated: 2026-05-20 -->",
+      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: 36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9 updated: 2026-06-11 -->",
       "path": "reference/fastedge-docs/http/examples-ab-testing-js.md",
       "skill": "fastedge-docs",
       "category": "examples",
@@ -15504,9 +15504,9 @@
         "ref",
         "main",
         "commit",
-        "df672e9f296361bd9f3d5475ec32c624c2456656",
+        "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
         "updated",
-        "2026-05-20",
+        "2026-06-11",
         "testing",
         "fastedge",
         "example",
@@ -15517,7 +15517,7 @@
         "visitors",
         "test"
       ],
-      "content_sha256": "f71a2446da247786371a826a9b8a6db8644add90e4b52485bcf6d398fc494af3",
+      "content_sha256": "b3190b73ae2f7d086ba9be0a44ace25af9e20665f82c4b051ef8cce69026b452",
       "sections": [
         {
           "id": "http-examples-ab-testing-js#introduction",
@@ -15534,9 +15534,9 @@
             "ref",
             "main",
             "commit",
-            "df672e9f296361bd9f3d5475ec32c624c2456656",
+            "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
             "updated",
-            "2026-05-20",
+            "2026-06-11",
             "testing",
             "fastedge",
             "example"
@@ -15961,13 +15961,54 @@
             "keys",
             "vary"
           ]
+        },
+        {
+          "id": "http-examples-ab-testing-js#source-material",
+          "heading": "Source Material",
+          "level": 2,
+          "anchor": "source-material",
+          "line_start": 169,
+          "line_end": 283,
+          "keywords": [
+            "source",
+            "material",
+            "file",
+            "examples",
+            "ab-testing",
+            "src",
+            "index.js",
+            "import",
+            "getenv",
+            "fastedge",
+            "env",
+            "const",
+            "testconfig",
+            "logo",
+            "variant",
+            "hops",
+            "weight",
+            "bottle",
+            "font",
+            "exo2",
+            "gloria",
+            "standard",
+            "async",
+            "function",
+            "eventhandler",
+            "request",
+            "xid",
+            "slicedheaders",
+            "sliceabtestidfromcookie",
+            "headers",
+            "createabtestheaders"
+          ]
         }
       ]
     },
     {
       "id": "http-examples-auth-js",
       "title": "Authentication Patterns (JavaScript)",
-      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: df672e9f296361bd9f3d5475ec32c624c2456656 updated: 2026-05-20 -->",
+      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: 36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9 updated: 2026-06-11 -->",
       "path": "reference/fastedge-docs/http/examples-auth-js.md",
       "skill": "fastedge-docs",
       "category": "examples",
@@ -15989,9 +16030,9 @@
         "ref",
         "main",
         "commit",
-        "df672e9f296361bd9f3d5475ec32c624c2456656",
+        "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
         "updated",
-        "2026-05-20",
+        "2026-06-11",
         "authentication",
         "patterns",
         "fastedge",
@@ -16002,7 +16043,7 @@
         "shared",
         "secrets"
       ],
-      "content_sha256": "74e820c8e9ef5226d752a8785770429e068ab25ec110742c961581608e570cf8",
+      "content_sha256": "5ad57c3a949b3f52acab2a8ca8952f8174fccd6affad3c8ae47a6e0b889ddf3c",
       "sections": [
         {
           "id": "http-examples-auth-js#introduction",
@@ -16019,9 +16060,9 @@
             "ref",
             "main",
             "commit",
-            "df672e9f296361bd9f3d5475ec32c624c2456656",
+            "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
             "updated",
-            "2026-05-20",
+            "2026-06-11",
             "authentication",
             "patterns",
             "javascript",
@@ -16318,7 +16359,7 @@
     {
       "id": "http-examples-cache-js",
       "title": "FastEdge Cache — JavaScript Examples",
-      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: df672e9f296361bd9f3d5475ec32c624c2456656 updated: 2026-05-20 -->",
+      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: 36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9 updated: 2026-06-11 -->",
       "path": "reference/fastedge-docs/http/examples-cache-js.md",
       "skill": "fastedge-docs",
       "category": "examples",
@@ -16342,9 +16383,9 @@
         "ref",
         "main",
         "commit",
-        "df672e9f296361bd9f3d5475ec32c624c2456656",
+        "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
         "updated",
-        "2026-05-20",
+        "2026-06-11",
         "fastedge",
         "cache",
         "module",
@@ -16354,7 +16395,7 @@
         "2.3.0",
         "app"
       ],
-      "content_sha256": "876e27252633c6bd63814ae320dde727e5b4e047e175f20d639051e4bbd35afe",
+      "content_sha256": "7512dae07c281d64c5bec0f8251e0978e7d7c7947d3d1b87b9e78f0053b56b02",
       "sections": [
         {
           "id": "http-examples-cache-js#introduction",
@@ -16371,9 +16412,9 @@
             "ref",
             "main",
             "commit",
-            "df672e9f296361bd9f3d5475ec32c624c2456656",
+            "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
             "updated",
-            "2026-05-20",
+            "2026-06-11",
             "fastedge",
             "cache",
             "javascript",
@@ -16708,7 +16749,7 @@
     {
       "id": "http-examples-fetch-js",
       "title": "http-examples-fetch-js",
-      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: df672e9f296361bd9f3d5475ec32c624c2456656 updated: 2026-05-20 -->",
+      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: 36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9 updated: 2026-06-11 -->",
       "path": "reference/fastedge-docs/http/examples-fetch-js.md",
       "skill": "fastedge-docs",
       "category": "examples",
@@ -16730,9 +16771,9 @@
         "ref",
         "main",
         "commit",
-        "df672e9f296361bd9f3d5475ec32c624c2456656",
+        "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
         "updated",
-        "2026-05-20",
+        "2026-06-11",
         "fetch",
         "outbound",
         "requests",
@@ -16743,7 +16784,7 @@
         "standard",
         "url"
       ],
-      "content_sha256": "f9f4ee03d7ad50940f11d09df0b846a853f15f34527048579c3b002da35ef028",
+      "content_sha256": "e5ed5e7ad88cb55cfe7e1616ace671d4cfd2394bc7d1536dae268e378fe7d688",
       "sections": [
         {
           "id": "http-examples-fetch-js#introduction",
@@ -16760,9 +16801,9 @@
             "ref",
             "main",
             "commit",
-            "df672e9f296361bd9f3d5475ec32c624c2456656",
+            "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
             "updated",
-            "2026-05-20"
+            "2026-06-11"
           ]
         },
         {
@@ -16819,7 +16860,7 @@
     {
       "id": "http-examples-geo-redirect-js",
       "title": "http-examples-geo-redirect-js",
-      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: df672e9f296361bd9f3d5475ec32c624c2456656 updated: 2026-05-20 -->",
+      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: 36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9 updated: 2026-06-11 -->",
       "path": "reference/fastedge-docs/http/examples-geo-redirect-js.md",
       "skill": "fastedge-docs",
       "category": "examples",
@@ -16841,9 +16882,9 @@
         "ref",
         "main",
         "commit",
-        "df672e9f296361bd9f3d5475ec32c624c2456656",
+        "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
         "updated",
-        "2026-05-20",
+        "2026-06-11",
         "example",
         "geo-redirect",
         "redirects",
@@ -16855,7 +16896,7 @@
         "visitor",
         "country"
       ],
-      "content_sha256": "2b99b03824427b1fa2d4e0897416d0d95cd296909d6c7395bef46efcf26ed261",
+      "content_sha256": "419563ea6ffe76ea20e2e164c336335ef044e7e01cfe3d8b2cfba91a398eb2f8",
       "sections": [
         {
           "id": "http-examples-geo-redirect-js#introduction",
@@ -16872,9 +16913,9 @@
             "ref",
             "main",
             "commit",
-            "df672e9f296361bd9f3d5475ec32c624c2456656",
+            "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
             "updated",
-            "2026-05-20"
+            "2026-06-11"
           ]
         },
         {
@@ -16932,7 +16973,7 @@
     {
       "id": "http-examples-headers-js",
       "title": "http-examples-headers-js",
-      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: df672e9f296361bd9f3d5475ec32c624c2456656 updated: 2026-05-20 -->",
+      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: 36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9 updated: 2026-06-11 -->",
       "path": "reference/fastedge-docs/http/examples-headers-js.md",
       "skill": "fastedge-docs",
       "category": "examples",
@@ -16954,9 +16995,9 @@
         "ref",
         "main",
         "commit",
-        "df672e9f296361bd9f3d5475ec32c624c2456656",
+        "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
         "updated",
-        "2026-05-20",
+        "2026-06-11",
         "headers",
         "example",
         "fastedge",
@@ -16968,7 +17009,7 @@
         "environment",
         "variable"
       ],
-      "content_sha256": "3fda089fafe5f4dea4eb7391491716857ee8f743db30b9db548f27768b7edc7e",
+      "content_sha256": "39ec3b03cb7ffa2566f1892fe1b90bec8369b7392e42320ad8e1c7c40b91d112",
       "sections": [
         {
           "id": "http-examples-headers-js#introduction",
@@ -16985,9 +17026,9 @@
             "ref",
             "main",
             "commit",
-            "df672e9f296361bd9f3d5475ec32c624c2456656",
+            "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
             "updated",
-            "2026-05-20"
+            "2026-06-11"
           ]
         },
         {
@@ -16996,7 +17037,7 @@
           "level": 2,
           "anchor": "headers-example-—-fastedge-js",
           "line_start": 10,
-          "line_end": 154,
+          "line_end": 189,
           "keywords": [
             "headers",
             "example",
@@ -17039,7 +17080,7 @@
     {
       "id": "http-examples-hono-js",
       "title": "Hono Patterns on FastEdge (JavaScript/TypeScript)",
-      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: df672e9f296361bd9f3d5475ec32c624c2456656 updated: 2026-05-20 -->",
+      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: 36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9 updated: 2026-06-11 -->",
       "path": "reference/fastedge-docs/http/examples-hono-js.md",
       "skill": "fastedge-docs",
       "category": "examples",
@@ -17063,9 +17104,9 @@
         "ref",
         "main",
         "commit",
-        "df672e9f296361bd9f3d5475ec32c624c2456656",
+        "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
         "updated",
-        "2026-05-20",
+        "2026-06-11",
         "hono",
         "patterns",
         "fastedge",
@@ -17074,7 +17115,7 @@
         "apps.",
         "small"
       ],
-      "content_sha256": "305aba3c665107c170394ce3c04e6aa3b6f4f2d7d022308d84fca9a162b3cb0a",
+      "content_sha256": "5a55044f315e9b8a873c6914151c4916c9ce76a978190654d8d2a4068b1b1080",
       "sections": [
         {
           "id": "http-examples-hono-js#introduction",
@@ -17091,9 +17132,9 @@
             "ref",
             "main",
             "commit",
-            "df672e9f296361bd9f3d5475ec32c624c2456656",
+            "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
             "updated",
-            "2026-05-20",
+            "2026-06-11",
             "hono",
             "patterns",
             "fastedge",
@@ -17320,7 +17361,7 @@
     {
       "id": "http-examples-kv-store-js",
       "title": "http-examples-kv-store-js",
-      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: df672e9f296361bd9f3d5475ec32c624c2456656 updated: 2026-05-20 -->",
+      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: 36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9 updated: 2026-06-11 -->",
       "path": "reference/fastedge-docs/http/examples-kv-store-js.md",
       "skill": "fastedge-docs",
       "category": "examples",
@@ -17342,9 +17383,9 @@
         "ref",
         "main",
         "commit",
-        "df672e9f296361bd9f3d5475ec32c624c2456656",
+        "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
         "updated",
-        "2026-05-20",
+        "2026-06-11",
         "store",
         "example",
         "reference",
@@ -17356,7 +17397,7 @@
         "fastedge",
         "edge"
       ],
-      "content_sha256": "d370c90f55195660c3185ae9dcb43dfdac0df1d66c411f2c40e1ba01e9f69f5e",
+      "content_sha256": "20af07f9638054177fd94e90301b1fa202d2d047bcfe964964fb6b83e1ff07d3",
       "sections": [
         {
           "id": "http-examples-kv-store-js#introduction",
@@ -17373,9 +17414,9 @@
             "ref",
             "main",
             "commit",
-            "df672e9f296361bd9f3d5475ec32c624c2456656",
+            "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
             "updated",
-            "2026-05-20"
+            "2026-06-11"
           ]
         },
         {
@@ -17869,7 +17910,7 @@
     {
       "id": "http-examples-proxy-js",
       "title": "Proxy and Response Transform Patterns (JavaScript/TypeScript)",
-      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: df672e9f296361bd9f3d5475ec32c624c2456656 updated: 2026-05-20 -->",
+      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: 36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9 updated: 2026-06-11 -->",
       "path": "reference/fastedge-docs/http/examples-proxy-js.md",
       "skill": "fastedge-docs",
       "category": "examples",
@@ -17893,9 +17934,9 @@
         "ref",
         "main",
         "commit",
-        "df672e9f296361bd9f3d5475ec32c624c2456656",
+        "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
         "updated",
-        "2026-05-20",
+        "2026-06-11",
         "proxy",
         "response",
         "transform",
@@ -17904,7 +17945,7 @@
         "fastedge",
         "apps"
       ],
-      "content_sha256": "8c5d500ed907a86107474469dda0157b9d506c5041b23e108b5f0df545118410",
+      "content_sha256": "ea6629149cd6cddd53f294f766c744eae218cf46e5f053dcff3484f97fa325e8",
       "sections": [
         {
           "id": "http-examples-proxy-js#introduction",
@@ -17921,9 +17962,9 @@
             "ref",
             "main",
             "commit",
-            "df672e9f296361bd9f3d5475ec32c624c2456656",
+            "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
             "updated",
-            "2026-05-20",
+            "2026-06-11",
             "proxy",
             "response",
             "transform",
@@ -18363,7 +18404,7 @@
     {
       "id": "js-runtime",
       "title": "FastEdge JS Runtime — Constraints & Compatibility",
-      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: df672e9f296361bd9f3d5475ec32c624c2456656 updated: 2026-05-20 -->",
+      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: 36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9 updated: 2026-06-11 -->",
       "path": "reference/fastedge-docs/js-runtime.md",
       "skill": "fastedge-docs",
       "category": "platform",
@@ -18379,9 +18420,9 @@
         "ref",
         "main",
         "commit",
-        "df672e9f296361bd9f3d5475ec32c624c2456656",
+        "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
         "updated",
-        "2026-05-20",
+        "2026-06-11",
         "fastedge",
         "runtime",
         "constraints",
@@ -18393,7 +18434,7 @@
         "particularly",
         "affecting"
       ],
-      "content_sha256": "f259cddb869f8b1af6ba169ae965b1d47acc7e91cb003853292935b1947331bb",
+      "content_sha256": "334a08c4ed92daf29ffa26c1fb5d63b9bf0e99b26e5acb3698224a79f91cc4ac",
       "sections": [
         {
           "id": "js-runtime#introduction",
@@ -18410,9 +18451,9 @@
             "ref",
             "main",
             "commit",
-            "df672e9f296361bd9f3d5475ec32c624c2456656",
+            "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
             "updated",
-            "2026-05-20",
+            "2026-06-11",
             "fastedge",
             "runtime",
             "constraints",
@@ -21943,7 +21984,7 @@
     {
       "id": "quickstart-js",
       "title": "FastEdge JavaScript Quickstart",
-      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: df672e9f296361bd9f3d5475ec32c624c2456656 updated: 2026-05-20 -->",
+      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: 36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9 updated: 2026-06-11 -->",
       "path": "reference/fastedge-docs/quickstart-js.md",
       "skill": "fastedge-docs",
       "category": "reference",
@@ -21964,9 +22005,9 @@
         "ref",
         "main",
         "commit",
-        "df672e9f296361bd9f3d5475ec32c624c2456656",
+        "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
         "updated",
-        "2026-05-20",
+        "2026-06-11",
         "fastedge",
         "quickstart",
         "prerequisites",
@@ -21977,7 +22018,7 @@
         "install",
         "bash"
       ],
-      "content_sha256": "7e3a21bb64f582c8dec5e2d677c25681631de3f677dae28ec251e3c172d035cb",
+      "content_sha256": "af7582e92bedd863b1c77fb4b05e4d84bc8e61a37a07924a507bdb4575fd6a51",
       "sections": [
         {
           "id": "quickstart-js#introduction",
@@ -21994,9 +22035,9 @@
             "ref",
             "main",
             "commit",
-            "df672e9f296361bd9f3d5475ec32c624c2456656",
+            "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
             "updated",
-            "2026-05-20",
+            "2026-06-11",
             "fastedge",
             "javascript",
             "quickstart"
@@ -22169,7 +22210,7 @@
           "level": 2,
           "anchor": "api-quick-reference",
           "line_start": 113,
-          "line_end": 150,
+          "line_end": 202,
           "keywords": [
             "api",
             "quick",
@@ -22202,8 +22243,8 @@
           "heading": "Next Steps",
           "level": 2,
           "anchor": "next-steps",
-          "line_start": 151,
-          "line_end": 157,
+          "line_start": 203,
+          "line_end": 209,
           "keywords": [
             "next",
             "steps",
@@ -22240,7 +22281,7 @@
     {
       "id": "runner-internals",
       "title": "Runner Internals — Low-Level Runner API",
-      "description": "auto-updated: true sources: - id: fastedge-test ref: v0.2.2 commit: e5254c8c4b4b3aab0069e783ade1cec435726566 updated: 2026-05-20 -->",
+      "description": "auto-updated: true sources: - id: fastedge-test ref: v0.2.4 commit: cbb5bebd8bad7e9fee4f1a006a39c8511f951717 updated: 2026-06-11 -->",
       "path": "reference/test/runner-internals.md",
       "skill": "test",
       "category": "testing",
@@ -22254,11 +22295,11 @@
         "sources",
         "fastedge-test",
         "ref",
-        "v0.2.2",
+        "v0.2.4",
         "commit",
-        "e5254c8c4b4b3aab0069e783ade1cec435726566",
+        "cbb5bebd8bad7e9fee4f1a006a39c8511f951717",
         "updated",
-        "2026-05-20",
+        "2026-06-11",
         "runner",
         "internals",
         "low-level",
@@ -22270,7 +22311,7 @@
         "use",
         "you"
       ],
-      "content_sha256": "855365b0e41c0abea65fb77d4abb1a088842ec26f71d60c4e3b732534e6aad01",
+      "content_sha256": "30b4d1f26ac2ccc84a7e776b499dcd9a5900bb0d89948f477197e4ede5e5762f",
       "sections": [
         {
           "id": "runner-internals#introduction",
@@ -22285,11 +22326,11 @@
             "sources",
             "fastedge-test",
             "ref",
-            "v0.2.2",
+            "v0.2.4",
             "commit",
-            "e5254c8c4b4b3aab0069e783ade1cec435726566",
+            "cbb5bebd8bad7e9fee4f1a006a39c8511f951717",
             "updated",
-            "2026-05-20",
+            "2026-06-11",
             "runner",
             "internals",
             "low-level",
@@ -23182,7 +23223,7 @@
     {
       "id": "sdk-reference-js",
       "title": "JavaScript SDK Reference (`@gcoredev/fastedge-sdk-js`)",
-      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: df672e9f296361bd9f3d5475ec32c624c2456656 updated: 2026-05-20 -->",
+      "description": "auto-updated: true sources: - id: fastedge-sdk-js ref: main commit: 36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9 updated: 2026-06-11 -->",
       "path": "reference/fastedge-docs/sdk-reference-js.md",
       "skill": "fastedge-docs",
       "category": "sdk",
@@ -23201,9 +23242,9 @@
         "ref",
         "main",
         "commit",
-        "df672e9f296361bd9f3d5475ec32c624c2456656",
+        "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
         "updated",
-        "2026-05-20",
+        "2026-06-11",
         "reference",
         "gcoredev",
         "source",
@@ -23213,7 +23254,7 @@
         "authoritative",
         "api"
       ],
-      "content_sha256": "086474333264524f358e06bb3a297d8f660e7f37b62a4f952f792f569f3e359e",
+      "content_sha256": "3e102cc8df6280c9ca3143e8435142a12bfc92869ee182ed64e343fcffb2f67c",
       "sections": [
         {
           "id": "sdk-reference-js#introduction",
@@ -23230,9 +23271,9 @@
             "ref",
             "main",
             "commit",
-            "df672e9f296361bd9f3d5475ec32c624c2456656",
+            "36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9",
             "updated",
-            "2026-05-20",
+            "2026-06-11",
             "javascript",
             "sdk",
             "reference",
@@ -23458,7 +23499,7 @@
           "level": 3,
           "anchor": "cache-—-fastedgecache",
           "line_start": 222,
-          "line_end": 342,
+          "line_end": 366,
           "keywords": [
             "cache",
             "fastedge",
@@ -23506,8 +23547,8 @@
           "heading": "Build-time File Embedding — `fastedge::fs`",
           "level": 3,
           "anchor": "build-time-file-embedding-—-fastedgefs",
-          "line_start": 343,
-          "line_end": 359,
+          "line_start": 367,
+          "line_end": 383,
           "keywords": [
             "build-time",
             "file",
@@ -23553,8 +23594,8 @@
           "heading": "FetchEvent",
           "level": 3,
           "anchor": "fetchevent",
-          "line_start": 360,
-          "line_end": 452,
+          "line_start": 384,
+          "line_end": 476,
           "keywords": [
             "fetchevent",
             "fastedge",
@@ -23599,8 +23640,8 @@
           "heading": "Web APIs",
           "level": 3,
           "anchor": "web-apis",
-          "line_start": 453,
-          "line_end": 1048,
+          "line_start": 477,
+          "line_end": 1073,
           "keywords": [
             "web",
             "apis",
@@ -23647,8 +23688,8 @@
           "heading": "Unavailable APIs",
           "level": 3,
           "anchor": "unavailable-apis",
-          "line_start": 1049,
-          "line_end": 1061,
+          "line_start": 1074,
+          "line_end": 1086,
           "keywords": [
             "unavailable",
             "apis",
@@ -23692,8 +23733,8 @@
           "heading": "Hono Integration",
           "level": 3,
           "anchor": "hono-integration",
-          "line_start": 1062,
-          "line_end": 1091,
+          "line_start": 1087,
+          "line_end": 1116,
           "keywords": [
             "hono",
             "integration",
@@ -23734,8 +23775,8 @@
           "heading": "See Also",
           "level": 3,
           "anchor": "see-also",
-          "line_start": 1092,
-          "line_end": 1100,
+          "line_start": 1117,
+          "line_end": 1125,
           "keywords": [
             "see",
             "quickstart",
@@ -24187,7 +24228,7 @@
     {
       "id": "server-api",
       "title": "Server API — REST and WebSocket Endpoints",
-      "description": "auto-updated: true sources: - id: fastedge-test ref: v0.2.2 commit: e5254c8c4b4b3aab0069e783ade1cec435726566 updated: 2026-05-20 -->",
+      "description": "auto-updated: true sources: - id: fastedge-test ref: v0.2.4 commit: cbb5bebd8bad7e9fee4f1a006a39c8511f951717 updated: 2026-06-11 -->",
       "path": "reference/test/server-api.md",
       "skill": "test",
       "category": "testing",
@@ -24201,11 +24242,11 @@
         "sources",
         "fastedge-test",
         "ref",
-        "v0.2.2",
+        "v0.2.4",
         "commit",
-        "e5254c8c4b4b3aab0069e783ade1cec435726566",
+        "cbb5bebd8bad7e9fee4f1a006a39c8511f951717",
         "updated",
-        "2026-05-20",
+        "2026-06-11",
         "server",
         "api",
         "rest",
@@ -24217,7 +24258,7 @@
         "interfaces",
         "loading"
       ],
-      "content_sha256": "f7cb68927a65c71e943485a0b24ead647d5d3d91a18a97e274a392fd5d3f0559",
+      "content_sha256": "3636cb76bfd3b78551c192cc2e0c0a644c8a4788ec50e18e74405ec6c297374f",
       "sections": [
         {
           "id": "server-api#introduction",
@@ -24232,11 +24273,11 @@
             "sources",
             "fastedge-test",
             "ref",
-            "v0.2.2",
+            "v0.2.4",
             "commit",
-            "e5254c8c4b4b3aab0069e783ade1cec435726566",
+            "cbb5bebd8bad7e9fee4f1a006a39c8511f951717",
             "updated",
-            "2026-05-20",
+            "2026-06-11",
             "server",
             "api",
             "rest",
@@ -24442,7 +24483,7 @@
     {
       "id": "test-config",
       "title": "test-config Reference",
-      "description": "auto-updated: true sources: - id: fastedge-test ref: v0.2.2 commit: e5254c8c4b4b3aab0069e783ade1cec435726566 updated: 2026-05-20 -->",
+      "description": "auto-updated: true sources: - id: fastedge-test ref: v0.2.4 commit: cbb5bebd8bad7e9fee4f1a006a39c8511f951717 updated: 2026-06-11 -->",
       "path": "reference/test/test-config.md",
       "skill": "test",
       "category": "testing",
@@ -24456,11 +24497,11 @@
         "sources",
         "fastedge-test",
         "ref",
-        "v0.2.2",
+        "v0.2.4",
         "commit",
-        "e5254c8c4b4b3aab0069e783ade1cec435726566",
+        "cbb5bebd8bad7e9fee4f1a006a39c8511f951717",
         "updated",
-        "2026-05-20",
+        "2026-06-11",
         "test-config",
         "reference",
         "fastedge-config.test.json",
@@ -24472,7 +24513,7 @@
         "request",
         "mock"
       ],
-      "content_sha256": "c7729d53c58464fdfddca15844283378ada4147adcc845b004212c9abedc63ac",
+      "content_sha256": "fc4166814170a9a9c08e0d7f79949b0acd9a76f6ca9811329442670072ea0677",
       "sections": [
         {
           "id": "test-config#introduction",
@@ -24487,11 +24528,11 @@
             "sources",
             "fastedge-test",
             "ref",
-            "v0.2.2",
+            "v0.2.4",
             "commit",
-            "e5254c8c4b4b3aab0069e783ade1cec435726566",
+            "cbb5bebd8bad7e9fee4f1a006a39c8511f951717",
             "updated",
-            "2026-05-20",
+            "2026-06-11",
             "test-config",
             "reference",
             "fastedge-config.test.json",
@@ -24769,7 +24810,7 @@
     {
       "id": "test-framework",
       "title": "FastEdge Test Framework API",
-      "description": "auto-updated: true sources: - id: fastedge-test ref: v0.2.2 commit: e5254c8c4b4b3aab0069e783ade1cec435726566 updated: 2026-05-20 -->",
+      "description": "auto-updated: true sources: - id: fastedge-test ref: v0.2.4 commit: cbb5bebd8bad7e9fee4f1a006a39c8511f951717 updated: 2026-06-11 -->",
       "path": "reference/test/test-framework.md",
       "skill": "test",
       "category": "testing",
@@ -24786,11 +24827,11 @@
         "sources",
         "fastedge-test",
         "ref",
-        "v0.2.2",
+        "v0.2.4",
         "commit",
-        "e5254c8c4b4b3aab0069e783ade1cec435726566",
+        "cbb5bebd8bad7e9fee4f1a006a39c8511f951717",
         "updated",
-        "2026-05-20",
+        "2026-06-11",
         "fastedge",
         "framework",
         "api",
@@ -24801,7 +24842,7 @@
         "runner",
         "apps."
       ],
-      "content_sha256": "6002e01972710f5be787696f46e4305acde33820808d6ebfd01000cd9e171955",
+      "content_sha256": "25e895640af524a65d30537474eef2c32cbf60f65411ecb3dfb0c771ed366df5",
       "sections": [
         {
           "id": "test-framework#introduction",
@@ -24816,11 +24857,11 @@
             "sources",
             "fastedge-test",
             "ref",
-            "v0.2.2",
+            "v0.2.4",
             "commit",
-            "e5254c8c4b4b3aab0069e783ade1cec435726566",
+            "cbb5bebd8bad7e9fee4f1a006a39c8511f951717",
             "updated",
-            "2026-05-20",
+            "2026-06-11",
             "fastedge",
             "test",
             "framework",
@@ -25185,7 +25226,7 @@
     {
       "id": "vscode-debugger",
       "title": "FastEdge Visual Debugger",
-      "description": "auto-updated: true sources: - id: fastedge-test ref: v0.2.2 commit: e5254c8c4b4b3aab0069e783ade1cec435726566 updated: 2026-05-20 -->",
+      "description": "auto-updated: true sources: - id: fastedge-test ref: v0.2.4 commit: cbb5bebd8bad7e9fee4f1a006a39c8511f951717 updated: 2026-06-11 -->",
       "path": "reference/test/vscode-debugger.md",
       "skill": "test",
       "category": "testing",
@@ -25199,11 +25240,11 @@
         "sources",
         "fastedge-test",
         "ref",
-        "v0.2.2",
+        "v0.2.4",
         "commit",
-        "e5254c8c4b4b3aab0069e783ade1cec435726566",
+        "cbb5bebd8bad7e9fee4f1a006a39c8511f951717",
         "updated",
-        "2026-05-20",
+        "2026-06-11",
         "fastedge",
         "visual",
         "debugger",
@@ -25215,7 +25256,7 @@
         "gcoredev",
         "same"
       ],
-      "content_sha256": "429d68f17f671eeb516e8305fe20ba49a7dc99f6b5dd122599e3c427680f51c7",
+      "content_sha256": "82c1553363419eb4d0e3cb855e78602625fbf17882f03a7e42895e46e20e082c",
       "sections": [
         {
           "id": "vscode-debugger#introduction",
@@ -25230,11 +25271,11 @@
             "sources",
             "fastedge-test",
             "ref",
-            "v0.2.2",
+            "v0.2.4",
             "commit",
-            "e5254c8c4b4b3aab0069e783ade1cec435726566",
+            "cbb5bebd8bad7e9fee4f1a006a39c8511f951717",
             "updated",
-            "2026-05-20",
+            "2026-06-11",
             "fastedge",
             "visual",
             "debugger",
@@ -25261,7 +25302,7 @@
           "level": 2,
           "anchor": "two-ways-to-launch",
           "line_start": 17,
-          "line_end": 71,
+          "line_end": 91,
           "keywords": [
             "two",
             "ways",
@@ -25308,8 +25349,8 @@
           "heading": "Dual-Mode Behaviour",
           "level": 2,
           "anchor": "dual-mode-behaviour",
-          "line_start": 72,
-          "line_end": 86,
+          "line_start": 92,
+          "line_end": 106,
           "keywords": [
             "dual-mode",
             "behaviour",
@@ -25357,8 +25398,8 @@
           "heading": "Providing Secrets and Environment Variables",
           "level": 2,
           "anchor": "providing-secrets-and-environment-variables",
-          "line_start": 87,
-          "line_end": 94,
+          "line_start": 107,
+          "line_end": 114,
           "keywords": [
             "providing",
             "secrets",
@@ -25393,8 +25434,8 @@
           "heading": "What the UI Shows",
           "level": 2,
           "anchor": "what-the-ui-shows",
-          "line_start": 95,
-          "line_end": 109,
+          "line_start": 115,
+          "line_end": 129,
           "keywords": [
             "shows",
             "panel",
@@ -25443,8 +25484,8 @@
           "heading": "test-config Integration",
           "level": 2,
           "anchor": "test-config-integration",
-          "line_start": 110,
-          "line_end": 117,
+          "line_start": 130,
+          "line_end": 137,
           "keywords": [
             "test-config",
             "integration",
@@ -25480,8 +25521,8 @@
           "heading": "Environment Variables",
           "level": 2,
           "anchor": "environment-variables",
-          "line_start": 118,
-          "line_end": 143,
+          "line_start": 138,
+          "line_end": 163,
           "keywords": [
             "environment",
             "variables",
@@ -25530,8 +25571,8 @@
           "heading": "Health Check",
           "level": 2,
           "anchor": "health-check",
-          "line_start": 144,
-          "line_end": 165,
+          "line_start": 164,
+          "line_end": 185,
           "keywords": [
             "health",
             "check",
@@ -25557,8 +25598,8 @@
           "heading": "Port File",
           "level": 2,
           "anchor": "port-file",
-          "line_start": 166,
-          "line_end": 171,
+          "line_start": 186,
+          "line_end": 191,
           "keywords": [
             "port",
             "file",
@@ -25591,8 +25632,8 @@
           "heading": "Port Conflicts",
           "level": 2,
           "anchor": "port-conflicts",
-          "line_start": 172,
-          "line_end": 184,
+          "line_start": 192,
+          "line_end": 204,
           "keywords": [
             "port",
             "conflicts",
@@ -25630,8 +25671,8 @@
           "heading": "Graceful Shutdown",
           "level": 2,
           "anchor": "graceful-shutdown",
-          "line_start": 185,
-          "line_end": 220,
+          "line_start": 205,
+          "line_end": 240,
           "keywords": [
             "graceful",
             "shutdown",
@@ -25679,8 +25720,8 @@
           "heading": "What to Commit / Gitignore",
           "level": 2,
           "anchor": "what-to-commit-gitignore",
-          "line_start": 221,
-          "line_end": 235,
+          "line_start": 241,
+          "line_end": 255,
           "keywords": [
             "commit",
             "gitignore",
@@ -25709,8 +25750,8 @@
           "heading": "See Also",
           "level": 2,
           "anchor": "see-also",
-          "line_start": 236,
-          "line_end": 243,
+          "line_start": 256,
+          "line_end": 263,
           "keywords": [
             "see",
             "api",

@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-js
       ref: main
-      commit: df672e9f296361bd9f3d5475ec32c624c2456656
-      updated: 2026-05-20
+      commit: 36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9
+      updated: 2026-06-11
 -->
 
 # JavaScript SDK Reference (`@gcoredev/fastedge-sdk-js`)
@@ -244,7 +244,7 @@ Values accepted by `Cache.set` and the `populate` callback of `Cache.getOrSet`:
 type CacheValue = string | ArrayBuffer | ArrayBufferView | ReadableStream | Response;
 ```
 
-All forms are stored as raw bytes. `string` is encoded as UTF-8. `ReadableStream` is fully consumed before storage. `Response` — `response.arrayBuffer()` is consumed; status and headers are discarded.
+All forms are stored as raw bytes. `string` is encoded as UTF-8. `ReadableStream` is fully consumed before storage. `Response` — `response.arrayBuffer()` is consumed; status and headers are discarded. The cache stores bytes only. To round-trip status or headers, encode them into the value (e.g., as a JSON envelope).
 
 #### WriteOptions
 
@@ -270,7 +270,7 @@ A handle to a cached value. The bytes are already in memory when you receive a `
 
 #### Cache Methods
 
-All methods are static; `Cache` is never constructed. All methods return `Promise`. Operational errors surface as Promise rejections. Argument validation errors (wrong types, conflicting `WriteOptions` fields) throw synchronously.
+All methods are static; `Cache` is never constructed. All methods return `Promise`. Operational errors surface as Promise rejections. Argument validation errors (wrong types, conflicting `WriteOptions` fields) throw synchronously; both are caught the same way by `try`/`catch` around an `await`.
 
 | Method | Signature | Returns |
 |--------|-----------|---------|
@@ -283,6 +283,8 @@ All methods are static; `Cache` is never constructed. All methods return `Promis
 | `decr(key, delta?)` | `(key: string, delta?: number) => Promise<number>` | `Promise<number>` |
 | `getOrSet(key, populate, options?)` | `(key: string, populate: () => CacheValue \| Promise<CacheValue>, options?: WriteOptions) => Promise<CacheEntry>` | `Promise<CacheEntry>` |
 | `getOrSet(key, populate, options?)` | `(key: string, populate: () => CacheValue \| null \| Promise<CacheValue \| null>, options?: WriteOptions) => Promise<CacheEntry \| null>` | `Promise<CacheEntry \| null>` |
+| `purge()` | `() => Promise<number>` | `Promise<number>` |
+| `purgePrefix(prefix)` | `(prefix: string) => Promise<number>` | `Promise<number>` |
 
 **`get`** — Returns the entry for `key`, or `null` if absent or expired.
 
@@ -294,9 +296,13 @@ All methods are static; `Cache` is never constructed. All methods return `Promis
 
 **`expire`** — Updates the expiry of an existing key without changing its value. Resolves to `true` if the expiry was set, `false` if the key does not exist.
 
-**`incr` / `decr`** — Atomically increment or decrement an integer stored at `key`. If the key does not exist, it is initialised to `0` before the operation. Resolves to the new value after the operation. Rejects if the stored value is not an integer. `delta` defaults to `1`. `Cache.decr` is sugar for `Cache.incr(key, -(delta ?? 1))`. Strong per-POP consistency makes these reliable for per-POP rate limits.
+**`incr` / `decr`** — Atomically increment or decrement an integer stored at `key`. If the key does not exist, it is initialised to `0` before the operation. Resolves to the new value after the operation. Rejects if the stored value is not an integer. `delta` defaults to `1`. `Cache.decr` is sugar for `Cache.incr(key, -(delta ?? 1))`. `delta` may be any integer; prefer `decr` when subtracting for readability. Strong per-POP consistency makes these reliable for per-POP rate limits.
 
-**`getOrSet`** — Returns the entry for `key`, or calls `populate` on a cache miss and stores the result. All concurrent callers for the same key within the same WASM instance share a single `populate` execution. If `populate` resolves with `null`, the value is not written to the cache and `getOrSet` resolves with `null` (skip-cache signal).
+**`getOrSet`** — Returns the entry for `key`, or calls `populate` on a cache miss and stores the result. All concurrent callers for the same key within the same WASM instance share a single `populate` execution — the callback is not duplicated for joiners. Concurrent requests handled by other WASM instances race independently and may each call `populate`. If `populate` throws or its Promise rejects, the rejection propagates to all current waiters; the next call after a failure retries `populate` (no negative caching). If `populate` resolves with `null`, the value is not written to the cache and `getOrSet` resolves with `null` (skip-cache signal). Use this to wrap fallible work and only pin successes.
+
+**`purge`** — Deletes all cache entries available to this application. The host scans the key index, removes every cached key, and clears the index. Resolves with the number of keys deleted.
+
+**`purgePrefix`** — Deletes all cache entries whose keys begin with `prefix`. The host scans the key index for matching keys, removes them, and updates the index (the index itself is retained for any remaining keys). Resolves with the number of keys deleted.
 
 ```js
 /// <reference types="@gcoredev/fastedge-sdk-js" />
@@ -336,6 +342,24 @@ async function app(event) {
 }
 
 addEventListener("fetch", event => event.respondWith(app(event)));
+```
+
+```js
+/// <reference types="@gcoredev/fastedge-sdk-js" />
+
+import { Cache } from "fastedge::cache";
+
+// Purge all entries
+async function purgeAll(event) {
+  const deleted = await Cache.purge();
+  return Response.json({ purged: deleted });
+}
+
+// Purge by prefix
+async function purgeUsers(event) {
+  const deleted = await Cache.purgePrefix("user:");
+  return Response.json({ purged: deleted });
+}
 ```
 
 ---
@@ -905,9 +929,10 @@ Available as `crypto.subtle`.
 
 | Operation | Supported Algorithms |
 |-----------|---------------------|
-| `digest()` | SHA-1, SHA-256, SHA-384, SHA-512 |
+| `digest()` | SHA-1, SHA-256, SHA-384, SHA-512, MD5 |
 | `sign()` / `verify()` | RSASSA-PKCS1-v1_5, ECDSA, HMAC |
 | `importKey()` | JWK, PKCS#8, SPKI, raw (HMAC) |
+| `getRandomValues()` | ✓ |
 | `encrypt()` / `decrypt()` | **Not implemented** |
 | `generateKey()`, `deriveKey()`, `deriveBits()` | **Not implemented** |
 | `exportKey()` | **Not implemented** |
