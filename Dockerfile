@@ -35,6 +35,13 @@ ENV WORKSPACE_ROOT=/workspace
 # Set up a volume mount point for workspace data
 VOLUME [ "/workspace" ]
 
+# Entrypoint drops privileges to the host user (owner of the /workspace mount,
+# or HOST_UID/HOST_GID if set) so generated files are not root-owned. Falls
+# back to running as root when the resolved UID is 0 (e.g. no mount or root-owned mount).
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+
 # Start MCP server
 CMD ["node", "build/server.js"]
 
