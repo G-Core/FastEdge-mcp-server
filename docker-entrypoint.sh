@@ -8,8 +8,9 @@
 #   3. Fall back to running as-is (root) for backward compatibility
 #
 # This keeps the container backward-compatible: with no writable mount, or on
-# Docker Desktop (macOS/Windows) where bind-mount ownership is virtualized to
-# the calling user, the workspace owner resolves to 0 and we stay root.
+# Docker Desktop (macOS/Windows) where bind-mount ownership is virtualized and
+# typically appears as uid 0 inside the container, the workspace owner resolves
+# to 0 and we stay root.
 set -e
 
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-/workspace}"
