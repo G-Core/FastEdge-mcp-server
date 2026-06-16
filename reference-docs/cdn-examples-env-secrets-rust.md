@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-rust
       ref: main
-      commit: 4f748b10fa04226e76218e88195b6b1f02fce032
-      updated: 2026-04-20
+      commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
+      updated: 2026-06-16
 -->
 ---
 type: example
@@ -24,7 +24,7 @@ Accesses deployment-time environment variables via `std::env::var` and platform-
 ```toml
 [dependencies]
 proxy-wasm = "0.2"
-fastedge = { version = "0.3", features = ["proxywasm"] }
+fastedge = { version = "0.4", features = ["proxywasm"] }
 ```
 
 Crate type must be `cdylib`.
@@ -85,11 +85,11 @@ impl HttpContext for VariablesContext {
 ### Log retrieved values (debug only)
 
 ```rust
-proxy_wasm::hostcalls::log(LogLevel::Info, &format!("USERNAME: {}", username)).ok();
-proxy_wasm::hostcalls::log(LogLevel::Info, &format!("PASSWORD: {}", password)).ok();
+println!("USERNAME: {}", username);
+println!("PASSWORD: {}", password);
 ```
 
-Do not log secrets at `Info` or higher in production. Use `Debug` level and disable debug logging at release time.
+Do not log secrets in production code — platform logs are visible to operators and may be persisted. This pattern is for demonstration only; remove secret logging in any real application.
 
 ### Entry point and root context setup
 
@@ -164,10 +164,16 @@ impl HttpContext for VariablesContext {
             .and_then(|v| String::from_utf8(v).ok())
             .unwrap_or_default();
 
-        proxy_wasm::hostcalls::log(LogLevel::Info, &format!("USERNAME: {}", username)).ok();
-        proxy_wasm::hostcalls::log(LogLevel::Info, &format!("PASSWORD: {}", password)).ok();
+        println!("USERNAME: {}", username);
+        // WARNING: Secrets are stored and retrieved as plaintext. Never log secret values
+        // in production code — platform logs are visible to operators and may be persisted.
+        // This line is shown for demonstration only; remove it in any real application.
+        println!("PASSWORD: {}", password);
 
         self.add_http_request_header("x-env-username", &username);
+        // WARNING: Forwarding a secret in a request header exposes it to the upstream origin
+        // and any intermediary that can inspect headers. Only do this when the upstream
+        // channel is trusted and the header is required by the destination API.
         self.add_http_request_header("x-env-password", &password);
 
         Action::Continue
@@ -192,7 +198,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 proxy-wasm = "0.2"
-fastedge = { version = "0.3", features = ["proxywasm"] }
+fastedge = { version = "0.4", features = ["proxywasm"] }
 ```
 
 Build command:
@@ -211,8 +217,8 @@ Output: `target/wasm32-wasip1/release/variables_and_secrets.wasm`
 | `secret::get` returns `Vec<u8>`, not `String` | Must convert: `.ok().flatten().and_then(|v| String::from_utf8(v).ok())`. Bare `.unwrap()` on `String::from_utf8` panics on invalid UTF-8. |
 | `secret::get` error type is `u32` | Unlike KV store (typed `Error` enum), secret errors are raw host status codes. Use `.ok()` to discard and treat errors as missing. |
 | Missing values silently become `""` | Both `unwrap_or_default()` on env var and the full secret chain produce an empty string on absence. If a missing value is an error condition, check explicitly before forwarding. |
-| Logging secrets | `proxy_wasm::hostcalls::log` at `Info` is visible in production logs. Log secrets only at `Debug` level or not at all. |
-| `hostcalls::log` returns `Result` | Ignore with `.ok()` — log failure is non-fatal and should not interrupt request processing. |
+| Logging secrets | Platform logs are visible to operators and may be persisted. Never log secret values in production — demonstration code only. |
+| Forwarding secrets as headers | Adding a secret as a request header exposes it to the upstream origin and any intermediary that can inspect headers. Only do this when the upstream channel is trusted and the header is required by the destination API. |
 
 ## See Also
 

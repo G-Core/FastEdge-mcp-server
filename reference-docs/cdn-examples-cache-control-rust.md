@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-rust
       ref: main
-      commit: 4f748b10fa04226e76218e88195b6b1f02fce032
-      updated: 2026-04-20
+      commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
+      updated: 2026-06-16
 -->
 
 ---
@@ -184,7 +184,7 @@ Executes on every response before it is forwarded to the client.
 4. Read `STATIC_MAX_AGE`, `HTML_MAX_AGE`, `API_MAX_AGE` env vars with defaults.
 5. Determine `cache_control` string by content-type category (see Caching Tiers above). Add `Vary` header where applicable via `self.add_http_response_header("Vary", &value)`.
 6. Set `Cache-Control` via `self.set_http_response_header("Cache-Control", Some(&cache_control))`.
-7. Log via `proxy_wasm::hostcalls::log(LogLevel::Info, &format!("Cache-Control: {} (content-type: {})", cache_control, content_type))`.
+7. Log via `println!("Cache-Control: {} (content-type: {})", cache_control, content_type)`.
 8. Return `Action::Continue`.
 
 ---
@@ -197,7 +197,6 @@ Executes on every response before it is forwarded to the client.
 | `self.get_http_response_header("Content-Type")` | Read `Content-Type` from origin response |
 | `self.set_http_response_header("Cache-Control", Some(&value))` | Set (overwrite) `Cache-Control` header |
 | `self.add_http_response_header("Vary", &value)` | Append a `Vary` header to response |
-| `proxy_wasm::hostcalls::log(LogLevel::Info, &message)` | Write to platform log |
 
 ---
 
@@ -241,6 +240,7 @@ proxy-wasm = "0.2"
 - **`add_http_response_header` vs `set_http_response_header`**: `add` appends a new header instance (used for `Vary`); `set` replaces any existing header (used for `Cache-Control`). Using `set` for `Vary` would overwrite CDN-injected `Vary` values already present.
 - **Content-type matching is substring-based**: `contains("application/javascript")` matches `application/javascript; charset=utf-8`. Order of checks matters — static asset check runs first via `is_static_asset`, before HTML or JSON/XML checks.
 - **Default catch-all is `public, max-age=600`**: Applies to any content type not explicitly matched (e.g. `text/plain`, `video/mp4`, binary streams). 600 seconds (10 minutes) is conservative.
+- **Logging uses `println!`**: The source uses `println!` macro, not `proxy_wasm::hostcalls::log`. Output goes to platform stdout/log stream.
 
 ---
 

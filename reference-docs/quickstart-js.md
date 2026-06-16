@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-js
       ref: main
-      commit: 36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9
-      updated: 2026-06-11
+      commit: b78b2a80317bb632af88010816d3e54afd3bd72d
+      updated: 2026-06-16
 -->
 
 # FastEdge JavaScript Quickstart
@@ -199,6 +199,32 @@ addEventListener('fetch', (event) => {
 ```
 
 See the SDK Runtime API reference for the complete `Cache` method reference, `CacheValue` type, and `WriteOptions` fields.
+
+## TypeScript Configuration
+
+If you're using TypeScript, use a `tsconfig.json` that works with `fastedge-build`'s esbuild-based compilation pipeline:
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "lib": ["ES2023"],
+    "types": ["@gcoredev/fastedge-sdk-js"]
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules"]
+}
+```
+
+Key settings:
+- **`moduleResolution: "Bundler"`** — Required. `fastedge-build` uses esbuild to resolve modules. The `node`, `node16`, and `nodenext` modes are incorrect for FastEdge apps and will produce spurious import errors.
+- **`types: ["@gcoredev/fastedge-sdk-js"]`** — Brings `FetchEvent` and all FastEdge globals into scope automatically. No triple-slash directive is needed in TypeScript source files when this field is set.
+- **`noEmit: true`** — `tsc` is used for type-checking only. `fastedge-build` handles the actual compilation to WebAssembly.
 
 ## Next Steps
 

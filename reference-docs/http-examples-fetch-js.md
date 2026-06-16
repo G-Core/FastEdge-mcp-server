@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-js
       ref: main
-      commit: 36cf4c4af034a19e45e5a92d06aa95adeb9b1ff9
-      updated: 2026-06-11
+      commit: b78b2a80317bb632af88010816d3e54afd3bd72d
+      updated: 2026-06-16
 -->
 
 ## fetch — Outbound HTTP Requests

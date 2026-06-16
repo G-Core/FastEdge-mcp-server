@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-rust
       ref: main
-      commit: 4f748b10fa04226e76218e88195b6b1f02fce032
-      updated: 2026-04-20
+      commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
+      updated: 2026-06-16
 -->
 
 ---
@@ -59,23 +59,16 @@ The `proxy_wasm::main!` macro registers the root context factory. Log level is s
 
 ### `AbTestingRoot`
 
-Implements `RootContext` and `Context`. Stateless.
+Implements `RootContext` and `Context`. Stateless unit struct.
 
 | Method | Return | Description |
 |---|---|---|
 | `get_type(&self)` | `Option<ContextType>` | Returns `Some(ContextType::HttpContext)` |
-| `create_http_context(&self, _: u32)` | `Option<Box<dyn HttpContext>>` | Returns a new `AbTestingContext` per request with empty `variant` and `experiment_name` |
+| `create_http_context(&self, _: u32)` | `Option<Box<dyn HttpContext>>` | Returns a new `AbTestingContext` per request |
 
 ### `AbTestingContext`
 
-Implements `HttpContext` and `Context`.
-
-| Field | Type | Description |
-|---|---|---|
-| `variant` | `String` | Assigned variant (`"A"` or `"B"`); set in request hook, read in response hook |
-| `experiment_name` | `String` | Experiment name from env var; set in request hook, read in response hook |
-
-These fields carry state between `on_http_request_headers` and `on_http_response_headers` within the same request lifecycle.
+Implements `HttpContext` and `Context`. Unit struct — **no fields**. Cross-hook state is carried via request headers (`X-Variant`, `X-Experiment`) set in the request hook and read back in the response hook, because instance state does not survive the nginx → core-proxy hop.
 
 ---
 
@@ -98,16 +91,15 @@ Executes on every inbound request before forwarding to origin.
 7. If the cookie value is not `"A"` or `"B"` (new visitor or no cookie):
    - Get current time via `self.get_current_time().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis()`.
    - Assign `"A"` if `millis % 2 == 0`, else `"B"`.
-8. Store `variant` and `experiment_name` into struct fields.
-9. Read current request path via `self.get_property(vec!["request.path"])`, defaulting to `"/"`.
-10. Select path prefix: `variant_a_path` if `"A"`, `variant_b_path` if `"B"`.
-11. Rewrite path: `format!("{}{}", variant_path, path)`.
-12. Write rewritten path via `self.set_property(vec!["request.path"], Some(new_path.as_bytes()))`.
-13. Add upstream headers:
+8. Read current request path via `self.get_property(vec!["request.path"])`, decoded as UTF-8, defaulting to `"/"`.
+9. Select path prefix: `variant_a_path` if `"A"`, `variant_b_path` if `"B"`.
+10. Rewrite path: `format!("{}{}", variant_path, path)`.
+11. Write rewritten path via `self.set_property(vec!["request.path"], Some(new_path.as_bytes()))`.
+12. Add upstream headers (also used as cross-hook state carrier):
     - `self.add_http_request_header("X-Experiment", &experiment_name)`
     - `self.add_http_request_header("X-Variant", &assigned)`
-14. Log at `Info`: `A/B test "<name>": variant <V>, path <new_path>`.
-15. Return `Action::Continue`.
+13. Log at `Info` (via `println!`): `A/B test "<name>": variant <V>, path <new_path>`.
+14. Return `Action::Continue`.
 
 ---
 
@@ -117,18 +109,19 @@ Executes on every inbound request before forwarding to origin.
 
 Signature: `fn on_http_response_headers(&mut self, _: usize, _: bool) -> Action`
 
-Executes after origin response headers arrive. Uses cross-hook state from struct fields.
+Executes after origin response headers arrive. Recovers variant state by reading back the request headers set in the request hook, because instance state does not survive the nginx → core-proxy hop.
 
 **Control flow:**
 
-1. If `self.variant.is_empty()` → return `Action::Continue` immediately (request hook did not run or aborted early).
-2. Build `Set-Cookie` value:
+1. Read `X-Variant` from request headers via `self.get_http_request_header("X-Variant")`. If `None` → return `Action::Continue` immediately.
+2. Read `X-Experiment` from request headers via `self.get_http_request_header("X-Experiment")`. If `None` → return `Action::Continue` immediately.
+3. Build `Set-Cookie` value:
    ```
    fe_exp_<experiment_name>=<variant>; Path=/; Max-Age=86400; SameSite=Lax
    ```
-3. `self.add_http_response_header("Set-Cookie", &cookie)` — persists variant for 24 hours.
-4. `self.add_http_response_header("X-Variant", &self.variant)` — variant visible to downstream clients.
-5. Return `Action::Continue`.
+4. `self.add_http_response_header("Set-Cookie", &cookie)` — persists variant for 24 hours.
+5. `self.add_http_response_header("X-Variant", &variant)` — variant visible to downstream clients.
+6. Return `Action::Continue`.
 
 ---
 
@@ -151,7 +144,7 @@ fn get_cookie_value(cookie_header: &str, name: &str) -> String
 1. If `cookie_header` is empty → return `String::new()`.
 2. Construct prefix `format!("{}=", name)`.
 3. Split `cookie_header` on `';'`, trim whitespace from each pair.
-4. For each pair: if it starts with the prefix → return the remainder after the prefix.
+4. For each pair: if it starts with the prefix → return the remainder after the prefix via `strip_prefix`.
 5. If no match found → return `String::new()`.
 
 ---
@@ -173,7 +166,7 @@ fn get_cookie_value(cookie_header: &str, name: &str) -> String
 
 | API | Description |
 |---|---|
-| `self.get_property(vec!["request.path"])` | Reads current request path as `Vec<u8>`; decoded as UTF-8; defaults to `"/"` on absent/error |
+| `self.get_property(vec!["request.path"])` | Reads current request path as `Vec<u8>`; decoded as UTF-8 via `.and_then(\|bytes\| String::from_utf8(bytes).ok())`; defaults to `"/"` on absent/error |
 | `self.set_property(vec!["request.path"], Some(bytes))` | Overwrites the request path before forwarding to origin |
 
 Rewritten path format: `<variant_path><original_path>`
@@ -184,12 +177,12 @@ Example: `VARIANT_A_PATH=/experiments/a`, original path `/product/123` → new p
 
 ## Headers Set
 
-### On Request (forwarded to origin)
+### On Request (forwarded to origin; also used as cross-hook state)
 
 | Header | Value | Description |
 |---|---|---|
-| `X-Experiment` | `experiment_name` | Identifies the active experiment |
-| `X-Variant` | `"A"` or `"B"` | Assigned variant for this request |
+| `X-Experiment` | `experiment_name` | Identifies the active experiment; read back in response hook |
+| `X-Variant` | `"A"` or `"B"` | Assigned variant for this request; read back in response hook |
 
 ### On Response (returned to client)
 
@@ -237,20 +230,20 @@ No additional dependencies. Uses `std::env` and `std::time::UNIX_EPOCH` from the
 ## Gotchas
 
 - **Cookie name convention**: Cookie is always named `fe_exp_<experiment_name>`. The experiment name must not contain characters that are invalid in cookie names (e.g. spaces, `=`, `;`).
-- **Cross-hook state via struct fields**: `variant` and `experiment_name` are stored on `AbTestingContext` to carry data from `on_http_request_headers` to `on_http_response_headers`. This is the correct pattern — `get_property`/`set_property` is not used for cross-hook state here.
+- **Cross-hook state via request headers, not struct fields**: `AbTestingContext` is a unit struct with no fields. The assigned variant and experiment name are stored in the upstream request headers (`X-Variant`, `X-Experiment`) during `on_http_request_headers` and recovered by reading those same request headers in `on_http_response_headers`. Instance state does not survive the nginx → core-proxy hop.
 - **`get_current_time()` returns `SystemTime`**: Requires `.duration_since(UNIX_EPOCH)` before arithmetic. `unwrap_or_default()` is used — a zero duration produces variant `"A"` (0 % 2 == 0).
 - **Not cryptographically random**: Millisecond parity is a deterministic, time-based split. Do not use this for security-sensitive experiments. Users hitting the edge at the same millisecond receive the same variant.
 - **Path rewriting via `set_property`**: Uses `self.set_property(vec!["request.path"], ...)` directly rather than URL rewriting to avoid ambiguous behavior with query strings and fragments.
 - **`SameSite=Lax`**: Cookie uses `SameSite=Lax` for basic CSRF protection. Upgrade to `SameSite=Strict` if the experiment does not require cross-site navigation.
 - **`Max-Age=86400`**: Cookie expires after 24 hours. Adjust `Max-Age` to control how long variant assignments persist.
-- **Empty variant guard in response hook**: `if self.variant.is_empty()` prevents a `Set-Cookie` from being emitted on requests that terminated early (e.g. due to missing env vars).
-- **No whitespace trimming on cookie prefix match**: `strip_prefix` matches exactly — cookie values with embedded spaces are not trimmed, but the `trim()` call on each `split(';')` pair handles leading/trailing whitespace around the name=value pair itself.
+- **Missing header guard in response hook**: If `X-Variant` or `X-Experiment` request headers are absent (e.g. request hook aborted early due to missing env vars), the response hook returns `Action::Continue` immediately without setting `Set-Cookie`.
+- **No whitespace trimming on cookie value**: `strip_prefix` matches exactly — the `trim()` call on each `split(';')` pair handles leading/trailing whitespace around the name=value pair itself, but values with embedded spaces are not trimmed.
 
 ---
 
 ## See Also
 
-- proxy-wasm Rust SDK reference (HttpContext trait, `get_property`, `set_property`, `add_http_request_header`, `add_http_response_header`, `get_current_time`)
+- proxy-wasm Rust SDK reference (HttpContext trait, `get_property`, `set_property`, `add_http_request_header`, `add_http_response_header`, `get_http_request_header`, `get_current_time`)
 - FastEdge CDN app platform overview (request properties, proxy-wasm filter lifecycle)
 - FastEdge environment variable configuration (setting `EXPERIMENT_NAME`, `VARIANT_A_PATH`, `VARIANT_B_PATH` at deploy time)
 - examples-geoblock-rust reference (similar CDN proxy-wasm filter structure)

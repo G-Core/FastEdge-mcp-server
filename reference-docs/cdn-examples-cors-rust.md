@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-rust
       ref: main
-      commit: 4f748b10fa04226e76218e88195b6b1f02fce032
-      updated: 2026-04-20
+      commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
+      updated: 2026-06-16
 -->
 
 ---
@@ -39,7 +39,7 @@ Handles Cross-Origin Resource Sharing (CORS) for CDN apps using the proxy-wasm R
 | `MAX_AGE` | No | `String` | Seconds for `Access-Control-Max-Age` in preflight response. Default: `"86400"` |
 | `EXPOSE_HEADERS` | No | `String` | Headers exposed to browser via `Access-Control-Expose-Headers`. Empty or unset = header not sent. |
 
-`ALLOWED_ORIGINS` must be set. If absent (empty string), all CORS requests are passed through without modification.
+`ALLOWED_ORIGINS` is optional but required for the filter to do anything — when unset or empty, `is_origin_allowed` returns `false` for every origin and the filter is dormant: requests pass through without CORS headers. Browsers will block cross-origin access, but the proxy does not reject or modify requests.
 
 ---
 
@@ -99,7 +99,7 @@ Called on every inbound CDN request before forwarding to origin.
 
 1. Read `Origin` header via `self.get_http_request_header("Origin")`.
    - If absent or empty → return `Action::Continue` (no CORS handling).
-2. Read `ALLOWED_ORIGINS` env var via `env::var("ALLOWED_ORIGINS")`. On error → empty string.
+2. Read `ALLOWED_ORIGINS` env var via `env::var("ALLOWED_ORIGINS")`. On error → empty string (`unwrap_or_default()`).
 3. Call `is_origin_allowed(&origin, &allowed_origins)`.
    - If not allowed → return `Action::Continue` (no CORS headers added).
 4. Read `:method` pseudo-header via `self.get_http_request_header(":method")`.
@@ -133,7 +133,7 @@ Called when response headers arrive from origin, before sending to client.
 
 1. Read `Origin` header from the **request** via `self.get_http_request_header("Origin")`.
    - If absent or empty → return `Action::Continue`.
-2. Read `ALLOWED_ORIGINS` env var. On error → empty string.
+2. Read `ALLOWED_ORIGINS` env var via `env::var("ALLOWED_ORIGINS").unwrap_or_default()`. On error → empty string.
 3. Call `is_origin_allowed(&origin, &allowed_origins)`.
    - If not allowed → return `Action::Continue`.
 4. Compute `effective_origin`: `"*"` if `allowed_origins == "*"`, else the exact origin value.
@@ -201,7 +201,7 @@ proxy-wasm = "0.2"
 
 ## Gotchas
 
-- **`ALLOWED_ORIGINS` must be set**: An empty or missing `ALLOWED_ORIGINS` causes `is_origin_allowed` to return `false` for every origin — all CORS requests pass through without CORS headers added. This is a silent deny, not a 403.
+- **`ALLOWED_ORIGINS` is optional but required for CORS to work**: When unset or empty, `is_origin_allowed` returns `false` for every origin — all requests pass through without CORS headers added. The filter is dormant. Browsers will block cross-origin access, but the proxy does not issue a `403` or modify requests. This is a silent passthrough, not an explicit rejection.
 - **`Access-Control-Request-Headers` mirroring**: The preflight handler mirrors the client's `Access-Control-Request-Headers` back in `Access-Control-Allow-Headers`. If the header is absent, it falls back to `"Content-Type, Authorization"`. Ensure this default matches your application's actual headers.
 - **`Vary: Origin` and shared caches**: When not using wildcard, `Vary: Origin` is added to both preflight and normal responses. This tells shared CDN caches that the response differs by `Origin` — omitting it can cause incorrect cached responses to be served to different origins.
 - **Wildcard `"*"` does not send `Vary: Origin`**: When `ALLOWED_ORIGINS == "*"`, `effective_origin` is `"*"` and `Vary: Origin` is skipped. The response is identical for all origins.

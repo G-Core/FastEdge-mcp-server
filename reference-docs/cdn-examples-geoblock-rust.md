@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-rust
       ref: main
-      commit: 4f748b10fa04226e76218e88195b6b1f02fce032
-      updated: 2026-04-20
+      commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
+      updated: 2026-06-16
 -->
 
 ---
@@ -57,26 +57,26 @@ Retrieved via `self.get_property(vec!["request.country"])`. Returns `None` if th
 ```rust
 proxy_wasm::main! {{
     proxy_wasm::set_log_level(LogLevel::Trace);
-    proxy_wasm::set_root_context(|_| -> Box<dyn RootContext> { Box::new(HttpHeadersRoot) });
+    proxy_wasm::set_root_context(|_| -> Box<dyn RootContext> { Box::new(GeoblockRoot) });
 }}
 ```
 
-The `proxy_wasm::main!` macro registers the root context factory. `HttpHeadersRoot` implements `RootContext` and creates `HttpHeaders` instances per request via `create_http_context`.
+The `proxy_wasm::main!` macro registers the root context factory. `GeoblockRoot` implements `RootContext` and creates `GeoblockContext` instances per request via `create_http_context`.
 
 ---
 
 ## Context Types
 
-### `HttpHeadersRoot`
+### `GeoblockRoot`
 
 Implements `RootContext` and `Context`.
 
 | Method | Return | Description |
 |---|---|---|
-| `create_http_context(&self, _context_id: u32)` | `Option<Box<dyn HttpContext>>` | Returns a new `HttpHeaders` instance for each request |
+| `create_http_context(&self, _context_id: u32)` | `Option<Box<dyn HttpContext>>` | Returns a new `GeoblockContext` instance for each request |
 | `get_type(&self)` | `Option<ContextType>` | Returns `Some(ContextType::HttpContext)` |
 
-### `HttpHeaders`
+### `GeoblockContext`
 
 Implements `HttpContext` and `Context`. Stateless — no fields.
 
@@ -101,7 +101,7 @@ Executes on every inbound request before forwarding.
      - Parse `tw_start` as `u64`. On error → send 500 `App misconfigured`, return `Action::Pause`.
      - Parse `tw_end` as `u64`. On error → send 500 `App misconfigured`, return `Action::Pause`.
      - Get current Unix timestamp via `SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()`.
-     - If `now > tw_start || now <= tw_end` → send 403 `Request blacklisted`, return `Action::Pause`.
+     - If `now >= tw_start && now <= tw_end` → send 403 `Request blacklisted`, return `Action::Pause`.
      - Otherwise → fall through to `Action::Continue`.
    - If not both `Some` → send 403 `Request blacklisted`, return `Action::Pause`.
 7. If not matched → return `Action::Continue`.
@@ -165,7 +165,7 @@ proxy-wasm = "0.2"
 ## Gotchas
 
 - **Property availability**: `request.country` is injected by the CDN platform. It is only available during `on_http_request_headers`. It is not a header — do not use `get_http_request_header`.
-- **Time-window logic**: The condition `now > tw_start || now <= tw_end` is an OR, not an AND. This blocks if the current time is either after the start OR before/at the end — a wrapping/midnight-spanning window check, not a standard inclusive range. Verify intended semantics before deploying.
+- **Time-window logic**: The condition `now >= tw_start && now <= tw_end` is a standard inclusive range check (AND). Requests are blocked only when the current time falls within the window. Outside the window, matched countries are allowed through.
 - **Case sensitivity**: Country matching uses `eq_ignore_ascii_case`, so `us`, `US`, and `Us` all match.
 - **Partial time-window config**: If only one of `BLACKLIST_TW_START` / `BLACKLIST_TW_END` is set, `.zip` produces `None` and both are treated as absent — the request is blocked unconditionally with no error for partial config.
 - **BLACKLIST parse**: The blacklist is split on `,` with no whitespace trimming. Entries with leading/trailing spaces (e.g. `US, CN`) will not match correctly.

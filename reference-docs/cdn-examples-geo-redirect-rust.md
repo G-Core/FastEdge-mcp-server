@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-rust
       ref: main
-      commit: 4f748b10fa04226e76218e88195b6b1f02fce032
-      updated: 2026-04-20
+      commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
+      updated: 2026-06-16
 -->
 
 ---
@@ -91,8 +91,10 @@ Constructs the full URL as `origin + path` and writes it to the `request.url` pr
 ### Log the routing decision
 
 ```rust
-proxy_wasm::hostcalls::log(LogLevel::Info, &format!("Redirecting to: {}", request_url)).ok();
+println!("Redirecting to: {}", request_url);
 ```
+
+Uses `println!` macro (maps to the platform host log at Info level via the proxy-wasm runtime).
 
 ## Control Flow
 
@@ -156,6 +158,7 @@ proxy-wasm = "0.2"
 - `request.path` falls back to `"/"` if the property is absent.
 - Host header preservation is best-effort: if `request.host` is absent, no `Host` header is set and the platform default applies.
 - `Action::Continue` is returned on success — the rewritten `request.url` property drives routing, not an HTTP redirect response.
+- `get_property` returns `Option<Vec<u8>>`; always chain `.and_then(|b| String::from_utf8(b).ok()).unwrap_or_default()` to safely handle missing or invalid UTF-8 values without panicking.
 
 ## Contrast with Geoblock
 
@@ -167,3 +170,126 @@ Geo-redirect rewrites `request.url` to route to a different origin and returns `
 - examples-ab-test-cdn-rust (conditional origin routing based on other criteria)
 - platform-overview (property model, environment variable injection)
 - sdk-reference-rust (full proxy-wasm trait and hostcall reference)
+
+## Source Material
+
+### FILE: examples/cdn/geo_redirect/src/lib.rs
+
+```rust
+/*
+* Copyright 2025 G-Core Innovations SARL
+*/
+/*
+Example CDN app demonstrating geo-based origin routing.
+
+Routes requests to country-specific origins based on the request's
+geo-IP country code. Falls back to a DEFAULT origin when no
+country-specific mapping is configured.
+
+Required configuration:
+  - Environment variable: DEFAULT (fallback origin URL)
+  - Environment variable: <COUNTRY_CODE> (optional per-country origin URLs, e.g. US, DE, GB)
+*/
+
+use proxy_wasm::traits::*;
+use std::env;
+use proxy_wasm::types::*;
+
+proxy_wasm::main! {{
+    proxy_wasm::set_log_level(LogLevel::Info);
+    proxy_wasm::set_root_context(|_| -> Box<dyn RootContext> { Box::new(GeoRedirectRoot) });
+}}
+
+struct GeoRedirectRoot;
+
+impl Context for GeoRedirectRoot {}
+
+impl RootContext for GeoRedirectRoot {
+    fn get_type(&self) -> Option<ContextType> {
+        Some(ContextType::HttpContext)
+    }
+
+    fn create_http_context(&self, _: u32) -> Option<Box<dyn HttpContext>> {
+        Some(Box::new(GeoRedirectContext))
+    }
+}
+
+struct GeoRedirectContext;
+
+impl Context for GeoRedirectContext {}
+
+impl HttpContext for GeoRedirectContext {
+    fn on_http_request_headers(&mut self, _: usize, _: bool) -> Action {
+        let Ok(default_origin) = env::var("DEFAULT") else {
+            self.send_http_response(500, vec![], Some(b"App misconfigured - DEFAULT must be set"));
+            return Action::Pause;
+        };
+
+        let country_code = self
+            .get_property(vec!["request.country"])
+            .and_then(|bytes| String::from_utf8(bytes).ok())
+            .unwrap_or_default();
+
+        if country_code.is_empty() {
+            self.send_http_response(502, vec![], Some(b"Missing country information"));
+            return Action::Pause;
+        }
+
+        let origin = env::var(&country_code).unwrap_or(default_origin);
+        let origin = origin.trim_end_matches('/');
+
+        let path = self
+            .get_property(vec!["request.path"])
+            .and_then(|bytes| String::from_utf8(bytes).ok())
+            .unwrap_or_else(|| "/".to_string());
+
+        // Preserve the Host header if present
+        if let Some(host) = self
+            .get_property(vec!["request.host"])
+            .and_then(|bytes| String::from_utf8(bytes).ok())
+        {
+            self.set_http_request_header("Host", Some(&host));
+        }
+
+        let request_url = format!("{}{}", origin, path);
+
+        println!("Redirecting to: {}", request_url);
+
+        self.set_property(vec!["request.url"], Some(request_url.as_bytes()));
+
+        Action::Continue
+    }
+}
+```
+
+### FILE: examples/cdn/geo_redirect/Cargo.toml
+
+```toml
+[workspace]
+
+[package]
+name = "geo_redirect"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+proxy-wasm = "0.2"
+```
+
+### FILE: examples/cdn/geo_redirect/README.md
+
+```
+[← Back to examples](../../README.md)
+
+# Geo Redirect (CDN)
+
+Routes CDN requests to country-specific origins based on the geoIP country code using the proxy-wasm ABI.
+
+## Configuration
+
+- Environment variable: `DEFAULT` — fallback origin URL
+- Environment variable: `<COUNTRY_CODE>` — optional per-country origin URLs (e.g. `US`, `DE`, `GB`)
+```

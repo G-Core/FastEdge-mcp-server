@@ -56,8 +56,8 @@ For prototypes / throwaway code the user has marked as exploratory, the loop is 
 
 These FastEdge resources must exist in the Gcore portal **before** code that consumes them ships:
 
-- **KV stores.** `KvStore.open(name)` errors if the named store doesn't exist. Confirm the store is provisioned before adding `KvStore.open(...)` calls. If unsure, ask the user.
-- **Secrets.** `getSecret(name)` returns `null` (JS / AS) or a `None`-equivalent (Rust) if the secret is not provisioned. Bare `getSecret(...)` calls without null-checks produce silent misconfiguration. Always check, and confirm the secret name is provisioned before relying on it.
+- **KV stores.** `KvStore.open(name)` errors if the named store doesn't exist. KV stores are account-level resources created independently and assigned to apps — the same store can be shared across multiple apps in the same account. Confirm the store is provisioned and assigned to this app before adding `KvStore.open(...)` calls. If unsure, ask the user. Do not design KV key schemas with organisation or client namespace prefixes (e.g. `tenant:acme:...`) — the account is already the client boundary. Per-user or per-session prefixes within the app's own data model (e.g. `session:abc123`) are fine.
+- **Secrets.** `getSecret(name)` returns `null` (JS / AS) or a `None`-equivalent (Rust) if the secret is not provisioned or not assigned to the app. Secrets are account-level resources — the same secret (e.g. a shared signing key) can be assigned to multiple apps. Bare `getSecret(...)` calls without null-checks produce silent misconfiguration. Always check, and confirm the secret name is provisioned and assigned before relying on it.
 - **Env vars.** Set on the app via `PUT /apps/{id}` `env_vars` field, or in the portal. Apps that read env vars at module-init time will fail to start (530) if the var is missing. Confirm provisioning before assuming a value is set.
 
 When in doubt, list what the app will need and ask the user to confirm provisioning before writing the consuming code.
