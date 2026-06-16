@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-rust
       ref: main
-      commit: 4f748b10fa04226e76218e88195b6b1f02fce032
-      updated: 2026-04-20
+      commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
+      updated: 2026-06-16
 -->
 
 # Rust SDK Reference (`fastedge` crate + `fastedge-derive`)
@@ -15,18 +15,7 @@
 
 ### Cargo.toml
 
-Current crate version: `0.3.5`
-
-For `#[fastedge::http]` (basic/synchronous):
-
-```toml
-[dependencies]
-fastedge = "0.3"
-anyhow   = "1.0"
-
-[lib]
-crate-type = ["cdylib"]
-```
+Current crate version: `0.4.0`
 
 For `#[wstd::http_server]` (recommended for new apps):
 
@@ -39,20 +28,18 @@ anyhow = "1"
 crate-type = ["cdylib"]
 ```
 
-### Build Target Configuration
-
-For `#[fastedge::http]`:
+For `#[fastedge::http]` (basic/synchronous):
 
 ```toml
-# .cargo/config.toml
-[build]
-target = "wasm32-wasip1"
+[dependencies]
+fastedge = "0.4.0"
+anyhow   = "1.0"
+
+[lib]
+crate-type = ["cdylib"]
 ```
 
-```bash
-rustup target add wasm32-wasip1
-cargo build --target wasm32-wasip1 --release
-```
+### Build Target Configuration
 
 For `#[wstd::http_server]`:
 
@@ -67,7 +54,35 @@ rustup target add wasm32-wasip2
 cargo build --target wasm32-wasip2 --release
 ```
 
+For `#[fastedge::http]`:
+
+```toml
+# .cargo/config.toml
+[build]
+target = "wasm32-wasip1"
+```
+
+```bash
+rustup target add wasm32-wasip1
+cargo build --target wasm32-wasip1 --release
+```
+
 Output: `target/<target-triple>/release/<crate_name>.wasm`
+
+### Minimal Handler (`#[wstd::http_server]`)
+
+```rust
+use wstd::http::body::Body;
+use wstd::http::{Request, Response};
+
+#[wstd::http_server]
+async fn main(_request: Request<Body>) -> anyhow::Result<Response<Body>> {
+    let response = Response::builder()
+        .status(200)
+        .body(Body::from("Hello, FastEdge!"))?;
+    Ok(response)
+}
+```
 
 ### Minimal Handler (`#[fastedge::http]`)
 
@@ -85,62 +100,9 @@ fn main(_req: Request<Body>) -> Result<Response<Body>> {
 }
 ```
 
-### Minimal Handler (`#[wstd::http_server]`)
-
-```rust
-use wstd::http::body::Body;
-use wstd::http::{Request, Response};
-
-#[wstd::http_server]
-async fn main(_request: Request<Body>) -> anyhow::Result<Response<Body>> {
-    let response = Response::builder()
-        .status(200)
-        .body(Body::from("Hello, FastEdge!"))?;
-    Ok(response)
-}
-```
-
 ---
 
 ## Handler Macros
-
-### `#[fastedge::http]` (Basic)
-
-Provided by the `fastedge` crate. Registers a **synchronous** function as the HTTP request handler using the FastEdge-specific WIT interface.
-
-**Signature:**
-
-```rust
-fn <name>(req: Request<Body>) -> Result<Response<Body>>
-```
-
-- `Request<Body>` = `fastedge::http::Request<fastedge::body::Body>`
-- `Response<Body>` = `fastedge::http::Response<fastedge::body::Body>`
-- Any `Result` whose error implements `Into<Box<dyn std::error::Error>>` (e.g., `anyhow::Result`) is accepted.
-- Function name is not significant; `main` is conventional.
-- If the function returns `Err(e)`, the macro converts it to an HTTP `500 Internal Server Error` with the error message as the body. No panic occurs.
-- Build target: `wasm32-wasip1`
-
-**Example — method dispatch:**
-
-```rust
-use anyhow::{anyhow, Result};
-use fastedge::body::Body;
-use fastedge::http::{Method, Request, Response, StatusCode};
-
-#[fastedge::http]
-fn main(req: Request<Body>) -> Result<Response<Body>> {
-    match req.method() {
-        &Method::GET => Response::builder()
-            .status(StatusCode::OK)
-            .body(Body::from("GET OK"))
-            .map_err(Into::into),
-        _ => Err(anyhow!("method not allowed")),
-    }
-}
-```
-
----
 
 ### `#[wstd::http_server]` (Recommended)
 
@@ -191,16 +153,54 @@ async fn main(_request: Request<Body>) -> anyhow::Result<Response<Body>> {
 
 ---
 
+### `#[fastedge::http]` (Basic)
+
+Provided by the `fastedge` crate. Registers a **synchronous** function as the HTTP request handler using the FastEdge-specific WIT interface. Use for applications that require synchronous execution or the `fastedge::send_request` client. New projects should prefer `#[wstd::http_server]`.
+
+**Signature:**
+
+```rust
+fn <name>(req: Request<Body>) -> Result<Response<Body>>
+```
+
+- `Request<Body>` = `fastedge::http::Request<fastedge::body::Body>`
+- `Response<Body>` = `fastedge::http::Response<fastedge::body::Body>`
+- Any `Result` whose error implements `Into<Box<dyn std::error::Error>>` (e.g., `anyhow::Result`) is accepted.
+- Function name is not significant; `main` is conventional.
+- If the function returns `Err(e)`, the macro converts it to an HTTP `500 Internal Server Error` with the error message as the body. No panic occurs.
+- Build target: `wasm32-wasip1`
+
+**Example — method dispatch:**
+
+```rust
+use anyhow::{anyhow, Result};
+use fastedge::body::Body;
+use fastedge::http::{Method, Request, Response, StatusCode};
+
+#[fastedge::http]
+fn main(req: Request<Body>) -> Result<Response<Body>> {
+    match req.method() {
+        &Method::GET => Response::builder()
+            .status(StatusCode::OK)
+            .body(Body::from("GET OK"))
+            .map_err(Into::into),
+        _ => Err(anyhow!("method not allowed")),
+    }
+}
+```
+
+---
+
 ### Comparison
 
-| Aspect             | `#[fastedge::http]`      | `#[wstd::http_server]`   |
+| Aspect             | `#[wstd::http_server]`   | `#[fastedge::http]`      |
 | ------------------ | ------------------------ | ------------------------ |
-| Execution model    | Synchronous              | Async (`async fn`)       |
-| HTTP client        | `fastedge::send_request` | `wstd::http::Client`     |
-| Body type          | `fastedge::body::Body`   | `wstd::http::body::Body` |
-| Build target       | `wasm32-wasip1`          | `wasm32-wasip2`          |
-| Interface standard | FastEdge-specific WIT    | WASI-HTTP (standard)     |
-| Recommendation     | Legacy / sync required   | New applications         |
+| Execution model    | Async (`async fn`)       | Synchronous              |
+| HTTP client        | `wstd::http::Client`     | `fastedge::send_request` |
+| Body type          | `wstd::http::body::Body` | `fastedge::body::Body`   |
+| Build target       | `wasm32-wasip2`          | `wasm32-wasip1`          |
+| Interface standard | WASI-HTTP (standard)     | FastEdge-specific WIT    |
+| Recommendation     | New applications         | Legacy / sync required   |
 
 ---
 
@@ -397,14 +397,14 @@ Enable non-default features:
 
 ```toml
 [dependencies]
-fastedge = { version = "0.3.5", features = ["json"] }
+fastedge = { version = "0.4.0", features = ["json"] }
 ```
 
 Disable the default `proxywasm` feature:
 
 ```toml
 [dependencies]
-fastedge = { version = "0.3.5", default-features = false }
+fastedge = { version = "0.4.0", default-features = false }
 ```
 
 ---

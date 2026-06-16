@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-rust
       ref: main
-      commit: 4f748b10fa04226e76218e88195b6b1f02fce032
-      updated: 2026-04-20
+      commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
+      updated: 2026-06-16
 -->
 
 ---
@@ -52,6 +52,30 @@ All properties are retrieved via `self.get_property(vec![PROPERTY_PATH])` return
 | `REQUEST_CONTINENT` | `"request.continent"` | UTF-8 string | Client continent |
 | `REQUEST_COUNTRY_NAME` | `"request.country.name"` | UTF-8 string | Full country name |
 
+**Note on `response.status`**: This property is a 2-byte big-endian `u16`, NOT a UTF-8 string. Decode with `u16::from_be_bytes([bytes[0], bytes[1]])`. Do NOT use `String::from_utf8` on it.
+
+---
+
+## Property-to-Header Mapping
+
+| Property key | Response header |
+|---|---|
+| `request.url` | `request-uri` |
+| `request.host` | `request-host` |
+| `request.path` | `request-path` |
+| `request.scheme` | `request-scheme` |
+| `request.extension` | `request-extension` |
+| `request.query` | `request-query` |
+| `request.x_real_ip` | `request-x-real-ip` |
+| `request.country` | `request-country` |
+| `request.city` | `request-city` |
+| `request.asn` | `request-asn` |
+| `request.geo.long` | `request-long` |
+| `request.geo.lat` | `request-lat` |
+| `request.country.name` | `request-country-names` |
+| `request.region` | `request-country-region` |
+| `request.continent` | `request-continent` |
+
 ---
 
 ## Entry Point
@@ -59,26 +83,26 @@ All properties are retrieved via `self.get_property(vec![PROPERTY_PATH])` return
 ```rust
 proxy_wasm::main! {{
     proxy_wasm::set_log_level(LogLevel::Trace);
-    proxy_wasm::set_root_context(|_| -> Box<dyn RootContext> { Box::new(HttpHeadersRoot) });
+    proxy_wasm::set_root_context(|_| -> Box<dyn RootContext> { Box::new(PropertiesRoot) });
 }}
 ```
 
-The `proxy_wasm::main!` macro registers the root context factory. `HttpHeadersRoot` implements `RootContext` and creates `HttpHeaders` instances per request via `create_http_context`.
+The `proxy_wasm::main!` macro registers the root context factory. `PropertiesRoot` implements `RootContext` and creates `PropertiesContext` instances per request via `create_http_context`.
 
 ---
 
 ## Context Types
 
-### `HttpHeadersRoot`
+### `PropertiesRoot`
 
 Implements `RootContext` and `Context`.
 
 | Method | Return | Description |
 |---|---|---|
-| `create_http_context(&self, context_id: u32)` | `Option<Box<dyn HttpContext>>` | Returns a new `HttpHeaders` instance for each request |
+| `create_http_context(&self, context_id: u32)` | `Option<Box<dyn HttpContext>>` | Returns a new `PropertiesContext` instance for each request |
 | `get_type(&self)` | `Option<ContextType>` | Returns `Some(ContextType::HttpContext)` |
 
-### `HttpHeaders`
+### `PropertiesContext`
 
 Implements `HttpContext` and `Context`.
 
@@ -132,6 +156,33 @@ Signature: `fn add_http_response_header_bytes(&self, name: &str, value: &[u8])`
 
 Adds a response header with the raw property bytes as the value. No UTF-8 conversion is required.
 
+### Reading extension (optional — no error on absence)
+
+```rust
+let extension = self
+    .get_property(vec![REQUEST_EXTENSION])
+    .unwrap_or_default();
+println!(" extension = {} ", String::from_utf8_lossy(&extension));
+self.add_http_response_header_bytes("request-extension", &extension);
+```
+
+`request.extension` uses `.unwrap_or_default()` instead of the `let Some(...) else` pattern because a URL path often has no file extension. Missing extension is not treated as an error.
+
+### Reading query (optional — empty bytes on absence)
+
+```rust
+let query = match self.get_property(vec![REQUEST_QUERY]) {
+    None => Bytes::new(),
+    Some(query) => {
+        println!(" query = {} ", String::from_utf8_lossy(&query));
+        self.add_http_response_header_bytes("request-query", &query);
+        query
+    }
+};
+```
+
+`request.query` returns empty bytes on absence rather than triggering a 55x error.
+
 ---
 
 ## Control Flow: `on_http_request_headers`
@@ -140,15 +191,28 @@ Signature: `fn on_http_request_headers(&mut self, _: usize, _: bool) -> Action`
 
 Executes on every inbound request before forwarding.
 
-1. Read each property via `self.get_property(vec![CONSTANT])`. If `None`, call `self.send_http_response(error_code, vec![], None)` and return `Action::Pause`.
-2. Log the decoded value with `println!`.
-3. Forward the raw bytes as a response header via `self.add_http_response_header_bytes`.
-4. After reading all properties, parse the query string using `querystring::querify(&query)`.
-5. If a `url` query parameter is present (case-insensitive), rewrite the request URI: `self.set_property(vec![REQUEST_URI], Some(url.as_bytes()))`.
-6. If a `host` query parameter is present (case-insensitive), rewrite the request host: `self.set_property(vec![REQUEST_HOST], Some(host.as_bytes()))`.
-7. If a `path` query parameter is present (case-insensitive), rewrite the request path: `self.set_property(vec![REQUEST_PATH], Some(path.as_bytes()))`.
-8. Set a custom nginx log field: `self.set_property(vec!["nginx.log_field1"], Some(b"from_wasm nginx.log_field1"))`.
-9. Return `Action::Continue`.
+1. Read `request.url` via `self.get_property(vec![REQUEST_URI])`. If `None`, send 551 and return `Action::Pause`.
+2. Log decoded value with `println!`. Forward raw bytes as `request-uri` header.
+3. Read `request.host`. If `None`, send 552 and return `Action::Pause`. Forward as `request-host`.
+4. Read `request.path`. If `None`, send 553 and return `Action::Pause`. Forward as `request-path`.
+5. Read `request.scheme`. If `None`, send 554 and return `Action::Pause`. Forward as `request-scheme`.
+6. Read `request.extension`. If `None`, default to empty bytes (no error). Forward as `request-extension`.
+7. Read `request.query`. If `None`, use empty bytes (no error). Forward as `request-query`.
+8. Read `request.x_real_ip`. If `None`, send 557 and return `Action::Pause`. Forward as `request-x-real-ip`.
+9. Read `request.country`. If `None`, send 558 and return `Action::Pause`. Forward as `request-country`.
+10. Read `request.city`. If `None`, send 559 and return `Action::Pause`. Forward as `request-city`.
+11. Read `request.asn`. If `None`, send 560 and return `Action::Pause`. Forward as `request-asn`.
+12. Read `request.geo.long`. If `None`, send 561 and return `Action::Pause`. Forward as `request-long`.
+13. Read `request.geo.lat`. If `None`, send 562 and return `Action::Pause`. Forward as `request-lat`.
+14. Read `request.country.name`. If `None`, send 563 and return `Action::Pause`. Forward as `request-country-names`.
+15. Read `request.region`. If `None`, send 564 and return `Action::Pause`. Forward as `request-country-region`.
+16. Read `request.continent`. If `None`, send 565 and return `Action::Pause`. Forward as `request-continent`.
+17. Parse the query string using `querystring::querify(std::str::from_utf8(&query).unwrap())`.
+18. If a `url` query parameter is present (case-insensitive), rewrite: `self.set_property(vec![REQUEST_URI], Some(url.as_bytes()))`.
+19. If a `host` query parameter is present (case-insensitive), rewrite: `self.set_property(vec![REQUEST_HOST], Some(host.as_bytes()))`.
+20. If a `path` query parameter is present (case-insensitive), rewrite: `self.set_property(vec![REQUEST_PATH], Some(path.as_bytes()))`.
+21. Set custom nginx log field: `self.set_property(vec!["nginx.log_field1"], Some(b"from_wasm nginx.log_field1"))`.
+22. Return `Action::Continue`.
 
 ---
 
@@ -160,18 +224,18 @@ Executes on every inbound request before forwarding.
 | `request.host` absent | 552 |
 | `request.path` absent | 553 |
 | `request.scheme` absent | 554 |
-| `request.extension` absent | 555 |
-| `request.query` absent | 556 |
+| `request.extension` absent | no error (empty default) |
+| `request.query` absent | no error (empty default) |
 | `request.x_real_ip` absent | 557 |
 | `request.country` absent | 558 |
 | `request.city` absent | 559 |
-| `request.asn` absent | 561 |
+| `request.asn` absent | 560 |
 | `request.geo.long` absent | 561 |
 | `request.geo.lat` absent | 562 |
 | `request.country.name` absent | 563 |
 | `request.region` absent | 564 |
 | `request.continent` absent | 565 |
-| All properties present | Request forwarded (`Action::Continue`) |
+| All required properties present | Request forwarded (`Action::Continue`) |
 
 ---
 
@@ -192,8 +256,8 @@ if country == "US" {
 ### Rewrite URL from query parameter
 
 ```rust
-let query = String::from_utf8_lossy(&query);
-let params = querystring::querify(&query);
+let query = std::str::from_utf8(&query).unwrap();
+let params = querystring::querify(query);
 if let Some(url) = params.iter().find_map(|(k, v)| {
     if "url".eq_ignore_ascii_case(k) { Some(v) } else { None }
 }) {
@@ -211,11 +275,23 @@ let Some(city) = self.get_property(vec![REQUEST_CITY]) else {
 self.add_http_response_header_bytes("request-city", &city);
 ```
 
+### Decode `response.status` (2-byte big-endian u16)
+
+```rust
+let status_bytes = self.get_property(vec!["response.status"]).unwrap_or_default();
+if status_bytes.len() >= 2 {
+    let status = u16::from_be_bytes([status_bytes[0], status_bytes[1]]);
+    // use status
+}
+```
+
+Do NOT use `String::from_utf8` on `response.status` — it is a binary-encoded integer, not a UTF-8 string.
+
 ---
 
 ## Deserializing `request.country.name`
 
-The source includes a helper for null-delimited byte sequences, but the property doc pattern clarifies that all `request.*` properties are plain UTF-8 strings. The helper is provided as a utility in the source:
+The source includes a helper for null-delimited byte sequences. The property doc pattern clarifies that all `request.*` properties are plain UTF-8 strings, but `request.country.name` may return multiple values separated by null bytes:
 
 ```rust
 pub fn deserialize_country_names(bytes: &[u8]) -> Vec<Cow<'_, str>> {
@@ -249,7 +325,7 @@ self.set_property(
 );
 ```
 
-The property path `nginx.log_field1` writes a custom value into the CDN access log. This is a write-only operation from within the Wasm filter.
+The property path `nginx.log_field1` writes a custom value into the CDN access log. This is a write-only operation from within the Wasm filter; reading it back is not guaranteed.
 
 ---
 
@@ -286,17 +362,25 @@ querystring = "1.1"
 
 ---
 
+## Visual Debugger Notes
+
+`fixtures/force-server-properties.json` is a visual-debugger configuration file (no `.test.json` extension), not a test fixture. It is used to seed server-side properties when running the app in the FastEdge visual debugger.
+
+---
+
 ## Gotchas
 
-- **All properties return `Option<Vec<u8>>`**: A `None` result means the property is not available in the current request phase. Handle every `None` explicitly — the example sends a synthetic error response and returns `Action::Pause`.
+- **All required properties return `Option<Vec<u8>>`**: A `None` result means the property is not available in the current request phase. Handle every `None` explicitly — the example sends a synthetic error response and returns `Action::Pause`.
+- **`request.extension` and `request.query` are optional**: These two properties use fallback-to-empty patterns instead of error responses. A URL path often has no file extension; a request often has no query string.
 - **Properties are not headers**: Do not use `get_http_request_header` to read these. They are accessed exclusively via `get_property`.
+- **`response.status` is binary, not UTF-8**: Decode with `u16::from_be_bytes([bytes[0], bytes[1]])`. Never use `String::from_utf8` on it.
 - **`String::from_utf8_lossy` vs `String::from_utf8`**: The example uses `String::from_utf8_lossy` for logging (infallible, replaces invalid bytes with U+FFFD). For strict UTF-8 enforcement use `String::from_utf8(b).ok()`. Never call `.unwrap()` on `String::from_utf8` — it panics on invalid UTF-8.
 - **`request.country.name` encoding**: The source includes a null-byte deserializer for this property, suggesting it may return multiple values separated by null bytes. Verify against platform behavior before assuming plain UTF-8.
-- **Query parsing**: `querystring::querify` does not trim whitespace from keys or values. A query parameter `url=foo` matches but ` url=foo` (with a leading space on the key) does not.
-- **Case-insensitive parameter matching**: The example uses `.eq_ignore_ascii_case` to match query parameter keys (`url`, `host`, `path`). This is intentional — query parameter names are treated as case-insensitive.
-- **`set_property` for URL rewrite**: Modifying `request.url`, `request.host`, or `request.path` rewrites the upstream request before it is forwarded. Changes take effect for the proxied request, not for the in-flight headers already sent.
+- **Query parsing**: `querystring::querify` does not trim whitespace from keys or values. A query parameter `url=foo` matches but ` url=foo` (with a leading space on the key) does not. The source calls `std::str::from_utf8(&query).unwrap()` — safe only because the query was already read as a valid property value.
+- **Case-insensitive parameter matching**: The example uses `.eq_ignore_ascii_case` to match query parameter keys (`url`, `host`, `path`). Query parameter names are treated as case-insensitive.
+- **`set_property` for URL rewrite**: Modifying `request.url`, `request.host`, or `request.path` rewrites the upstream request before it is forwarded. Changes take effect for the proxied request, not for in-flight headers already sent.
 - **`nginx.log_field1`**: Writing to this property injects a value into the CDN access log. It is write-only from the filter; reading it back is not guaranteed.
-- **Error code collisions**: HTTP status 561 is used for both `request.asn` and `request.geo.long` absence — this is a quirk of the source, not a recommended pattern.
+- **Error code for `request.asn`**: The source uses status code 560 for `request.asn` absence (not 561 as stated in older documentation). Status 561 is reserved for `request.geo.long` absence.
 
 ---
 

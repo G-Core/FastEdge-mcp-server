@@ -65,6 +65,31 @@ CDN apps use a **callback model**. Key phases:
 
 Return `FilterHeadersStatusValues.Continue` to pass through, or call `stream_context.sendLocalResponse(...)` to short-circuit without hitting origin.
 
+## Deployment Model
+
+FastEdge apps are deployed **per account**. A Gcore account belongs to one organisation or client — the account is the tenant boundary. There is no multi-tenancy within an account: you do not share one app deployment across separate organisations.
+
+### KV Stores and Secrets are account-level resources
+
+KV stores and secrets are **first-class entities** in the Gcore platform, independent of any single app:
+
+- Created and managed at the account level (via the portal or API)
+- **Assigned** to one or more apps — the same KV store or secret can be attached to multiple apps within the same account
+- Accessed in code by name (`KvStore.open("my-store")`, `getSecret("MY_KEY")`) — the name must match a store/secret that has been provisioned and assigned to the app
+
+This means:
+- A signing-key secret can be shared across a JWT-auth app and a token-refresh app in the same account
+- A session KV store can be read by both an auth edge filter and an API gateway in the same account
+- The data inside remains account-scoped — no cross-account access, ever
+
+### What this means for app design
+
+Because the account is already the client boundary, **do not add client or organisation namespace prefixes to KV keys**. A key like `tenant:acme:session:abc` is over-engineered — the whole account belongs to one organisation.
+
+What is appropriate: per-end-user or per-session key prefixes within your app's own data model — e.g. `session:abc123`, `profile:user42`. Those are internal app concerns, not tenancy.
+
+**If you need to serve multiple separate organisations**, deploy a separate FastEdge app (and account) for each — not a single app with tenant-namespaced KV keys.
+
 ## Request Lifecycle
 
 1. **DNS Resolution** — Request routed to nearest PoP via Anycast

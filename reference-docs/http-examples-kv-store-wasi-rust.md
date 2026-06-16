@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-rust
       ref: main
-      commit: 4f748b10fa04226e76218e88195b6b1f02fce032
-      updated: 2026-04-20
+      commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
+      updated: 2026-06-16
 -->
 
 ---
@@ -31,7 +31,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 wstd = "0.6"
-fastedge = "0.3"
+fastedge = "0.4"
 anyhow = "1"
 querystring = "1.1"
 serde_json = "1"
@@ -214,8 +214,10 @@ Returns sorted-set entries under `key` whose value matches `pattern`. Each entry
 
 ```rust
 fn handle_zscan(store: &Store, params: &HashMap<&str, &str>) -> anyhow::Result<String> {
-    let key = *params.get("key").ok_or(anyhow!("missing param 'match'"))?;
-    let pattern = *params.get("match").ok_or(anyhow!("missing param 'match'"))?;
+    let key = *params.get("key").ok_or(anyhow!("missing param 'key'"))?;
+    let pattern = *params
+        .get("match")
+        .ok_or(anyhow!("missing param 'match'"))?;
     match store.zscan(key, pattern) {
         Ok(entries) => {
             let entries_json: Vec<serde_json::Value> = entries
@@ -251,7 +253,9 @@ Checks whether `item` exists in the Bloom filter stored at `key`. Returns `Ok(tr
 ```rust
 fn handle_bf_exists(store: &Store, params: &HashMap<&str, &str>) -> anyhow::Result<String> {
     let key = *params.get("key").ok_or(anyhow!("missing param 'key'"))?;
-    let item = *params.get("item").ok_or(anyhow!("missing param 'item'"))?;
+    let item = *params
+        .get("item")
+        .ok_or(anyhow!("missing param 'item'"))?;
     match store.bf_exists(key, item) {
         Ok(exists) => Ok(json!({
             "store": params.get("store").unwrap_or(&""),
@@ -324,6 +328,15 @@ Successful response shape (varies by action):
 {"store": "mystore", "action": "bfExists", "key": "bf", "item": "x", "response": true}
 ```
 
+## Error Responses
+
+| Condition                        | Status | Body                                                          |
+|----------------------------------|--------|---------------------------------------------------------------|
+| Store not found / access denied  | 403    | `{"error":"access denied"}`                                   |
+| Store open error                 | 500    | `{"error":"store open error: ..."}`                           |
+| Invalid action                   | 400    | `{"error":"Invalid action '...'. Supported: get, scan, zrange, zscan, bfExists"}` |
+| Missing required params          | 530    | Runtime error (propagated as unhandled anyhow error)          |
+
 ## Constraints and Notes
 
 - `Store` is not `Clone` or `Send`. Open one store per handler invocation; do not share across async boundaries.
@@ -333,8 +346,9 @@ Successful response shape (varies by action):
 - `bf_exists` operates on a Bloom filter data structure, not a plain key. The `key` parameter identifies the filter; `item` is what is tested for membership.
 - Store names must match stores configured and granted to the app at the platform level. Mismatched or unconfigured store names produce `AccessDenied` or open errors.
 - `crate-type = ["cdylib"]` is required for WASM compilation.
-- Query parameters are parsed via the `querystring` crate into a `HashMap<&str, &str>`. Missing required parameters return `anyhow::Error` which propagates as HTTP 500 from the handler.
+- Query parameters are parsed via the `querystring` crate into a `HashMap<&str, &str>`. Missing required parameters return `anyhow::Error` which propagates as HTTP 530 from the handler.
 - JSON serialization uses the `serde_json` crate (`json!` macro). Add `serde_json = "1"` to `[dependencies]`.
+- `action` defaults to `get` if the query parameter is omitted.
 
 ## See Also
 

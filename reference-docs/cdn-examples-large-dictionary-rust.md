@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-rust
       ref: main
-      commit: 4f748b10fa04226e76218e88195b6b1f02fce032
-      updated: 2026-04-20
+      commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
+      updated: 2026-06-16
 -->
 
 ---
@@ -100,6 +100,70 @@ The `.ok()` discards the `Result` from `hostcalls::log` — logging failures do 
 
 ---
 
+### Full Example Structure
+
+```rust
+use fastedge::proxywasm::dictionary;
+use proxy_wasm::traits::*;
+use proxy_wasm::types::*;
+
+proxy_wasm::main! {{
+    proxy_wasm::set_log_level(LogLevel::Info);
+    proxy_wasm::set_root_context(|_| -> Box<dyn RootContext> { Box::new(LargeEnvRoot) });
+}}
+
+struct LargeEnvRoot;
+
+impl Context for LargeEnvRoot {}
+
+impl RootContext for LargeEnvRoot {
+    fn get_type(&self) -> Option<ContextType> {
+        Some(ContextType::HttpContext)
+    }
+
+    fn create_http_context(&self, _: u32) -> Option<Box<dyn HttpContext>> {
+        Some(Box::new(LargeEnvContext))
+    }
+}
+
+struct LargeEnvContext;
+
+impl Context for LargeEnvContext {}
+
+impl HttpContext for LargeEnvContext {
+    fn on_http_request_headers(&mut self, _: usize, _: bool) -> Action {
+        let config = dictionary::get("LARGE_CONFIG").unwrap_or_default();
+
+        let size = config.len();
+        println!("LARGE_CONFIG size: {} bytes", size);
+
+        self.add_http_request_header("x-config-size", &size.to_string());
+
+        Action::Continue
+    }
+}
+```
+
+---
+
+### Cargo.toml
+
+```toml
+[package]
+name = "large_env_variable"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+proxy-wasm = "0.2"
+fastedge = { version = "0.4", features = ["proxywasm"] }
+```
+
+---
+
 ### Gotchas
 
 - **`dictionary::get` returns `Option<String>`, not `Result`**: there is no error variant; a missing key yields `None` (not an error). This differs from `secret::get` which returns `Result<Option<Vec<u8>>, u32>`.
@@ -110,13 +174,13 @@ The `.ok()` discards the `Result` from `hostcalls::log` — logging failures do 
 
 ---
 
-### Required configuration
+### Required Configuration
 
 - **Environment variable**: `LARGE_CONFIG` — a large configuration payload (e.g. JSON, PEM certificate, policy document)
 
 ---
 
-### Related
+### See Also
 
 - Host services reference — secret, dictionary, and key-value store APIs for CDN (proxy-wasm) apps
 - CDN apps reference — proxy-wasm lifecycle hooks, context setup, and request/response header manipulation

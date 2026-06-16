@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-rust
       ref: main
-      commit: 4f748b10fa04226e76218e88195b6b1f02fce032
-      updated: 2026-04-20
+      commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
+      updated: 2026-06-16
 -->
 
 ---
@@ -51,12 +51,33 @@ Opens a named KV store configured in the FastEdge platform. Must be called befor
 | `zscan` | `store.zscan(key: &str, pattern: &str) -> Result<Vec<(Vec<u8>, f64)>, Error>` | Sorted set members matching a pattern |
 | `bf_exists` | `store.bf_exists(key: &str, item: &str) -> Result<bool, Error>` | Bloom filter membership check |
 
+### Cargo.toml dependencies
+
+```toml
+[dependencies]
+proxy-wasm = "0.2"
+fastedge = { version = "0.4", features = ["proxywasm"] }
+querystring = "1.1"
+serde_json = "1"
+```
+
 ### Proxy-wasm lifecycle hooks
 
 - **`on_http_response_headers`** — set response `content-type` and remove `content-length` before replacing the body
 - **`on_http_response_body`** — read request query parameters via `get_property(vec!["request", "query"])`, open the store, dispatch to operations, and replace the body via `set_http_response_body`
 
 Query parameters are only available in `on_http_response_body` via `get_property` because request data is accessible throughout the response phase.
+
+### Entry point
+
+```rust
+proxy_wasm::main! {{
+    proxy_wasm::set_log_level(LogLevel::Info);
+    proxy_wasm::set_root_context(|_| -> Box<dyn RootContext> { Box::new(KvStoreRoot) });
+}}
+```
+
+`RootContext::get_type` must return `Some(ContextType::HttpContext)` and `create_http_context` must return the `HttpContext` implementation.
 
 ## Common Patterns
 
@@ -148,6 +169,57 @@ let result = match action {
 };
 ```
 
+### Query parameter dispatch — full example
+
+The complete example supports these query parameter combinations:
+
+| Action | Required params | Optional params |
+|--------|----------------|-----------------|
+| `get` (default) | `store`, `key` | — |
+| `scan` | `store`, `match` | — |
+| `zrange` | `store`, `key`, `min`, `max` | — |
+| `zscan` | `store`, `key`, `match` | — |
+| `bfExists` | `store`, `key`, `item` | — |
+
+`store` is always required. `action` defaults to `get` if omitted.
+
+### Error response pattern
+
+```rust
+fn send_error(&self, msg: &str, body_size: usize) {
+    println!("{}", msg);
+    self.set_property(
+        vec!["response", "status"],
+        Some(b"500"),
+    );
+    let error_body = serde_json::json!({"error": msg}).to_string();
+    self.set_http_response_body(0, body_size, error_body.as_bytes());
+}
+```
+
+### JSON response shape per action
+
+```rust
+// get — value present
+json!({ "store": store_name, "action": "get", "key": key, "response": value_str })
+// get — value absent
+json!({ "store": store_name, "action": "get", "key": key, "response": null })
+
+// scan
+json!({ "store": store_name, "action": "scan", "match": pattern, "response": keys })
+
+// zrange
+json!({ "store": store_name, "action": "zrange", "key": key, "min": min, "max": max, "response": entries_json })
+
+// zscan
+json!({ "store": store_name, "action": "zscan", "key": key, "match": pattern, "response": entries_json })
+
+// bfExists
+json!({ "store": store_name, "action": "bfExists", "key": key, "item": item, "response": exists })
+```
+
+Sorted set entries shape: `[{"value": "<string>", "score": <f64>}, ...]`
+
 ## Gotchas
 
 - **`get` returns `None` for missing keys** — a missing key is `Ok(None)`, not an `Err`. Always match both `Some` and `None` cases; treating `None` as an error will produce incorrect behavior.
@@ -158,6 +230,8 @@ let result = match action {
 - **`on_http_response_body` must wait for end of stream** — return `Action::Pause` until `end_of_stream` is `true` before reading query parameters or replacing the body.
 - **`query` property is available in the response phase** — `get_property(vec!["request", "query"])` works in `on_http_response_body` because request metadata is accessible throughout the response lifecycle.
 - **Error type is a typed `Error` enum** (not a raw `u32` as with secrets). Match on the `Err(e)` variant and format with `format!("{}", e)` for human-readable messages.
+- **`store` query parameter is always required** — the example reads `store` from query params and passes it to `Store::open`. An absent `store` param returns a 500 error before any store operations are attempted.
+- **`zrange` min/max must parse as `f64`** — invalid numeric values return an error string; validate or propagate the parse error rather than unwrapping.
 
 ## Related
 

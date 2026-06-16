@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-rust
       ref: main
-      commit: 4f748b10fa04226e76218e88195b6b1f02fce032
-      updated: 2026-04-20
+      commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
+      updated: 2026-06-16
 -->
 
 # HTTP Call — CDN (Rust)
@@ -261,3 +261,147 @@ on_http_call_response(token_id, num_headers, body_size, _)
 - CDN app scaffold blueprint
 - FastEdge platform overview
 - FastEdge error codes reference
+
+## Source Material
+
+### FILE: examples/cdn/http_call/src/lib.rs
+
+```rust
+use proxy_wasm::traits::*;
+use proxy_wasm::types::*;
+use std::time::Duration;
+
+proxy_wasm::main! {{
+    proxy_wasm::set_log_level(LogLevel::Trace);
+    proxy_wasm::set_root_context(|_| -> Box<dyn RootContext> { Box::new(HttpHeadersRoot) });
+}}
+
+struct HttpHeadersRoot;
+
+impl Context for HttpHeadersRoot {}
+
+impl RootContext for HttpHeadersRoot {
+    fn create_http_context(&self, _context_id: u32) -> Option<Box<dyn HttpContext>> {
+        Some(Box::new(HttpHeaders { state: 0 }))
+    }
+
+    fn get_type(&self) -> Option<ContextType> {
+        Some(ContextType::HttpContext)
+    }
+}
+
+struct HttpHeaders {
+    state: u32,
+}
+
+impl Context for HttpHeaders {
+    fn on_http_call_response(
+        &mut self,
+        token_id: u32,
+        num_headers: usize,
+        _body_size: usize,
+        _num_trailers: usize,
+    ) {
+        println!(
+            "Received http call response with token id: {token_id}, num_headers: {num_headers}"
+        );
+        //If num_headers is 0, then the HTTP call failed.
+        if num_headers != 0 {
+            let headers = self.get_http_call_response_headers();
+            let headers_str = headers
+                .iter()
+                .map(|(name, value)| format!("\"{}: {}\"", name, value))
+                .collect::<Vec<_>>()
+                .join(",");
+            println!("Response headers: [{}]", headers_str);
+
+            self.state = 1; // Set state to 1 to indicate that the HTTP call response was received successfully.
+
+            self.resume_http_request();
+        } else {
+            self.reset_http_request();
+        }
+    }
+}
+
+impl HttpContext for HttpHeaders {
+    fn on_http_request_headers(&mut self, _: usize, _: bool) -> Action {
+        println!("state: {}", self.state);
+
+        if self.state == 1 {
+            println!("HTTP call response was received successfully, resuming request.");
+            return Action::Continue;
+        }
+
+        match self.dispatch_http_call(
+            "httpbin.org",
+            vec![
+                (":scheme", "https"),
+                (":authority", "httpbin.org"),
+                (":path", "/ip"),
+                ("User-Agent", "fastedge"),
+            ],
+            Some("body".as_bytes()),
+            vec![],
+            Duration::from_millis(1000),
+        ) {
+            Ok(token_id) => {
+                println!("Dispatched http call with token id: {token_id}");
+                Action::Pause
+            }
+            Err(status) => {
+                self.send_http_response(
+                    to_status_code(status),
+                    vec![],
+                    Some(format!("Failed to dispatch http call: {:?}", status).as_bytes()),
+                );
+                Action::Pause
+            }
+        }
+    }
+}
+
+fn to_status_code(status: Status) -> u32 {
+    match status {
+        Status::Ok => 200,
+        Status::NotFound => 404,
+        Status::BadArgument => 400,
+        Status::SerializationFailure => 500,
+        Status::ParseFailure => 400,
+        Status::Empty => 204,
+        Status::CasMismatch => 409,
+        Status::InternalFailure => 500,
+        _ => 500,
+    }
+}
+```
+
+
+### FILE: examples/cdn/http_call/Cargo.toml
+
+```toml
+[workspace]
+
+[package]
+name = "http_call"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+log = "0.4"
+proxy-wasm = "0.2"
+```
+
+
+### FILE: examples/cdn/http_call/README.md
+
+```
+[← Back to examples](../../README.md)
+
+# HTTP Call (CDN)
+
+Makes asynchronous HTTP calls to external services with timeout handling using the proxy-wasm ABI.
+```

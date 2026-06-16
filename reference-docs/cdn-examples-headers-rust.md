@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-rust
       ref: main
-      commit: 4f748b10fa04226e76218e88195b6b1f02fce032
-      updated: 2026-04-20
+      commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
+      updated: 2026-06-16
 -->
 
 ---
@@ -107,15 +107,15 @@ Called when request headers are received.
 Operations performed (in order):
 1. Read all request headers via `get_http_request_headers()` and `get_http_request_headers_bytes()` into `HashSet` snapshots.
 2. Assert headers are non-empty; send `550` and pause if empty.
-3. Check `host` header presence via `get_http_request_header("host")`; send `551` and pause if absent.
+3. Check `host` header presence via `get_http_request_header("host")` and `get_http_request_header_bytes("host")`; send `551` and pause if absent.
 4. Add three new request headers using `add_http_request_header` / `add_http_request_header_bytes`.
 5. Remove `new-header-01` / `new-header-bytes-01` via `set_...(name, None)`.
 6. Replace `new-header-02` / `new-header-bytes-02` values via `set_...(name, Some(...))`.
 7. Append duplicate `new-header-03` / `new-header-bytes-03` via `add_...`.
-8. Pre-stage response headers in the request phase: `add_http_response_header`, `set_http_response_header`.
+8. Pre-stage response headers in the request phase: `add_http_response_header("new-response-header", "value-01")`, `set_http_response_header("cache-control", None)`, `set_http_response_header("new-response-header", Some("value-02"))`.
 9. Diff current headers against the original snapshot; assert only expected new headers are present; send `552` and pause if unexpected diff.
-10. Read response headers via `get_http_response_header("host")`; assert value is present but empty (not truly absent); send `553`/`554` and pause on failure.
-11. Assert response headers list has exactly one entry (`new-response-header: value-02`); send `555`/`556` and pause on failure.
+10. Assert `get_http_response_header("host")` and `get_http_response_header_bytes("host")` both return `None` (upstream response host is not available during request phase); send `553` and pause if either returns `Some`.
+11. Assert `get_http_response_headers()` returns exactly one entry (`new-response-header: value-02`); send `555` and pause if count is not 1 or entry is not present; send `556` and pause if name or value does not match.
 12. Return `Action::Continue`.
 
 ### `on_http_response_headers`
@@ -123,17 +123,15 @@ Operations performed (in order):
 Called when response headers are received.
 
 Operations performed (in order):
-1. Read all response headers into `HashSet` snapshots.
+1. Read all response headers into `HashSet` snapshots via `get_http_response_headers()` and `get_http_response_headers_bytes()`.
 2. Assert headers non-empty; send `550` and pause if empty.
-3. Check `host` header presence; send `551` and pause if absent.
+3. Check `host` header presence via `get_http_response_header("host")` and `get_http_response_header_bytes("host")`; send `551` and pause if absent.
 4. Add `new-header-01..03` (string and byte variants).
 5. Remove `new-header-01` / `new-header-bytes-01`.
 6. Replace `new-header-02` / `new-header-bytes-02`.
 7. Append duplicate `new-header-03` / `new-header-bytes-03`.
 8. Diff current response headers against original snapshot; assert diff equals expected set exactly; send `552` and pause on mismatch.
-9. Read `host` response header; assert value is present but empty; send `553`/`554` and pause on failure.
-10. Assert response headers list is non-empty; send `555` and pause if empty.
-11. Return `Action::Continue`.
+9. Return `Action::Continue`.
 
 ### `on_log`
 
@@ -206,11 +204,9 @@ let original: HashSet<(String, String)> = self
 | `550` | request or response | No headers returned from `get_http_*_headers()` |
 | `551` | request or response | `host` header absent from `get_http_*_header("host")` |
 | `552` | request or response | Header diff contains unexpected entries |
-| `553` | request | Response `host` header absent entirely |
-| `554` | request | Response `host` header present but non-empty (should be empty) |
-| `555` | request | Response headers list count not exactly 1 |
+| `553` | request | `get_http_response_header("host")` or `get_http_response_header_bytes("host")` returns `Some` during request phase (upstream response host must not be available) |
+| `555` | request | Response headers list count not exactly 1 (from `get_http_response_headers()`) |
 | `556` | request | Response header name/value mismatch (expected `new-response-header: value-02`) |
-| `555` | response | Response headers list is empty |
 
 All error paths return `Action::Pause`.
 
@@ -221,7 +217,7 @@ All error paths return `Action::Pause`.
 - **Remove does not truly delete**: `set_http_request_header(name, None)` and `set_http_response_header(name, None)` set the header value to an empty string (or empty `Bytes`), not a true removal. When checking for header absence, test for both `None` return from `get_http_*_header` and an empty-string value.
 - **`add_` allows duplicate names**: `add_http_request_header` and `add_http_response_header` append a new header entry regardless of whether a header with that name already exists. Use `set_` to replace.
 - **`set_` replaces all**: `set_http_*_header(name, Some(value))` replaces the header value, collapsing any duplicates.
-- **Response headers in request phase**: `add_http_response_header` and `set_http_response_header` can be called during `on_http_request_headers`. The pre-staged values are readable via `get_http_response_header` in the same phase, but the `host` response header will return a present-but-empty value rather than the actual upstream response host.
+- **Response headers in request phase — limited availability**: `add_http_response_header` and `set_http_response_header` can be called during `on_http_request_headers` and the pre-staged values are readable via `get_http_response_headers()` in the same phase. However, `get_http_response_header("host")` returns `None` during the request phase — the upstream response host header is not accessible until `on_http_response_headers`.
 - **`_bytes` variants are symmetric**: Every string header API has a `_bytes` counterpart accepting/returning `&[u8]` / `Bytes`. Behavior and constraints are identical.
 - **Log level**: `LogLevel::Trace` is set at startup; all `println!` output appears in trace logs.
 
@@ -234,3 +230,356 @@ All error paths return `Action::Pause`.
 - examples-body-cdn-rust (body manipulation API)
 - examples-shared-data-cdn-rust (shared data API)
 - host-services-rust reference (full ABI surface)
+
+## Source Material
+
+### FILE: examples/cdn/headers/src/lib.rs
+
+```rust
+use proxy_wasm::traits::*;
+use proxy_wasm::types::*;
+use std::collections::HashSet;
+
+proxy_wasm::main! {{
+    proxy_wasm::set_log_level(LogLevel::Trace);
+    proxy_wasm::set_root_context(|_| -> Box<dyn RootContext> { Box::new(HttpHeadersRoot) });
+}}
+
+struct HttpHeadersRoot;
+
+impl Context for HttpHeadersRoot {}
+
+impl RootContext for HttpHeadersRoot {
+    fn create_http_context(&self, context_id: u32) -> Option<Box<dyn HttpContext>> {
+        Some(Box::new(HttpHeaders { context_id }))
+    }
+
+    fn get_type(&self) -> Option<ContextType> {
+        Some(ContextType::HttpContext)
+    }
+}
+
+struct HttpHeaders {
+    context_id: u32,
+}
+
+impl Context for HttpHeaders {}
+
+impl HttpContext for HttpHeaders {
+    fn on_http_request_headers(&mut self, _: usize, _: bool) -> Action {
+        let mut original_headers = HashSet::new();
+        let mut original_headers_bytes = HashSet::new();
+
+        // iterate over the headers and print them
+        for (name, value) in self.get_http_request_headers().into_iter() {
+            println!("#{} -> {}: {}", self.context_id, name, value);
+            original_headers.insert((name, value));
+        }
+        for (name, value) in self.get_http_request_headers_bytes().into_iter() {
+            println!("#{} -> {}: {:?}", self.context_id, name, value);
+            original_headers_bytes.insert((name, value));
+        }
+        if original_headers.is_empty() || original_headers_bytes.is_empty() {
+            self.send_http_response(550, vec![], None);
+            return Action::Pause;
+        }
+
+        // check if the host header is present
+        if self.get_http_request_header("host").is_none() {
+            self.send_http_response(551, vec![], None);
+            return Action::Pause;
+        }
+        if self.get_http_request_header_bytes("host").is_none() {
+            self.send_http_response(551, vec![], None);
+            return Action::Pause;
+        }
+
+        // add new headers
+        self.add_http_request_header("new-header-01", "value-01");
+        self.add_http_request_header_bytes("new-header-bytes-01", b"value-bytes-01");
+
+        self.add_http_request_header("new-header-02", "value-02");
+        self.add_http_request_header_bytes("new-header-bytes-02", b"value-bytes-02");
+
+        self.add_http_request_header("new-header-03", "value-03");
+        self.add_http_request_header_bytes("new-header-bytes-03", b"value-bytes-03");
+
+        //remove header new-headter-01, expected empty value
+        self.set_http_request_header("new-header-01", None);
+        self.set_http_request_header_bytes("new-header-bytes-01", None);
+
+        // changing header value
+        self.set_http_request_header("new-header-02", Some("new-value-02"));
+        self.set_http_request_header_bytes("new-header-bytes-02", Some(b"new-value-bytes-02"));
+
+        // add new header with existing name
+        self.add_http_request_header("new-header-03", "value-03-a");
+        self.add_http_request_header_bytes("new-header-bytes-03", b"value-bytes-03-a");
+
+        // try to set/add response headers
+        self.add_http_response_header("new-response-header", "value-01");
+        self.set_http_response_header("cache-control", None);
+        self.set_http_response_header("new-response-header", Some("value-02"));
+
+        // get new headers
+        let headers = self
+            .get_http_request_headers()
+            .into_iter()
+            .collect::<HashSet<(String, String)>>();
+        let headers_bytes = self
+            .get_http_request_headers_bytes()
+            .into_iter()
+            .collect::<HashSet<(String, Bytes)>>();
+
+        let expected = [
+            ("new-header-01".to_string(), "".to_string()),
+            ("new-header-bytes-01".to_string(), "".to_string()),
+            ("new-header-02".to_string(), "new-value-02".to_string()),
+            (
+                "new-header-bytes-02".to_string(),
+                "new-value-bytes-02".to_string(),
+            ),
+            ("new-header-03".to_string(), "value-03".to_string()),
+            (
+                "new-header-bytes-03".to_string(),
+                "value-bytes-03".to_string(),
+            ),
+            ("new-header-03".to_string(), "value-03-a".to_string()),
+            (
+                "new-header-bytes-03".to_string(),
+                "value-bytes-03-a".to_string(),
+            ),
+        ];
+
+        let expected = expected.iter().collect::<HashSet<_>>();
+
+        let expected_bytes = [
+            ("new-header-01".to_string(), b"".to_vec()),
+            ("new-header-bytes-01".to_string(), b"".to_vec()),
+            ("new-header-02".to_string(), b"new-value-02".to_vec()),
+            (
+                "new-header-bytes-02".to_string(),
+                b"new-value-bytes-02".to_vec(),
+            ),
+            ("new-header-03".to_string(), b"value-03".to_vec()),
+            (
+                "new-header-bytes-03".to_string(),
+                b"value-bytes-03".to_vec(),
+            ),
+            ("new-header-03".to_string(), b"value-03-a".to_vec()),
+            (
+                "new-header-bytes-03".to_string(),
+                b"value-bytes-03-a".to_vec(),
+            ),
+        ];
+
+        let expected_bytes = expected_bytes.iter().collect::<HashSet<_>>();
+
+        let diff = headers
+            .difference(&original_headers)
+            .collect::<HashSet<_>>();
+
+        let diff_bytes = headers_bytes
+            .difference(&original_headers_bytes)
+            .collect::<HashSet<_>>();
+
+        let diff = diff.difference(&expected).collect::<Vec<_>>();
+
+        if !diff.is_empty() {
+            println!("different headers: {:?}", diff);
+            self.send_http_response(552, vec![], None);
+            return Action::Pause;
+        }
+
+        let diff_bytes = diff_bytes.difference(&expected_bytes).collect::<Vec<_>>();
+        if !diff_bytes.is_empty() {
+            println!("different headers bytes: {:?}", diff_bytes);
+            self.send_http_response(552, vec![], None);
+            return Action::Pause;
+        }
+
+        // check if the response header is not returned
+        if self.get_http_response_header("host").is_some() {
+            self.send_http_response(553, vec![], None);
+            return Action::Pause;
+        };
+        if self.get_http_response_header_bytes("host").is_some() {
+            self.send_http_response(553, vec![], None);
+            return Action::Pause;
+        };
+
+        let response_headers = self.get_http_response_headers();
+        if response_headers.len() != 1 {
+            self.send_http_response(555, vec![], None);
+            return Action::Pause;
+        }
+        let Some((name, value)) = response_headers.into_iter().next() else {
+            self.send_http_response(555, vec![], None);
+            return Action::Pause;
+        };
+        if name != "new-response-header" || value != "value-02" {
+            self.send_http_response(556, vec![], None);
+            return Action::Pause;
+        }
+
+        Action::Continue
+    }
+
+    fn on_http_response_headers(&mut self, _: usize, _: bool) -> Action {
+        let mut original_headers = HashSet::new();
+        let mut original_headers_bytes = HashSet::new();
+
+        // iterate over the headers and print them
+        for (name, value) in self.get_http_response_headers().into_iter() {
+            println!("#{} -> {}: {}", self.context_id, name, value);
+            original_headers.insert((name, value));
+        }
+        for (name, value) in self.get_http_response_headers_bytes().into_iter() {
+            println!("#{} -> {}: {:?}", self.context_id, name, value);
+            original_headers_bytes.insert((name, value));
+        }
+        if original_headers.is_empty() || original_headers_bytes.is_empty() {
+            self.send_http_response(550, vec![], None);
+            return Action::Pause;
+        }
+
+        // check if the host header is present
+        if self.get_http_response_header("host").is_none() {
+            self.send_http_response(551, vec![], None);
+            return Action::Pause;
+        }
+        if self.get_http_response_header_bytes("host").is_none() {
+            self.send_http_response(551, vec![], None);
+            return Action::Pause;
+        }
+
+        // add new headers
+        self.add_http_response_header("new-header-01", "value-01");
+        self.add_http_response_header_bytes("new-header-bytes-01", b"value-bytes-01");
+
+        self.add_http_response_header("new-header-02", "value-02");
+        self.add_http_response_header_bytes("new-header-bytes-02", b"value-bytes-02");
+
+        self.add_http_response_header("new-header-03", "value-03");
+        self.add_http_response_header_bytes("new-header-bytes-03", b"value-bytes-03");
+
+        //remove header new-headter-01, expected empty value
+        self.set_http_response_header("new-header-01", None);
+        self.set_http_response_header_bytes("new-header-bytes-01", None);
+
+        // changing header value
+        self.set_http_response_header("new-header-02", Some("new-value-02"));
+        self.set_http_response_header_bytes("new-header-bytes-02", Some(b"new-value-bytes-02"));
+
+        // add new header with existing name
+        self.add_http_response_header("new-header-03", "value-03-a");
+        self.add_http_response_header_bytes("new-header-bytes-03", b"value-bytes-03-a");
+
+        // get new headers
+        let headers = self
+            .get_http_response_headers()
+            .into_iter()
+            .collect::<HashSet<(String, String)>>();
+        let headers_bytes = self
+            .get_http_response_headers_bytes()
+            .into_iter()
+            .collect::<HashSet<(String, Bytes)>>();
+
+        let expected = [
+            ("new-header-01".to_string(), "".to_string()),
+            ("new-header-bytes-01".to_string(), "".to_string()),
+            ("new-header-02".to_string(), "new-value-02".to_string()),
+            (
+                "new-header-bytes-02".to_string(),
+                "new-value-bytes-02".to_string(),
+            ),
+            ("new-header-03".to_string(), "value-03".to_string()),
+            (
+                "new-header-bytes-03".to_string(),
+                "value-bytes-03".to_string(),
+            ),
+            ("new-header-03".to_string(), "value-03-a".to_string()),
+            (
+                "new-header-bytes-03".to_string(),
+                "value-bytes-03-a".to_string(),
+            ),
+        ];
+
+        let expected = expected.iter().collect::<HashSet<_>>();
+
+        let expected_bytes = [
+            ("new-header-01".to_string(), b"".to_vec()),
+            ("new-header-bytes-01".to_string(), b"".to_vec()),
+            ("new-header-02".to_string(), b"new-value-02".to_vec()),
+            (
+                "new-header-bytes-02".to_string(),
+                b"new-value-bytes-02".to_vec(),
+            ),
+            ("new-header-03".to_string(), b"value-03".to_vec()),
+            (
+                "new-header-bytes-03".to_string(),
+                b"value-bytes-03".to_vec(),
+            ),
+            ("new-header-03".to_string(), b"value-03-a".to_vec()),
+            (
+                "new-header-bytes-03".to_string(),
+                b"value-bytes-03-a".to_vec(),
+            ),
+        ];
+
+        let expected_bytes = expected_bytes.iter().collect::<HashSet<_>>();
+
+        let diff = headers
+            .difference(&original_headers)
+            .collect::<HashSet<_>>();
+
+        let diff_bytes = headers_bytes
+            .difference(&original_headers_bytes)
+            .collect::<HashSet<_>>();
+
+        let diff = diff.difference(&expected).collect::<Vec<_>>();
+
+        if !diff.is_empty() {
+            println!("different headers: {:?}", diff);
+            self.send_http_response(552, vec![], None);
+            return Action::Pause;
+        }
+
+        let diff_bytes = diff_bytes.difference(&expected_bytes).collect::<Vec<_>>();
+        if !diff_bytes.is_empty() {
+            println!("different headers bytes: {:?}", diff_bytes);
+            self.send_http_response(552, vec![], None);
+            return Action::Pause;
+        }
+
+        Action::Continue
+    }
+}
+```
+
+### FILE: examples/cdn/headers/Cargo.toml
+
+```toml
+[workspace]
+
+[package]
+name = "headers"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+proxy-wasm = "0.2"
+```
+
+### FILE: examples/cdn/headers/README.md
+
+```
+[← Back to examples](../../README.md)
+
+# Headers (CDN)
+
+Validates and manipulates HTTP request and response headers using the proxy-wasm ABI.
+```
