@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-06-16
+      updated: 2026-07-23
 -->
 
 # Outbound Fetch — WASI (Rust)
@@ -99,6 +99,9 @@ async fn main(_request: Request<Body>) -> anyhow::Result<Response<Body>> {
         .await
         .map_err(|e| anyhow!("outbound request failed: {e}"))?;
 
+    // Return the upstream response verbatim. The body is passed through
+    // without calling `.contents()`, so it streams to the client as upstream
+    // produces it.
     let (parts, body) = upstream_resp.into_parts();
     let mut response = Response::new(body);
     *response.status_mut() = parts.status;

@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-06-16
+      updated: 2026-07-23
 -->
 
 ---
@@ -128,3 +128,93 @@ cargo build --release
 - sdk-reference-rust — full wstd API reference including Request, Response, HeaderMap, Body
 - best-practices — header handling patterns and env-var configuration conventions
 - error-codes — wstd and platform error conditions
+
+## Source Material
+
+### FILE: examples/http/wasi/headers/src/lib.rs
+
+```rust
+use std::env;
+use wstd::http::body::Body;
+use wstd::http::{Request, Response};
+
+#[wstd::http_server]
+async fn main(request: Request<Body>) -> anyhow::Result<Response<Body>> {
+    let custom_env_var = env::var("MY_CUSTOM_ENV_VAR").unwrap_or_default();
+
+    let mut builder = Response::builder().status(200);
+
+    // Copy request headers to response
+    for (name, value) in request.headers() {
+        builder = builder.header(name.as_str(), value);
+    }
+
+    // Add custom header from env var
+    builder = builder.header("x-my-custom-header", &custom_env_var);
+
+    Ok(builder.body(Body::from(
+        "Returned all headers with a custom header added",
+    ))?)
+}
+```
+
+### FILE: examples/http/wasi/headers/Cargo.toml
+
+```toml
+[workspace]
+
+[package]
+name = "headers"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wstd = "0.6"
+anyhow = "1"
+```
+
+### FILE: examples/http/wasi/headers/README.md
+
+```
+[← Back to examples](../../../README.md)
+
+# Headers (WASI)
+
+Echoes all request headers back in the response and adds a custom `x-my-custom-header` whose value comes from an environment variable.
+
+Demonstrates reading request headers via `request.headers()`, building a response with `Response::builder()`, and injecting environment-variable values into response headers.
+
+## Configuration
+
+| Env var | Required | Description |
+|---|---|---|
+| `MY_CUSTOM_ENV_VAR` | No | Value placed in the `x-my-custom-header` response header. Empty string if unset. |
+
+## What it returns
+
+All request headers are copied to the response, then `x-my-custom-header` is appended.
+
+```
+HTTP/1.1 200 OK
+x-my-custom-header: <MY_CUSTOM_ENV_VAR value>
+<...all other request headers echoed back...>
+
+Returned all headers with a custom header added
+```
+
+## Build
+
+```sh
+cargo build --release
+# Output: target/wasm32-wasip2/release/headers.wasm
+```
+
+## APIs used
+
+- `request.headers()` — iterate over incoming request headers
+- `Response::builder().header(name, value)` — build response with individual headers
+- `std::env::var("KEY").unwrap_or_default()` — read optional env var
+```

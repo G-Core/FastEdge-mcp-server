@@ -1,12 +1,10 @@
-Now I have the format from the existing Rust WASI example. I'll produce the reference document:
-
 <!--
   auto-updated: true
   sources:
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-06-16
+      updated: 2026-07-23
 -->
 
 ---

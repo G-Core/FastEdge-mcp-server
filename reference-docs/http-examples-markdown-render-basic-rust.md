@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-06-16
+      updated: 2026-07-23
 -->
 
 ---
@@ -74,13 +74,13 @@ fastedge::send_request(req: Request<Body>) -> Result<Response<Body>, fastedge::E
 
 Makes an outbound HTTP request. Errors are mapped to `StatusCode`:
 
-| `fastedge::Error` variant      | Mapped `StatusCode`     |
-|-------------------------------|-------------------------|
-| `UnsupportedMethod(_)`        | `405 METHOD_NOT_ALLOWED`|
-| `BindgenHttpError(_)`         | `500 INTERNAL_SERVER_ERROR` |
-| `HttpError(_)`                | `500 INTERNAL_SERVER_ERROR` |
-| `InvalidBody`                 | `400 BAD_REQUEST`       |
-| `InvalidStatusCode(_)`        | `400 BAD_REQUEST`       |
+| `fastedge::Error` variant      | Mapped `StatusCode`         |
+|-------------------------------|------------------------------|
+| `UnsupportedMethod(_)`        | `405 METHOD_NOT_ALLOWED`     |
+| `BindgenHttpError(_)`         | `500 INTERNAL_SERVER_ERROR`  |
+| `HttpError(_)`                | `500 INTERNAL_SERVER_ERROR`  |
+| `InvalidBody`                 | `400 BAD_REQUEST`            |
+| `InvalidStatusCode(_)`        | `400 BAD_REQUEST`            |
 
 ### `pulldown_cmark::Parser::new_ext`
 

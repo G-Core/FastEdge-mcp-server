@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-06-16
+      updated: 2026-07-23
 -->
 
 ---
@@ -132,6 +132,8 @@ impl Context for LargeEnvContext {}
 
 impl HttpContext for LargeEnvContext {
     fn on_http_request_headers(&mut self, _: usize, _: bool) -> Action {
+        // Use dictionary::get for environment variables that may exceed 64KB.
+        // For normal-sized env vars, use std::env::var() instead.
         let config = dictionary::get("LARGE_CONFIG").unwrap_or_default();
 
         let size = config.len();
