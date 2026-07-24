@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-06-16
+      updated: 2026-07-23
 -->
 
 ---
@@ -127,3 +127,87 @@ cargo build --release
 - fastedge-sdk-rust secret API reference
 - platform-overview (app configuration and secrets management)
 - examples-hello-world-wasi-rust (minimal HTTP handler baseline)
+
+## Source Material
+
+### FILE: examples/http/wasi/variables_and_secrets/src/lib.rs
+
+```rust
+use fastedge::secret;
+use std::env;
+use wstd::http::body::Body;
+use wstd::http::{Request, Response};
+
+#[wstd::http_server]
+async fn main(_request: Request<Body>) -> anyhow::Result<Response<Body>> {
+    let username = env::var("USERNAME").unwrap_or_default();
+    let password = match secret::get("PASSWORD") {
+        Ok(Some(value)) => value,
+        _ => String::new(),
+    };
+
+    Ok(Response::builder()
+        .status(200)
+        .body(Body::from(format!(
+            "Username: {username}, Password: {password}"
+        )))?)
+}
+```
+
+### FILE: examples/http/wasi/variables_and_secrets/Cargo.toml
+
+```toml
+[workspace]
+
+[package]
+name = "variables_and_secrets"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wstd = "0.6"
+fastedge = "0.4"
+anyhow = "1"
+```
+
+### FILE: examples/http/wasi/variables_and_secrets/README.md
+
+```
+[← Back to examples](../../../README.md)
+
+# Variables and Secrets (WASI)
+
+Demonstrates reading an environment variable (`USERNAME`) and a secret (`PASSWORD`), returning both in the response body.
+
+Environment variables are set via the FastEdge app configuration and accessed with `std::env::var`. Secrets are stored encrypted and accessed with `fastedge::secret::get` — they are never exposed in platform logs or configuration UIs.
+
+## Configuration
+
+| Key | Type | Required | Description |
+|---|---|---|---|
+| `USERNAME` | Environment variable | No | Username to include in response. Empty string if unset. |
+| `PASSWORD` | Secret | No | Password to include in response. Empty string if unset or unavailable. |
+
+## What it returns
+
+```
+HTTP/1.1 200 OK
+
+Username: <USERNAME value>, Password: <PASSWORD value>
+```
+
+## Build
+
+```sh
+cargo build --release
+# Output: target/wasm32-wasip2/release/variables_and_secrets.wasm
+```
+
+## APIs used
+
+- `std::env::var("USERNAME").unwrap_or_default()` — read env var with fallback
+- `fastedge::secret::get("PASSWORD")` — read secret by name; returns `Ok(Some(String))` on success
+```

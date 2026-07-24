@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-js
       ref: main
-      commit: b78b2a80317bb632af88010816d3e54afd3bd72d
-      updated: 2026-06-16
+      commit: 81145a9a43ec499240c687bd49376ab20c72b11c
+      updated: 2026-07-23
 -->
 
 # A/B Testing — FastEdge Example
@@ -141,7 +141,7 @@ Extracts the A/B test ID from the incoming request cookie and returns modified h
 **Parameters**: `request` — incoming `Request` object
 
 **Returns**: `[xid: string, headers: Headers]`
-- `xid`: existing cookie value if present, otherwise `Math.random().toString().slice(1, 5)`
+- `xid`: existing cookie value if present, otherwise `` `${Math.random()}`.slice(1, 5) ``
 - `headers`: new `Headers` instance with `x-fastedge-abid` cookie removed (or `cookie` header deleted if it was the only cookie)
 
 ---
@@ -169,7 +169,7 @@ Builds upstream request headers with A/B test variant assignments.
 
 **Returns**: `Headers` — new `Headers` instance with `ab-test-<testName>` headers set for each test
 
-Iterates each test in `testConfig`, maps `xid * 100` into the normalized variant bucket range, and sets the corresponding header.
+Iterates each test in `testConfig`, maps `xid * 100` into the normalized variant bucket range using `Number.parseFloat`, and sets the corresponding header.
 
 ---
 

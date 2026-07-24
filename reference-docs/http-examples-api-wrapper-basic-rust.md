@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-06-16
+      updated: 2026-07-23
 -->
 
 # examples-api-wrapper-basic-rust
@@ -211,6 +211,19 @@ let status = json
 ```
 
 Pattern: chain `.get(&"key").ok_or(StatusCode::INTERNAL_SERVER_ERROR)?` for each path segment. Each missing key propagates a 500 error.
+
+SmartThings command response traversal:
+
+```rust
+let status = json
+    .get(&"results")
+    .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
+    .as_array()
+    .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?[0]
+    .get(&"status")
+    .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
+    .to_string();
+```
 
 ---
 

@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-06-16
+      updated: 2026-07-23
 -->
 
 ---
@@ -107,6 +107,8 @@ pub fn purge() -> Result<u64>
 
 Purge all cached keys. Returns the number of deleted keys.
 
+**Returns:** `Result<u64>`
+
 ---
 
 ### `fastedge::cache::purge_prefix`
@@ -120,6 +122,8 @@ Purge all cached keys whose key starts with `prefix`. Returns the number of dele
 **Parameters:**
 - `prefix: &str` — key prefix to match (e.g. `"cache:/data"`)
 
+**Returns:** `Result<u64>`
+
 ---
 
 ### `fastedge::cache::delete`
@@ -132,6 +136,8 @@ Delete a single cache entry by exact key.
 
 **Parameters:**
 - `key: &str` — exact cache key to delete
+
+**Returns:** `Result<()>`
 
 ---
 
@@ -150,6 +156,7 @@ Async outbound HTTP client used for origin forwarding. Requires `.await`. Used o
 - `fastedge::cache` functions are **synchronous**. Do not use `.await` on them, even though the surrounding handler is `async`.
 - Body bytes must be fully read into a `Vec<u8>` via `body.contents().await?.to_vec()` before passing to `cache::set`. The async body must be awaited before the synchronous cache write.
 - Cache-hit responses always use `content-type: application/octet-stream`. The original content-type from the upstream response is not stored in the cache alongside body bytes.
+- The `?` operator is used throughout for error propagation. Cache API errors (`cache::get`, `cache::set`, `cache::purge`, `cache::purge_prefix`, `cache::delete`) propagate directly to the handler return, resulting in a `500` response.
 
 ## Cargo.toml
 

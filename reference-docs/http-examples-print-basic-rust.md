@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-06-16
+      updated: 2026-07-23
 -->
 
 ---
@@ -139,6 +139,7 @@ cargo build --release
 - No `content-type` header is set on the response; do not rely on a specific value being present.
 - No outbound network calls are made — this is a pure request inspection handler.
 - The handler is synchronous (`wasm32-wasip1`). It cannot be used with async APIs or `wasm32-wasip2` targets.
+- `#[allow(dead_code)]` appears in source but is not required in production use — it suppresses warnings in the SDK example context only.
 
 ## See Also
 
@@ -146,3 +147,112 @@ cargo build --release
 - sdk-reference-rust (full API reference for `fastedge` crate)
 - platform-overview (request lifecycle, header forwarding behaviour)
 - best-practices (response building patterns)
+
+## Source Material
+
+### FILE: examples/http/basic/print/src/lib.rs
+
+```rust
+use anyhow::Result;
+use fastedge::body::Body;
+use fastedge::http::{Request, Response, StatusCode};
+
+#[allow(dead_code)]
+#[fastedge::http]
+fn main(req: Request<Body>) -> Result<Response<Body>> {
+    let mut body: String = "Method: ".to_string();
+    body.push_str(req.method().as_str());
+
+    body.push_str("\nURL: ");
+    body.push_str(req.uri().to_string().as_str());
+
+    body.push_str("\nHeaders:");
+    for (h, v) in req.headers() {
+        body.push_str("\n    ");
+        body.push_str(h.as_str());
+        body.push_str(": ");
+        match v.to_str() {
+            Err(_) => body.push_str("not a valid text"),
+            Ok(a) => body.push_str(a),
+        }
+    }
+    let res = Response::builder()
+        .status(StatusCode::OK)
+        .body(Body::from(body))?;
+    Ok(res)
+}
+```
+
+### FILE: examples/http/basic/print/Cargo.toml
+
+```toml
+[workspace]
+
+[package]
+name = "print"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+fastedge = "0.4"
+anyhow = "1"
+```
+
+### FILE: examples/http/basic/print/README.md
+
+```
+[← Back to examples](../../../README.md)
+
+# Print
+
+Echoes the incoming request's method, URL, and all headers back in the response body as plain text. Useful for debugging and inspecting what a FastEdge app receives from clients and the platform.
+
+> **Note:** This example uses the legacy `#[fastedge::http]` sync handler (`wasm32-wasip1`). For new apps, prefer `#[wstd::http_server]` (async, `wasm32-wasip2`) — see [`examples/http/wasi/`](../../wasi/).
+
+## What it demonstrates
+
+- Reading request method via `req.method().as_str()`
+- Reading the request URI via `req.uri().to_string()`
+- Iterating all request headers via `req.headers()`
+- Handling non-UTF-8 header values gracefully with a `match` on `v.to_str()`
+- Building a plain-text response with `Response::builder()` and `Body::from(...)`
+
+## APIs used
+
+| API | Purpose |
+|-----|---------|
+| `req.method().as_str()` | HTTP method as a string slice |
+| `req.uri().to_string()` | Full request URI as a `String` |
+| `req.headers()` | Iterator over `(HeaderName, HeaderValue)` pairs |
+| `v.to_str()` | Decode a header value to `&str` (returns `Err` for non-UTF-8) |
+| `Response::builder().status(...).body(...)` | Build the HTTP response |
+| `Body::from(string)` | Create a response body from a `String` |
+
+## Build
+
+```sh
+cargo build --release
+# Output: target/wasm32-wasip1/release/print.wasm
+```
+
+## Expected behaviour
+
+For any request, the response body is a plain-text dump of the request details:
+
+```
+Method: GET
+URL: /some/path?query=value
+Headers:
+    host: example.com
+    accept: */*
+    ...
+```
+
+- Status: `200 OK`
+- Content: plain text (no `content-type` header is set explicitly; the platform may add one)
+- Each header appears on its own line, indented with four spaces
+- Non-UTF-8 header values are replaced with `not a valid text`
+```

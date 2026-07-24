@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-06-16
+      updated: 2026-07-23
 -->
 
 ---
@@ -40,7 +40,7 @@ Converts Markdown documents returned by the origin server to HTML. Uses three CD
 **Purpose**: Suppress compressed responses; optionally rewrite request path.
 
 **Steps**:
-1. Sets `Accept-Encoding` header to `None` (empty string on FastEdge CDN) to prevent origin from returning a gzip-encoded body. Without this, `String::from_utf8` on the response body will fail silently and raw compressed bytes are passed through as HTML.
+1. Sets `Accept-Encoding` header to `None` (on the FastEdge CDN platform this sets the header value to an empty string rather than removing it) to prevent origin from returning a gzip-encoded body. Without this, `String::from_utf8` on the response body will fail silently and raw compressed bytes are passed through as HTML. Origin must honour an empty `Accept-Encoding` as "no encoding preferred".
 2. Reads `BASE` from environment via `env::var("BASE")`. If absent, logs and returns `Action::Continue` with no path change.
 3. Reads `request.path` via `self.get_property(vec!["request.path"])`. If missing (should not occur), defaults to `"/"`.
 4. Constructs new path: `format!("{}{}", base.trim_end_matches('/'), url)`.
@@ -92,7 +92,7 @@ self.set_property(vec!["response.markdown"], Some(b"true"));
 1. Checks cross-hook flag: `self.get_property(vec!["response.markdown"])`. If `None`, returns `Action::Continue` immediately (non-Markdown response; no transformation).
 2. If `end_of_stream` is false, returns `Action::Pause` to buffer additional chunks.
 3. Retrieves full body: `self.get_http_response_body(0, body_size)`. If `None`, returns `Action::Continue`.
-4. Decodes bytes to `String` via `String::from_utf8(body_bytes)`. On error, returns `Action::Continue` (best-effort transform; no 500 sent).
+4. Decodes bytes to `String` via `String::from_utf8(body_bytes)`. On error, returns `Action::Continue` (best-effort transform; no 500 sent — raw bytes pass through silently).
 5. Parses Markdown using `pulldown_cmark::Parser::new_ext` with `Options::ENABLE_TABLES | Options::ENABLE_FOOTNOTES`.
 6. Renders HTML into a `String`, wrapping output with `<!DOCTYPE html><html><body>` and `</body></html>`.
 7. Writes back via `self.set_http_response_body(0, body_size, body)`.
@@ -168,12 +168,13 @@ pulldown-cmark = "0.11"
 
 | Gotcha | Detail |
 |---|---|
-| `Accept-Encoding` suppression | On FastEdge CDN, setting a header to `None` sets its value to empty string, not removes it. Origin must treat empty `Accept-Encoding` as "no encoding preferred". Omitting this step causes origin to return gzip; body decode fails silently. |
+| `Accept-Encoding` suppression | On FastEdge CDN, setting a header to `None` sets its value to empty string, not removes it. Origin must treat empty `Accept-Encoding` as "no encoding preferred". Omitting this step causes origin to return gzip; `String::from_utf8` fails silently and raw compressed bytes are passed through as HTML. |
 | `Content-Length` removal | Must be set to `None` before body replacement. If left in place, length mismatch corrupts the response. |
 | UTF-8 decode failure | `String::from_utf8` fails silently on error — `Action::Continue` is returned, passing through raw bytes. This is intentional (best-effort transform). |
 | `end_of_stream` buffering | `Action::Pause` is returned for every partial chunk until the stream ends. Transformation only runs once `end_of_stream == true`. |
 | `pulldown-cmark` options | Tables and footnotes are not enabled by default. Must pass `Options::ENABLE_TABLES \| Options::ENABLE_FOOTNOTES` explicitly. |
 | `BASE` trailing slash | `base.trim_end_matches('/')` prevents double slashes when `BASE` ends with `/`. |
+| Content-type detection | Both `text/plain` and `text/markdown` trigger conversion. Detection uses `starts_with`, so parameters (e.g. `text/plain; charset=utf-8`) are also matched. |
 
 ---
 
@@ -183,3 +184,159 @@ pulldown-cmark = "0.11"
 - proxy-wasm HttpContext trait: see sdk-reference-rust reference
 - Other CDN examples: see the cdn examples references
 - HOST services available in CDN hooks: see host-services-rust reference
+
+## Source Material
+
+### FILE: examples/cdn/md2html/src/lib.rs
+
+```rust
+use proxy_wasm::traits::*;
+use proxy_wasm::types::*;
+use pulldown_cmark::{Options, Parser};
+use std::env;
+
+const BAD_REQUEST: u32 = 400;
+
+proxy_wasm::main! {{
+    proxy_wasm::set_log_level(LogLevel::Trace);
+    proxy_wasm::set_root_context(|_| -> Box<dyn RootContext> { Box::new(HttpBodyRoot) });
+}}
+
+struct HttpBodyRoot;
+
+impl Context for HttpBodyRoot {}
+
+impl RootContext for HttpBodyRoot {
+    fn get_type(&self) -> Option<ContextType> {
+        Some(ContextType::HttpContext)
+    }
+
+    fn create_http_context(&self, _: u32) -> Option<Box<dyn HttpContext>> {
+        Some(Box::new(HttpBody))
+    }
+}
+
+struct HttpBody;
+
+impl Context for HttpBody {}
+
+impl HttpContext for HttpBody {
+    fn on_http_request_headers(&mut self, _: usize, _: bool) -> Action {
+        self.set_http_request_header("Accept-Encoding", None); // don't want to process gzipped body
+        let Ok(base) = env::var("BASE") else {
+            println!("BASE is not set - URL is not modified");
+            return Action::Continue;
+        };
+        let url = match self.get_property(vec!["request.path"]) {
+            Some(url) => match std::str::from_utf8(&url) {
+                Ok(u) => u.to_string(),
+                Err(e) => {
+                    println!("Error parsing URL path: {}", e);
+                    self.send_http_response(BAD_REQUEST, vec![], None);
+                    return Action::Pause;
+                }
+            },
+            None => {
+                // should never happen
+                println!("URL path is missing");
+                "/".to_string()
+            }
+        };
+        let new_url = format!("{}{}", base.trim_end_matches('/'), url);
+        self.set_property(vec!["request.path"], Some(new_url.as_bytes()));
+        println!("URL modified: {} -> {}", url, new_url);
+        Action::Continue
+    }
+
+    fn on_http_response_headers(&mut self, _: usize, _: bool) -> Action {
+        println!("On response headers");
+        if let Some(content_type) = self.get_http_response_header("Content-Type") {
+            if content_type.starts_with("text/plain") || content_type.starts_with("text/markdown") {
+                println!("Response is markdown, converting to HTML");
+                self.set_http_response_header("Content-Length", None);
+                self.set_http_response_header("Transfer-Encoding", Some("Chunked"));
+                self.set_http_response_header("Content-Type", Some("text/html"));
+                self.set_property(vec!["response.markdown"], Some(b"true"));
+                println!("Response is markdown, converting to HTML");
+            }
+        }
+        Action::Continue
+    }
+
+    fn on_http_response_body(&mut self, body_size: usize, end_of_stream: bool) -> Action {
+        // only process markdown
+        if None == self.get_property(vec!["response.markdown"]) {
+            return Action::Continue;
+        }
+
+        if !end_of_stream {
+            // wait for complete body
+            return Action::Pause;
+        }
+
+        let Some(body_bytes) = self.get_http_response_body(0, body_size) else {
+            return Action::Continue;
+        };
+        let Ok(md) = String::from_utf8(body_bytes) else {
+            return Action::Continue;
+        };
+
+        let parser = Parser::new_ext(
+            md.as_str(),
+            Options::ENABLE_TABLES | Options::ENABLE_FOOTNOTES,
+        );
+        let mut html = String::new();
+        html.push_str("<!DOCTYPE html><html><body>");
+        pulldown_cmark::html::push_html(&mut html, parser);
+        html.push_str("</body></html>");
+
+        let body = html.as_bytes();
+        self.set_http_response_body(0, body_size, body);
+        println!("Converted");
+
+        Action::Continue
+    }
+}
+```
+
+
+### FILE: examples/cdn/md2html/Cargo.toml
+
+```toml
+[workspace]
+
+[package]
+name = "md2html"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+proxy-wasm = "0.2"
+pulldown-cmark = "0.11"
+```
+
+
+### FILE: examples/cdn/md2html/README.md
+
+```
+[← Back to examples](../../README.md)
+
+# Markdown to HTML (CDN)
+
+Converts Markdown documents returned by the origin server to HTML using the proxy-wasm ABI.
+
+## Configuration
+
+- Environment variable: `BASE` — (optional) URL prefix to prepend to the request path
+
+## How it works
+
+Uses three CDN triggers:
+
+1. **on_request_headers** — optionally prepends `BASE` to the request path
+2. **on_response_headers** — detects `text/plain` or `text/markdown` responses and sets `Content-Type` to `text/html`
+3. **on_response_body** — parses the Markdown body and converts it to HTML using pulldown-cmark
+```

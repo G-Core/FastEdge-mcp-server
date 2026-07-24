@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-06-16
+      updated: 2026-07-23
 -->
 
 ---
@@ -21,6 +21,8 @@ Complete example demonstrating all KV Store operations in a FastEdge HTTP app us
 ## Cargo.toml
 
 ```toml
+[workspace]
+
 [package]
 name = "key_value_wasi"
 version = "0.1.0"
@@ -68,6 +70,13 @@ The example dispatches on the `action` query parameter:
 ```
 
 `action` defaults to `get` if not specified. An unrecognized `action` returns HTTP 400 with a JSON error body listing supported actions. The `store` parameter is required on all requests.
+
+Query parameters are parsed via the `querystring` crate into a `HashMap<&str, &str>`:
+
+```rust
+let query = req.uri().query().ok_or(anyhow!("no query parameters"))?;
+let params: HashMap<&str, &str> = querystring::querify(query).into_iter().collect();
+```
 
 ## Store API
 
@@ -175,10 +184,16 @@ Returns sorted-set entries under `key` with scores in `[min, max]`. Each entry i
 ```rust
 fn handle_zrange(store: &Store, params: &HashMap<&str, &str>) -> anyhow::Result<String> {
     let key = *params.get("key").ok_or(anyhow!("missing param 'key'"))?;
-    let min: f64 = params.get("min").ok_or(anyhow!("missing param 'min'"))?
-        .parse().map_err(|_| anyhow!("invalid 'min': must be a number"))?;
-    let max: f64 = params.get("max").ok_or(anyhow!("missing param 'max'"))?
-        .parse().map_err(|_| anyhow!("invalid 'max': must be a number"))?;
+    let min: f64 = params
+        .get("min")
+        .ok_or(anyhow!("missing param 'min'"))?
+        .parse()
+        .map_err(|_| anyhow!("invalid 'min': must be a number"))?;
+    let max: f64 = params
+        .get("max")
+        .ok_or(anyhow!("missing param 'max'"))?
+        .parse()
+        .map_err(|_| anyhow!("invalid 'max': must be a number"))?;
     match store.zrange_by_score(key, min, max) {
         Ok(entries) => {
             let entries_json: Vec<serde_json::Value> = entries
@@ -336,6 +351,13 @@ Successful response shape (varies by action):
 | Store open error                 | 500    | `{"error":"store open error: ..."}`                           |
 | Invalid action                   | 400    | `{"error":"Invalid action '...'. Supported: get, scan, zrange, zscan, bfExists"}` |
 | Missing required params          | 530    | Runtime error (propagated as unhandled anyhow error)          |
+
+## Build
+
+```sh
+cargo build --release
+# Output: target/wasm32-wasip2/release/key_value_wasi.wasm
+```
 
 ## Constraints and Notes
 

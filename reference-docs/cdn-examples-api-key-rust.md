@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-06-16
+      updated: 2026-07-23
 -->
 
 # API Key Validation — CDN (Rust)
@@ -98,12 +98,15 @@ impl HttpContext for ApiKeyContext {
 
         // 3. Compare and reject if invalid
         if provided_key != expected_key {
+            println!("API key validation failed");
             self.send_http_response(403, vec![], Some(b"Invalid API key"));
             return Action::Pause;
         }
 
         // 4. Strip key before forwarding to upstream
         self.set_http_request_header("X-API-Key", None);
+
+        println!("API key validated successfully");
         Action::Continue
     }
 }
@@ -134,6 +137,12 @@ return Action::Pause;
 
 - Include `WWW-Authenticate: API-Key` on 401 responses to signal the required auth scheme to clients
 
+## Required Configuration
+
+| Type   | Name      | Description                         |
+|--------|-----------|-------------------------------------|
+| Secret | `API_KEY` | The expected API key value to match |
+
 ## Gotchas
 
 - **`secret::get` returns `Vec<u8>`, not `String`**: always decode with `.and_then(|v| String::from_utf8(v).ok())` — bare `.unwrap()` panics on invalid UTF-8 and must not be used
@@ -143,128 +152,10 @@ return Action::Pause;
 - **Action::Pause required after send_http_response**: calling `send_http_response` without returning `Action::Pause` results in undefined behaviour; the two must always appear together
 - **`Result<Option<Vec<u8>>, u32>` error type**: the `u32` error variant is a raw host status code — do not match against typed error enums; treat any `Err(_)` or `Ok(None)` as a configuration failure
 - **Proxy-wasm lifecycle**: all header access and modification must occur inside `on_http_request_headers`; calling these methods outside a valid HTTP context hook is unsupported
+- **Simpler than JWT**: this pattern has no token expiry or claims validation — use JWT when those are required
 
 ## Related
 
 - Host services reference — secrets API (`fastedge::proxywasm::secret`) and other CDN host services
 - CDN apps reference — proxy-wasm app structure, `RootContext`/`HttpContext` setup, `Action` enum, and request property encodings
 - SDK API reference — Rust CDN SDK traits and types
-
-## Source Material
-
-### FILE: examples/cdn/api_key/src/lib.rs
-
-```rust
-/*
-* Copyright 2025 G-Core Innovations SARL
-*/
-/*
-Example CDN app demonstrating API key validation.
-
-Validates requests using an X-API-Key header checked against a stored
-secret. Simpler alternative to JWT when token expiry and claims are
-not needed.
-
-Required configuration:
-  - Secret: API_KEY
-*/
-
-use fastedge::proxywasm::secret;
-use proxy_wasm::traits::*;
-use proxy_wasm::types::*;
-
-proxy_wasm::main! {{
-    proxy_wasm::set_log_level(LogLevel::Info);
-    proxy_wasm::set_root_context(|_| -> Box<dyn RootContext> { Box::new(ApiKeyRoot) });
-}}
-
-struct ApiKeyRoot;
-
-impl Context for ApiKeyRoot {}
-
-impl RootContext for ApiKeyRoot {
-    fn get_type(&self) -> Option<ContextType> {
-        Some(ContextType::HttpContext)
-    }
-
-    fn create_http_context(&self, _: u32) -> Option<Box<dyn HttpContext>> {
-        Some(Box::new(ApiKeyContext))
-    }
-}
-
-struct ApiKeyContext;
-
-impl Context for ApiKeyContext {}
-
-impl HttpContext for ApiKeyContext {
-    fn on_http_request_headers(&mut self, _: usize, _: bool) -> Action {
-        let expected_key = match secret::get("API_KEY") {
-            Ok(Some(bytes)) => match String::from_utf8(bytes) {
-                Ok(s) if !s.is_empty() => s,
-                _ => {
-                    self.send_http_response(500, vec![], Some(b"App misconfigured"));
-                    return Action::Pause;
-                }
-            },
-            _ => {
-                self.send_http_response(500, vec![], Some(b"App misconfigured"));
-                return Action::Pause;
-            }
-        };
-
-        let provided_key = match self.get_http_request_header("X-API-Key") {
-            Some(k) if !k.is_empty() => k,
-            _ => {
-                self.send_http_response(
-                    401,
-                    vec![("WWW-Authenticate", "API-Key")],
-                    Some(b"Missing X-API-Key header"),
-                );
-                return Action::Pause;
-            }
-        };
-
-        if provided_key != expected_key {
-            println!("API key validation failed");
-            self.send_http_response(403, vec![], Some(b"Invalid API key"));
-            return Action::Pause;
-        }
-
-        // Strip the API key header before forwarding to upstream
-        self.set_http_request_header("X-API-Key", None);
-
-        println!("API key validated successfully");
-        Action::Continue
-    }
-}
-```
-
-
-### FILE: examples/cdn/api_key/Cargo.toml
-
-```toml
-[workspace]
-
-[package]
-name = "api_key"
-version = "0.1.0"
-edition = "2024"
-
-[lib]
-crate-type = ["cdylib"]
-
-[dependencies]
-proxy-wasm = "0.2"
-fastedge = { version = "0.4", features = ["proxywasm"] }
-```
-
-
-### FILE: examples/cdn/api_key/README.md
-
-```
-[← Back to examples](../../README.md)
-
-# API Key (CDN)
-
-Validates requests using an `X-API-Key` header checked against a stored secret. Returns 401 if missing, 403 if invalid, and strips the header before forwarding to upstream.
-```

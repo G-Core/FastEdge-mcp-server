@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-06-16
+      updated: 2026-07-23
 -->
 
 ---
@@ -50,11 +50,11 @@ fn main(req: Request<Body>) -> Result<Response<Body>, Error>
 
 ## Environment Variables
 
-| Variable   | Purpose                                              | Required |
-|------------|------------------------------------------------------|----------|
-| `PASSWORD` | Value checked against the `Authorization` request header | Yes |
-| `DEVICE`   | SmartThings device ID                                | Yes |
-| `TOKEN`    | SmartThings API bearer token                         | Yes |
+| Variable   | Purpose                                                          | Required |
+|------------|------------------------------------------------------------------|----------|
+| `PASSWORD` | Value checked against the `Authorization` request header         | Yes      |
+| `DEVICE`   | SmartThings device ID                                            | Yes      |
+| `TOKEN`    | SmartThings API bearer token                                     | Yes      |
 
 Read at request time via `std::env::var()`. Missing any variable returns `500 Internal Server Error`.
 
@@ -109,13 +109,13 @@ fn request_inner(req: Request<Body>, depth: u8) -> Result<Response<Body>, Status
 - Calls `fastedge::send_request(req)`.
 - On `fastedge::Error`, maps to `StatusCode`:
 
-  | `fastedge::Error` variant     | Mapped `StatusCode`        |
-  |-------------------------------|----------------------------|
-  | `UnsupportedMethod(_)`        | `405 Method Not Allowed`   |
-  | `BindgenHttpError(_)`         | `500 Internal Server Error`|
-  | `HttpError(_)`                | `500 Internal Server Error`|
-  | `InvalidBody`                 | `400 Bad Request`          |
-  | `InvalidStatusCode(_)`        | `400 Bad Request`          |
+  | `fastedge::Error` variant     | Mapped `StatusCode`          |
+  |-------------------------------|------------------------------|
+  | `UnsupportedMethod(_)`        | `405 Method Not Allowed`     |
+  | `BindgenHttpError(_)`         | `500 Internal Server Error`  |
+  | `HttpError(_)`                | `500 Internal Server Error`  |
+  | `InvalidBody`                 | `400 Bad Request`            |
+  | `InvalidStatusCode(_)`        | `400 Bad Request`            |
 
 - On redirect status (see below) and `depth < MAX_REDIRECTS` (5):
   - Reads `Location` header; parses with `url::Url`.
@@ -137,20 +137,20 @@ fn request_inner(req: Request<Body>, depth: u8) -> Result<Response<Body>, Status
 
 ## Response Behavior
 
-| Condition                              | Status Code | Body                          |
-|----------------------------------------|-------------|-------------------------------|
-| Non-GET/HEAD method                    | `405`       | `This method is not allowed\n` + `Allow: GET, HEAD` header |
-| `PASSWORD` env var missing             | `500`       | `Misconfigured app\n`         |
-| `Authorization` header absent          | `403`       | `No auth header\n`            |
-| `Authorization` header not valid UTF-8 | `500`       | `cannot process auth header`  |
-| Wrong password                         | `403`       | empty                         |
-| `DEVICE` env var missing               | `500`       | `Misconfigured app\n`         |
-| `TOKEN` env var missing                | `500`       | `Misconfigured app\n`         |
-| `get_device_status` fails              | upstream `StatusCode` | empty             |
-| Device status not `"on"` or `"off"`   | `404`       | `Unsupported device status\n` |
-| `send_device_command` fails            | upstream `StatusCode` | empty             |
-| Command result is `"ACCEPTED"`         | `204`       | empty                         |
-| Command result is anything else        | `404`       | empty                         |
+| Condition                               | Status Code           | Body                            |
+|-----------------------------------------|-----------------------|---------------------------------|
+| Non-GET/HEAD method                     | `405`                 | `This method is not allowed\n` + `Allow: GET, HEAD` header |
+| `PASSWORD` env var missing              | `500`                 | `Misconfigured app\n`           |
+| `Authorization` header absent           | `403`                 | `No auth header\n`              |
+| `Authorization` header not valid UTF-8  | `500`                 | `cannot process auth header`    |
+| Wrong password                          | `403`                 | empty                           |
+| `DEVICE` env var missing                | `500`                 | `Misconfigured app\n`           |
+| `TOKEN` env var missing                 | `500`                 | `Misconfigured app\n`           |
+| `get_device_status` fails               | upstream `StatusCode` | empty                           |
+| Device status not `"on"` or `"off"`    | `404`                 | `Unsupported device status\n`   |
+| `send_device_command` fails             | upstream `StatusCode` | empty                           |
+| Command result is `"ACCEPTED"`          | `204`                 | empty                           |
+| Command result is anything else         | `404`                 | empty                           |
 
 ---
 
@@ -164,14 +164,14 @@ serde_json = "1.0"
 url = "2.5"
 ```
 
-| Crate        | Usage                                                            |
-|--------------|------------------------------------------------------------------|
-| `fastedge`   | `#[fastedge::http]`, `fastedge::send_request`, HTTP types       |
-| `serde_json` | Parse SmartThings JSON responses (`Value`, `from_str`, chained `get()`) |
-| `url`        | Parse and extract host from redirect `Location` headers         |
+| Crate        | Usage                                                                         |
+|--------------|-------------------------------------------------------------------------------|
+| `fastedge`   | `#[fastedge::http]`, `fastedge::send_request`, HTTP types                    |
+| `serde_json` | Parse SmartThings JSON responses (`Value`, `from_str`, chained `get()`)       |
+| `url`        | Parse and extract host from redirect `Location` headers                       |
 
-Crate type: `cdylib`  
-Build target: `wasm32-wasip1`  
+Crate type: `cdylib`
+Build target: `wasm32-wasip1`
 Build output: `target/wasm32-wasip1/release/smart_switch.wasm`
 
 ---

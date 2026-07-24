@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-test
-      ref: v0.2.4
-      commit: cbb5bebd8bad7e9fee4f1a006a39c8511f951717
-      updated: 2026-06-11
+      ref: v0.2.5
+      commit: 61497eca6ead033ac810165bc1e20e1d6dd4678f
+      updated: 2026-07-23
 -->
 
 # Server API — REST and WebSocket Endpoints
@@ -992,7 +992,7 @@ Fired when a WASM binary has been loaded and is ready to handle requests.
 {
   type: 'wasm_loaded';
   timestamp: number;
-  source: EventSource;
+  source: 'ui' | 'ai_agent' | 'api' | 'system';
   data: {
     filename: string;
     size: number;                          // File size in bytes
@@ -1030,7 +1030,7 @@ Fired when the server begins processing an incoming request through the WASM fil
 {
   type: 'request_started';
   timestamp: number;
-  source: EventSource;
+  source: 'ui' | 'ai_agent' | 'api' | 'system';
   data: {
     url: string;
     method: string;
@@ -1067,7 +1067,7 @@ Fired after each individual Proxy-WASM hook completes. Multiple events are emitt
 {
   type: 'hook_executed';
   timestamp: number;
-  source: EventSource;
+  source: 'ui' | 'ai_agent' | 'api' | 'system';
   data: {
     hook: string;               // e.g. "onRequestHeaders"
     returnCode: number | null;  // Return code from the WASM filter, or null if unavailable
@@ -1117,7 +1117,7 @@ Fired when all hook phases have completed and a final response is available. `ho
 {
   type: 'request_completed';
   timestamp: number;
-  source: EventSource;
+  source: 'ui' | 'ai_agent' | 'api' | 'system';
   data: {
     hookResults: Record<string, any>;  // Keyed by hook name
     finalResponse: {
@@ -1168,7 +1168,7 @@ Fired when request processing fails before a response can be produced.
 {
   type: 'request_failed';
   timestamp: number;
-  source: EventSource;
+  source: 'ui' | 'ai_agent' | 'api' | 'system';
   data: {
     error: string;     // Short error message
     details?: string;  // Extended error detail or stack trace, if available
@@ -1200,7 +1200,7 @@ Fired when the set of active properties changes (e.g. after a properties configu
 {
   type: 'properties_updated';
   timestamp: number;
-  source: EventSource;
+  source: 'ui' | 'ai_agent' | 'api' | 'system';
   data: {
     properties: Record<string, string>;  // Full current property map after the update
   };
@@ -1235,7 +1235,7 @@ Fired when an http-wasm filter finishes processing a request and a response is a
 {
   type: 'http_wasm_request_completed';
   timestamp: number;
-  source: EventSource;
+  source: 'ui' | 'ai_agent' | 'api' | 'system';
   data: {
     response: {
       status: number;
@@ -1279,7 +1279,7 @@ Fired in real-time as the http-wasm filter emits log lines during execute and li
 {
   type: 'http_wasm_log';
   timestamp: number;
-  source: EventSource;
+  source: 'ui' | 'ai_agent' | 'api' | 'system';
   data: {
     level: number;    // Log level (follows proxy-wasm log level conventions)
     message: string;
