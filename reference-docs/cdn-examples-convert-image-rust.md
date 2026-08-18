@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-06-16
+      updated: 2026-08-17
 -->
 
 # CDN Example: Convert Image (Rust)
@@ -180,6 +180,7 @@ The `image` crate provides `load_from_memory` and `codecs::avif::AvifEncoder`. A
 - Do not call `send_http_response` after partial body processing has begun — it may break the connection. Only call it for unrecoverable pre-processing errors (e.g. UTF-8 failure on the content-type property).
 - `jpg` and `jpeg` are distinct extension strings; include both in `FORMATS_TO_TRANSFORM` if both must be converted.
 - The body hook must not assume the body is available on every call; `get_http_response_body` may return `None` if the body is empty.
+- AVIF encoding via the `image` crate is CPU-intensive; choose `AVIF_SPEED` values carefully based on performance requirements.
 
 ## Transformation Skip Conditions
 

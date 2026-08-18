@@ -3,8 +3,8 @@
   sources:
     - id: proxy-wasm-sdk-as
       ref: master
-      commit: 60f25c7bd35564e5bafb421be7f37aa4acf1bf81
-      updated: 2026-05-20
+      commit: 8e3bb621bc013a0aed7e52122066b417ad62a207
+      updated: 2026-08-17
 -->
 
 ## Overview
@@ -123,6 +123,8 @@ import {
 } from "@gcoredev/proxy-wasm-sdk-as/assembly";
 import { setLogLevel } from "@gcoredev/proxy-wasm-sdk-as/assembly/fastedge";
 
+const INTERNAL_SERVER_ERROR: u32 = 500;
+
 function handleHttpCallResponse(
   ctx: BaseContext,
   hdrs: u32,
@@ -133,10 +135,12 @@ function handleHttpCallResponse(
     log(LogLevelValues.error, "HTTP call failed — no response received");
     return;
   }
+
   const userAgent = stream_context.headers.http_callback.get("user-agent");
   if (userAgent !== "") {
     log(LogLevelValues.info, "User-Agent: " + userAgent);
   }
+
   if (bodySize > 0) {
     const bodyBytes = get_buffer_bytes(
       BufferTypeValues.HttpCallResponseBody,
@@ -144,29 +148,42 @@ function handleHttpCallResponse(
       bodySize as u32,
     );
     const bodyStr = String.UTF8.decode(bodyBytes);
-    log(LogLevelValues.info, "Response body: " + bodyStr);
+    log(
+      LogLevelValues.info,
+      "Response body (" + bodySize.toString() + " bytes): " + bodyStr,
+    );
+  } else {
+    log(LogLevelValues.info, "Response body: empty");
   }
 }
 
-class MyRoot extends RootContext {
+class HttpCallRoot extends RootContext {
   createContext(context_id: u32): Context {
     setLogLevel(LogLevelValues.info);
-    return new MyContext(context_id, this);
+    return new HttpCallContext(context_id, this);
   }
 }
 
-class MyContext extends Context {
+class HttpCallContext extends Context {
   httpCallDispatched: bool = false;
 
-  constructor(context_id: u32, root_context: MyRoot) {
+  constructor(context_id: u32, root_context: HttpCallRoot) {
     super(context_id, root_context);
   }
 
   onRequestHeaders(a: u32, end_of_stream: bool): FilterHeadersStatusValues {
-    // Latch prevents re-dispatch on second invocation after callback fires.
+    // FastEdge re-invokes this hook after the httpCall response is processed.
+    // The latch gates re-dispatch so the second invocation returns Continue
+    // instead of firing another HTTP call.
     if (this.httpCallDispatched) {
+      log(
+        LogLevelValues.info,
+        "HTTP call response received, resuming request.",
+      );
       return FilterHeadersStatusValues.Continue;
     }
+
+    log(LogLevelValues.info, "onRequestHeaders >> dispatching HTTP call");
 
     const headers = new Array<HeaderPair>();
     headers.push(makeHeaderPair(":scheme", "https"));
@@ -175,7 +192,8 @@ class MyContext extends Context {
     headers.push(makeHeaderPair(":method", "GET"));
     headers.push(makeHeaderPair("User-Agent", "fastedge"));
 
-    const result = (this.root_context as MyRoot).httpCall(
+    // 3000ms accommodates cold DNS + variable network conditions; tune per upstream in production.
+    const result = (this.root_context as HttpCallRoot).httpCall(
       "httpbin.org",
       headers,
       new ArrayBuffer(0),
@@ -186,8 +204,12 @@ class MyContext extends Context {
     );
 
     if (result != WasmResultValues.Ok) {
+      log(
+        LogLevelValues.error,
+        "Failed to dispatch HTTP call: " + result.toString(),
+      );
       send_http_response(
-        500,
+        INTERNAL_SERVER_ERROR,
         "internal server error",
         String.UTF8.encode("Failed to dispatch HTTP call"),
         [],
@@ -196,13 +218,15 @@ class MyContext extends Context {
     }
 
     this.httpCallDispatched = true;
+    log(LogLevelValues.info, "HTTP call dispatched, pausing request");
+
     return FilterHeadersStatusValues.StopIteration;
   }
 }
 
 registerRootContext((context_id: u32) => {
-  return new MyRoot(context_id);
-}, "myApp");
+  return new HttpCallRoot(context_id);
+}, "httpCall");
 ```
 
 ### Callback: check failure, read headers, read body
@@ -239,7 +263,7 @@ function handleHttpCallResponse(
 ### Error response on dispatch failure
 
 ```typescript
-const result = (this.root_context as MyRoot).httpCall(
+const result = (this.root_context as HttpCallRoot).httpCall(
   "upstream-host",
   headers,
   new ArrayBuffer(0),
@@ -260,16 +284,37 @@ if (result != WasmResultValues.Ok) {
 }
 ```
 
+## Build
+
+```sh
+pnpm install
+pnpm run asbuild
+```
+
+| File | Description |
+|------|-------------|
+| `build/httpCall.wasm` | Optimised release binary — upload this to FastEdge |
+| `build/httpCall-debug.wasm` | Debug binary with source maps |
+
+Dependencies (from `package.json`):
+
+| Package | Role |
+|---------|------|
+| `@gcoredev/proxy-wasm-sdk-as` | SDK — required runtime dep (`^1.2.3`) |
+| `assemblyscript` | AssemblyScript compiler (`^0.28.9`) |
+| `@assemblyscript/wasi-shim` | WASI compatibility shim (`^0.1.0`) |
+
 ## Gotchas
 
 - **No closures over mutable state.** AssemblyScript does not support closures that capture mutable variables. Capture state on the `Context` instance (instance fields) or use `set_property`/`get_property`. The `httpCallDispatched: bool` latch is an instance field for this reason.
 - **FastEdge resume model differs from canonical proxy-wasm.** After the callback fires, the runtime **re-invokes `onRequestHeaders` on the same `Context` instance**. Do not call `continueRequest()` — it has no effect on FastEdge. Use a latch field to distinguish the second invocation.
-- **`httpCall` must be called on `RootContext`.** Request-stream `Context` instances do not expose `httpCall` directly. Cast with `(this.root_context as MyRoot).httpCall(...)`.
+- **`httpCall` must be called on `RootContext`.** Request-stream `Context` instances do not expose `httpCall` directly. Cast with `(this.root_context as HttpCallRoot).httpCall(...)`.
 - **Instance state survives re-entry within the same context** but does not persist across the nginx→core-proxy hop. Do not rely on instance fields across separate request lifecycles.
 - **Tune `timeoutMs` per upstream.** The example uses `3000` ms to accommodate cold DNS and variable network conditions. Set a tighter value for low-latency upstreams and a looser value for slow third-party services.
 - **No try/catch.** AssemblyScript has no exception handling at runtime. Always check `WasmResultValues.Ok` explicitly after `httpCall()` returns.
 - **Pseudo-headers are required.** Include `:scheme`, `:authority`, `:path`, and `:method` in the headers array. Missing pseudo-headers will cause dispatch to fail.
 - **`hdrs == 0` means failure, not "no headers".** Inside the callback, `hdrs == 0` signals that the HTTP call itself failed (timeout, DNS error, invalid cluster). Do not skip this check.
+- **Log the dispatch failure result.** When `result != WasmResultValues.Ok`, log `result.toString()` to surface the specific `WasmResultValues` variant for debugging.
 
 ## Related
 

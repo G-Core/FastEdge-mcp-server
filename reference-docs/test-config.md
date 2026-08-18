@@ -2,14 +2,14 @@
   auto-updated: true
   sources:
     - id: fastedge-test
-      ref: v0.2.4
-      commit: cbb5bebd8bad7e9fee4f1a006a39c8511f951717
-      updated: 2026-06-11
+      ref: main
+      commit: 61497eca6ead033ac810165bc1e20e1d6dd4678f
+      updated: 2026-08-17
 -->
 
 # test-config Reference
 
-`fastedge-config.test.json` defines the WASM binary, simulated HTTP request, mock origin response, CDN properties, and dotenv loading for a single test scenario — it auto-loads on debugger start and is read programmatically via `loadConfigFile()`.
+`fastedge-config.test.json` defines the WASM binary, simulated HTTP request, CDN properties, and dotenv loading for a single test scenario — it auto-loads on debugger start and is read programmatically via `loadConfigFile()`.
 
 ---
 
@@ -17,8 +17,8 @@
 
 The config schema is a union of two variants selected by `appType`:
 
-- **`proxy-wasm`** (CDN mode, default): The WASM module intercepts an upstream HTTP request. Uses `request.url` (full URL). Supports a mock origin `response`. The upstream response is generated at runtime — either by a real fetch against `request.url`, or by the built-in responder when `request.url === "built-in"`.
-- **`http-wasm`**: The WASM module acts as an origin HTTP server. Uses `request.path` (path only). No `response` field.
+- **`proxy-wasm`** (CDN mode, default): The WASM module intercepts an upstream HTTP request. Uses `request.url` (full URL). The upstream response is generated at runtime — either by a real fetch against `request.url`, or by the built-in responder when `request.url === "built-in"`.
+- **`http-wasm`**: The WASM module acts as an origin HTTP server. Uses `request.path` (path only). No mock origin response.
 
 ### Top-Level Fields
 
@@ -36,9 +36,6 @@ The config schema is a union of two variants selected by `appType`:
 | `request.path` | string | **yes** (HTTP-WASM only) | — | Request path (e.g. `"/api/submit"`). HTTP-WASM mode only. The WASM module acts as the origin server and receives only the path portion |
 | `request.headers` | object | yes (schema) / runtime default | `{}` | Key/value map of request headers. All keys and values must be strings |
 | `request.body` | string | yes (schema) / runtime default | `""` | Request body as a plain string |
-| `response` | object | no | — | CDN mode only — mock origin response for the WASM filter to inspect and modify. Not applicable to HTTP-WASM |
-| `response.headers` | object | yes (if `response` present) | `{}` | Mock origin response headers as string key-value pairs |
-| `response.body` | string | yes (if `response` present) | `""` | Mock origin response body as a plain string |
 | `properties` | object | yes (schema) / runtime default | `{}` | CDN property key-value pairs passed to the WASM execution context. Values may be any JSON type. Pass `{}` for HTTP-WASM to satisfy the schema requirement |
 | `dotenv` | object | no | — | Dotenv file loading configuration |
 | `dotenv.enabled` | boolean | no | — | Whether to load a `.env` file before execution |
@@ -83,21 +80,20 @@ The default built-in response is a full JSON echo of the request. Override via c
 ```json
 {
   "$schema": "./node_modules/@gcoredev/fastedge-test/schemas/fastedge-config.test.schema.json",
-  "description": "Geo-filter CDN app",
+  "description": "CDN handler with feature flags and auth secret",
   "appType": "proxy-wasm",
   "wasm": {
-    "path": "./dist/filter.wasm",
-    "description": "Geo-filter proxy-wasm binary"
+    "path": "./dist/handler.wasm",
+    "description": "Production CDN handler"
   },
   "request": {
     "method": "GET",
-    "url": "https://example.com/page",
-    "headers": { "user-agent": "Mozilla/5.0" },
+    "url": "https://example.com/api/data",
+    "headers": {
+      "accept": "application/json",
+      "x-request-id": "test-001"
+    },
     "body": ""
-  },
-  "response": {
-    "headers": { "content-type": "text/html" },
-    "body": "<html>Original content</html>"
   },
   "properties": {
     "request.country": "US",
@@ -110,7 +106,7 @@ The default built-in response is a full JSON echo of the request. Override via c
 }
 ```
 
-`response` provides the mock origin response the WASM filter will inspect and optionally modify. `properties` passes CDN context values into the execution environment.
+`properties` passes CDN context values into the execution environment. `dotenv` loads runtime secrets from a local `.env` file without embedding them in the config.
 
 ---
 
@@ -137,7 +133,7 @@ The default built-in response is a full JSON echo of the request. Override via c
 }
 ```
 
-`appType` must be `"http-wasm"` — there is no runtime default for this variant. Use `request.path` (not `request.url`); the WASM module acts as the origin server and receives only the path portion of the request. HTTP-WASM apps omit `response` (no mock origin).
+`appType` must be `"http-wasm"` — there is no runtime default for this variant. Use `request.path` (not `request.url`); the WASM module acts as the origin server and receives only the path portion of the request. HTTP-WASM apps have no mock origin response.
 
 To pin the subprocess to a fixed port (e.g. for Codespaces or Docker port-forwarding), add `"httpPort": 8250`.
 

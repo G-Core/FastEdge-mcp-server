@@ -3,8 +3,8 @@
   sources:
     - id: proxy-wasm-sdk-as
       ref: master
-      commit: 60f25c7bd35564e5bafb421be7f37aa4acf1bf81
-      updated: 2026-05-20
+      commit: 8e3bb621bc013a0aed7e52122066b417ad62a207
+      updated: 2026-08-17
 -->
 
 # AssemblyScript Proxy-Wasm SDK Reference
@@ -64,6 +64,8 @@ registerRootContext(
   "my-filter",
 );
 ```
+
+**No default parameters on nested functions**: AssemblyScript compiles functions defined inside a method body to `call_indirect` entries in the WebAssembly element table. Default parameter values are applied at direct call sites only — for indirect calls, unspecified argument slots receive `0` (a null pointer). If those slots are used as strings or objects, the wasm traps with a memory access out-of-bounds error at runtime. Fix: promote the helper to a `private` class method (dispatched as a direct call; defaults apply correctly), or pass all arguments explicitly at every call site.
 
 ---
 
@@ -873,14 +875,22 @@ function getEnv(name: string): string;
 
 Returns the value of the environment variable, or an empty string if the variable is not set.
 
+**Empty string fallback**: AssemblyScript's `||` operator performs a pointer-non-null check, not a value-falsy check. `getEnv("X") || "default"` returns `""` rather than `"default"` when the variable is unset, because the empty-string object has a non-zero pointer. Use an explicit check instead:
+
+```typescript
+const raw = getEnv("X");
+const val = raw === "" ? "default" : raw;
+```
+
+The `!str` unary operator is correct and returns `true` for both `null` and `""`.
+
 ```typescript
 import { getEnv } from "@gcoredev/proxy-wasm-sdk-as/assembly/fastedge";
 import { log, LogLevelValues } from "@gcoredev/proxy-wasm-sdk-as/assembly";
 
-const blocklist = getEnv("BLOCKLIST");
-if (blocklist.length == 0) {
-  log(LogLevelValues.warn, "BLOCKLIST env var is not set");
-}
+const raw = getEnv("BLOCKLIST");
+const blocklist = raw === "" ? "none" : raw;
+log(LogLevelValues.info, "Blocklist: " + blocklist);
 ```
 
 ### Dictionary (getDictionary)
@@ -918,6 +928,8 @@ function getSecretEffectiveAt(name: string, effectiveAt: u32): string;
 `getSecret`: returns the current value of the named secret, or an empty string if not found.
 
 `getSecretEffectiveAt`: reads a secret from a specific rotation slot. Slots are defined in the FastEdge UI and are always numeric (e.g., incremental integers, or timestamp-style values representing a point in time). Use this for secret rotation: pass the current Unix timestamp in seconds as `effectiveAt`. The host selects the slot where `effectiveAt >= secret_slots.slot`.
+
+**Empty string fallback**: AssemblyScript's `||` operator does not fall back on empty strings. `getSecret("KEY") || "default"` returns `""` rather than `"default"` when the secret is unset. Use an explicit check: `const raw = getSecret("KEY"); const key = raw === "" ? "default" : raw;`. The `!str` unary operator is correct and returns `true` for both `null` and `""`.
 
 ```typescript
 import {
@@ -959,7 +971,7 @@ Returns a `KvStore` instance, or `null` if the store cannot be opened (e.g., the
 | `scan(pattern: string): string[]`                                   | `string[]`            | Glob-style key scan. Pattern must include a wildcard (e.g., `"foo*"`). |
 | `zrangeByScore(key: string, min: f64, max: f64): ValueScoreTuple[]` | `ValueScoreTuple[]`   | Sorted set range query: returns entries where `min <= score <= max`.    |
 | `zscan(key: string, pattern: string): ValueScoreTuple[]`            | `ValueScoreTuple[]`   | Sorted set pattern scan: matches values against the glob pattern.      |
-| `bfExists(key: string, item: string): bool`                         | `bool`                | Bloom filter membership check. Returns `true` if item may exist.       |
+| `bfExists(key: string, item: string): boolean`                      | `boolean`             | Bloom filter membership check. Returns `true` if item may exist.       |
 
 `get` returns `ArrayBuffer | null` — the caller must decode the buffer.
 
@@ -970,9 +982,9 @@ Returns a `KvStore` instance, or `null` if the store cannot be opened (e.g., the
 ```typescript
 class ValueScoreTuple {
   value: ArrayBuffer; // The stored value bytes
-  score: f64;         // The associated score
+  score: number;      // The associated score (f64)
 
-  constructor(value: ArrayBuffer, score: f64);
+  constructor(value: ArrayBuffer, score: number);
 }
 ```
 

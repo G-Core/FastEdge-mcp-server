@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-test
-      ref: v0.2.4
-      commit: cbb5bebd8bad7e9fee4f1a006a39c8511f951717
-      updated: 2026-06-11
+      ref: main
+      commit: 61497eca6ead033ac810165bc1e20e1d6dd4678f
+      updated: 2026-08-17
 -->
 
 # FastEdge Visual Debugger
@@ -36,6 +36,12 @@ npx fastedge-debug
 ```
 
 > The shorthand `npx @gcoredev/fastedge-test` works because the package declares exactly one `bin` entry. Prefer the explicit `fastedge-debug` form — it stays correct if a second binary is ever added.
+
+If the package is not installed, fetch and run it in one shot:
+
+```bash
+npx -p @gcoredev/fastedge-test fastedge-debug
+```
 
 Opens the debugger UI at `http://localhost:5179`.
 
@@ -139,7 +145,7 @@ Use `/gcore-fastedge:test` to create or update this file. Full schema: see the t
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `PORT` | `number` | `5179` | Port the HTTP server listens on. Defaults to `5179` when not set. |
+| `PORT` | `number` | unset | Port the HTTP server listens on. Defaults to `5179` when not set. |
 | `PROXY_RUNNER_DEBUG` | `"1"` | unset | Enable verbose debug logging for WebSocket and runner activity. |
 | `VSCODE_INTEGRATION` | `"true"` | unset | Set to `"true"` when running inside the VSCode extension; enables workspace WASM detection. |
 | `WORKSPACE_PATH` | `string` | unset | Absolute path to the workspace root; used as the `.env` file base and for port file placement. |

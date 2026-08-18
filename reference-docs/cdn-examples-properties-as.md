@@ -3,8 +3,8 @@
   sources:
     - id: proxy-wasm-sdk-as
       ref: master
-      commit: 60f25c7bd35564e5bafb421be7f37aa4acf1bf81
-      updated: 2026-05-20
+      commit: 8e3bb621bc013a0aed7e52122066b417ad62a207
+      updated: 2026-08-17
 -->
 
 # CDN Runtime Properties — AssemblyScript
@@ -117,17 +117,26 @@ set_property("request.path", String.UTF8.encode("/new-path"));
 const query = get_property(REQUEST_QUERY);
 if (query.byteLength !== 0) {
   const queryString = String.UTF8.decode(query);
-  const params = queryString.split("&").map<Array<string>>((pair) => pair.split("="));
+  log(LogLevelValues.info, "query=" + queryString);
+  const params = queryString
+    .split("&")
+    .map<Array<string>>((pair) => pair.split("="));
+
   for (let i = 0; i < params.length; i++) {
     const param = params[i];
-    if (param.length !== 2) continue;
+    if (param.length !== 2) {
+      continue; // Skip invalid query parameters
+    }
     const key = param[0];
     const value = param[1];
     if (key.toLowerCase() === "url") {
+      log(LogLevelValues.info, `change url to: ${value}`);
       set_property(REQUEST_URI, String.UTF8.encode(value));
     } else if (key.toLowerCase() === "host") {
+      log(LogLevelValues.info, `change host to: ${value}`);
       set_property(REQUEST_HOST, String.UTF8.encode(value));
     } else if (key.toLowerCase() === "path") {
+      log(LogLevelValues.info, `change path to: ${value}`);
       set_property(REQUEST_PATH, String.UTF8.encode(value));
     }
   }
@@ -178,11 +187,75 @@ class Properties extends Context {
   }
 
   onRequestHeaders(a: u32, end_of_stream: bool): FilterHeadersStatusValues {
-    // Error codes 551–559 identify the absent property via the HTTP response status.
-    // request.extension (555) and request.query (556) are optional — never trigger an error.
-    // Read, log, and expose all known properties as response headers.
-    // Return FilterHeadersStatusValues.StopIteration on any required missing property.
-    // Return FilterHeadersStatusValues.Continue on success.
+    // Error codes 551–559 identify the absent property via the HTTP response status:
+    // 551=uri 552=host 553=path 554=scheme 555=extension 556=query 557=x_real_ip 558=country 559=city
+    if (!this.handleProperty(REQUEST_URI, 551, "uri", "request-uri")) {
+      return FilterHeadersStatusValues.StopIteration;
+    }
+
+    // host must be present for upstream routing; validated but not logged or exposed as a response header
+    if (!this.handleProperty(REQUEST_HOST, 552)) {
+      return FilterHeadersStatusValues.StopIteration;
+    }
+
+    if (!this.handleProperty(REQUEST_PATH, 553, "path", "request-path")) {
+      return FilterHeadersStatusValues.StopIteration;
+    }
+
+    if (!this.handleProperty(REQUEST_SCHEME, 554, "scheme", "request-scheme")) {
+      return FilterHeadersStatusValues.StopIteration;
+    }
+
+    if (!this.handleProperty(REQUEST_EXTENSION, 555, "extension", "request-extension", true)) {
+      return FilterHeadersStatusValues.StopIteration;
+    }
+
+    if (!this.handleProperty(REQUEST_QUERY, 556, "query", "request-query", true)) {
+      return FilterHeadersStatusValues.StopIteration;
+    }
+
+    if (!this.handleProperty(REQUEST_X_REAL_IP, 557, "client_ip", "request-x-real-ip")) {
+      return FilterHeadersStatusValues.StopIteration;
+    }
+
+    if (!this.handleProperty(REQUEST_COUNTRY, 558, "country", "request-country")) {
+      return FilterHeadersStatusValues.StopIteration;
+    }
+
+    if (!this.handleProperty(REQUEST_CITY, 559, "city", "request-city")) {
+      return FilterHeadersStatusValues.StopIteration;
+    }
+
+    // Handle query parameters — override request.url, request.host, request.path via url=, host=, path= params
+    const query = get_property(REQUEST_QUERY);
+    if (query.byteLength !== 0) {
+      const queryString = String.UTF8.decode(query);
+      log(LogLevelValues.info, "query=" + queryString);
+      const params = queryString
+        .split("&")
+        .map<Array<string>>((pair) => pair.split("="));
+
+      for (let i = 0; i < params.length; i++) {
+        const param = params[i];
+        if (param.length !== 2) {
+          continue;
+        }
+        const key = param[0];
+        const value = param[1];
+        if (key.toLowerCase() === "url") {
+          log(LogLevelValues.info, `change url to: ${value}`);
+          set_property(REQUEST_URI, String.UTF8.encode(value));
+        } else if (key.toLowerCase() === "host") {
+          log(LogLevelValues.info, `change host to: ${value}`);
+          set_property(REQUEST_HOST, String.UTF8.encode(value));
+        } else if (key.toLowerCase() === "path") {
+          log(LogLevelValues.info, `change path to: ${value}`);
+          set_property(REQUEST_PATH, String.UTF8.encode(value));
+        }
+      }
+    }
+
+    return FilterHeadersStatusValues.Continue;
   }
 
   onLog(): void {
@@ -208,7 +281,12 @@ class Properties extends Context {
         }
         return true;
       }
-      send_http_response(errorCode, "internal server error", String.UTF8.encode("Internal server error"), []);
+      send_http_response(
+        errorCode,
+        "internal server error",
+        String.UTF8.encode("Internal server error"),
+        []
+      );
       return false;
     }
     const value = String.UTF8.decode(valueArr);
@@ -323,6 +401,7 @@ Upload `build/properties.wasm` to the FastEdge portal and attach to a CDN applic
 - **`request.extension` and `request.query` are optional**: They may legitimately be absent (no file extension in path, no query string). Use `allowEmpty: true` — log an empty value and continue without adding a response header.
 - **`request.host` is validated but not exposed**: It must be non-empty for upstream routing to work correctly. It is not logged and not added as a response header.
 - **`set_property` on request properties takes effect immediately** for subsequent property reads and downstream filter processing within the same request.
+- **Query parameter override logs change**: When a query parameter overrides a property, the change is logged with a message of the form `` `change url to: ${value}` ``, `` `change host to: ${value}` ``, or `` `change path to: ${value}` ``.
 - **Lifecycle constraint**: Request properties (`request.*`) are only meaningful during request processing phases. Attempting to read them outside `onRequestHeaders` or `onRequestBody` may yield empty buffers.
 - **Query parameter parsing is manual**: The SDK provides no built-in query string parser. Split on `&`, then on `=`, and validate `param.length === 2` before accessing indices.
 - **`setLogLevel` must be called in `createContext`**: Log level is set to `LogLevelValues.info` inside `PropertiesRoot.createContext`, not in the constructor of the `Properties` context class.
