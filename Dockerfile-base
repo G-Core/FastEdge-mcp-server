@@ -20,10 +20,15 @@ RUN apt-get update && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
+# Target-specific only — a global CC/CXX would redirect host-targeted native
+# builds (pnpm/node-gyp addons, cargo build scripts for the host) through a
+# clang configured for WASI, breaking them.
 ENV WASI_SYSROOT=/opt/wasi-sdk/share/wasi-sysroot
 ENV PATH="/opt/wasi-sdk/bin:$PATH"
-ENV CC=/opt/wasi-sdk/bin/clang
-ENV CXX=/opt/wasi-sdk/bin/clang++
+ENV CC_wasm32_wasip1=/opt/wasi-sdk/bin/clang
+ENV CXX_wasm32_wasip1=/opt/wasi-sdk/bin/clang++
+ENV CC_wasm32_wasip2=/opt/wasi-sdk/bin/clang
+ENV CXX_wasm32_wasip2=/opt/wasi-sdk/bin/clang++
 
 # Install Node.js v24 using NodeSource binary distribution
 # Support multiple architectures
