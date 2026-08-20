@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-06-16
+      updated: 2026-07-23
 -->
 
 ---
@@ -153,3 +153,114 @@ cargo build --release --target wasm32-wasip1
 - platform-overview (FastEdge request lifecycle, outbound request capabilities)
 - sdk-reference-rust (`fastedge::send_request`, `Body`, HTTP types)
 - best-practices (body buffering considerations, error handling patterns)
+
+## Source Material
+
+### FILE: examples/http/basic/backend/src/lib.rs
+
+```rust
+use anyhow::{anyhow, Error, Result};
+use fastedge::body::Body;
+use fastedge::http::{Method, Request, Response, StatusCode};
+
+#[allow(dead_code)]
+#[fastedge::http]
+fn main(req: Request<Body>) -> Result<Response<Body>> {
+    let (parts, body) = req.into_parts();
+    let query = parts
+        .uri
+        .query()
+        .ok_or(anyhow!("missing uri query parameter"))?;
+    let params = querystring::querify(query);
+    let url = params
+        .iter()
+        .find(|(k, _)| k == &"url")
+        .ok_or(anyhow!("missing url parameter"))?;
+    let url = urlencoding::decode(url.1)?.to_string();
+    println!("url = {:?}", url);
+    let request = Request::builder().uri(url).method(Method::GET).body(body)?;
+
+    let response = fastedge::send_request(request).map_err(Error::msg)?;
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .body(Body::from(format!(
+            "len = {}, content-type = {:?}",
+            response.body().len(),
+            response.headers().get("Content-Type")
+        )))
+        .map_err(Error::msg)
+}
+```
+
+
+### FILE: examples/http/basic/backend/Cargo.toml
+
+```toml
+[workspace]
+
+[package]
+name = "backend"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+fastedge = "0.4"
+anyhow = "1"
+querystring = "1.1"
+urlencoding = "2.1"
+```
+
+
+### FILE: examples/http/basic/backend/README.md
+
+```
+[← Back to examples](../../../README.md)
+
+# Backend (URL Proxy)
+
+A FastEdge application that accepts a `?url=` query parameter, makes an outbound GET request to that URL via `fastedge::send_request`, and returns a summary of the upstream response (`len` and `content-type`) in the response body.
+
+> **When to use this example:** When you want to see how to make outbound HTTP requests from a FastEdge edge function using the legacy sync handler (`#[fastedge::http]`). For new apps, prefer the async WASI handler — see [`examples/http/wasi/hello_world`](../../wasi/hello_world/README.md).
+
+## What it does
+
+1. Parses the `?url=` query parameter from the request URI (percent-decodes it via `urlencoding::decode`).
+2. Builds an outbound `GET` request to that URL using `fastedge::send_request`.
+3. Returns HTTP 200 with a plain-text body:
+   ```
+   len = <body-length>, content-type = <upstream-content-type>
+   ```
+4. Returns HTTP 500 with an error message if `?url=` is absent or the query string is missing.
+
+## APIs used
+
+| API | Purpose |
+|---|---|
+| `#[fastedge::http]` | Sync request-response handler macro |
+| `fastedge::send_request(request)` | Blocking outbound HTTP request |
+| `fastedge::http::{Request, Response, StatusCode, Method}` | HTTP types |
+| `fastedge::body::Body` | Request and response bodies |
+| `querystring::querify` | Parse query string into key-value pairs |
+| `urlencoding::decode` | Percent-decode the `?url=` value |
+
+## Build
+
+```sh
+cargo build --release
+# Output: target/wasm32-wasip1/release/backend.wasm
+```
+
+## Expected behavior
+
+| Request | Response status | Response body |
+|---|---|---|
+| `GET /?url=https%3A%2F%2Fhttpbin.org%2Fget` | 200 | `len = <N>, content-type = Some("<mime>")` |
+| `GET /?q=hello` (no `url` key) | 500 | `missing url parameter` |
+| `GET /` (no query string) | 500 | `missing uri query parameter` |
+
+The `len` value is the byte length of the upstream response body. The `content-type` value is the `Content-Type` header returned by the upstream server, formatted as a Rust `Option<HeaderValue>` debug string (e.g. `Some("application/json")`).
+```

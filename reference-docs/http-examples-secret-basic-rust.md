@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-06-16
+      updated: 2026-07-23
 -->
 
 # Secret Access — Rust HTTP Example
@@ -110,6 +110,7 @@ use fastedge::body::Body;
 use fastedge::http::{Request, Response, StatusCode};
 use fastedge::secret;
 
+#[allow(dead_code)]
 #[fastedge::http]
 fn main(_req: Request<Body>) -> Result<Response<Body>> {
     let value = match secret::get("SECRET") {
@@ -145,7 +146,6 @@ fn main(_req: Request<Body>) -> Result<Response<Body>> {
         .duration_since(SystemTime::UNIX_EPOCH)
         .expect("Time went backwards")
         .as_secs();
-
     let effective_at_value = match secret::get_effective_at("SECRET", ts as u32) {
         Ok(value) => value,
         Err(secret::Error::AccessDenied) => {
@@ -188,6 +188,8 @@ fn main(_req: Request<Body>) -> Result<Response<Body>> {
 ## Cargo.toml
 
 ```toml
+[workspace]
+
 [package]
 name = "secret"
 version = "0.1.0"

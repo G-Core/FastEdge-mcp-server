@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-06-16
+      updated: 2026-07-23
 -->
 
 ---
@@ -133,6 +133,7 @@ fn json_response(status: u16, value: serde_json::Value) -> anyhow::Result<Respon
 - False positives are acceptable for denylists (over-blocking is the safe failure mode).
 - False positives are **not** acceptable for allowlists. Use `store.get()` on a regular key for exact membership checks.
 - False negatives cannot occur with a correctly implemented bloom filter.
+- The bloom filter must be populated out of band — the handler is read-only.
 
 ## Entry Point
 

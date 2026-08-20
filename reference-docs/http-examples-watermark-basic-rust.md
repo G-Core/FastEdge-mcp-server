@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-06-16
+      updated: 2026-07-23
 -->
 
 # HTTP Example: Watermark (Basic, Rust)
@@ -60,10 +60,11 @@ fn sign_s3(fname: &str) -> anyhow::Result<(Url, String)>
 
 - Reads S3 credentials from env vars (see Environment Variables).
 - Constructs `host` as `{REGION}.{BASE_HOSTNAME}`.
+- Constructs `upload_url` as `{SCHEME}://{host}`.
 - Creates a `rusty_s3::Bucket` with `UrlStyle::Path`.
 - Signs a `GET` action with a 1-hour expiry (`Duration::from_secs(60 * 60)`).
 - Returns `(signed_url: Url, host: String)`.
-- Failure → `500 Internal Server Error`, body `App misconfigured\n`.
+- Any error (missing env var, parse failure) → caller returns `500 Internal Server Error`, body `App misconfigured\n`.
 
 ### S3 fetch
 
@@ -85,6 +86,7 @@ fastedge::send_request(req: Request<Body>) -> Result<Response<Body>, Error>
 image::guess_format(buf: &[u8]) -> Result<ImageFormat, ImageError>
 ```
 
+- Applied to the S3 response body bytes.
 - If format detection fails → S3 body forwarded to caller unchanged (not a valid image).
 
 ### Image decode
@@ -110,11 +112,14 @@ fn watermark(
 ```
 
 - Per-pixel alpha blending over the region `[offset_x, offset_x+wm_width) × [offset_y, offset_y+wm_height)`.
-- Watermark dimensions are clamped to image bounds: if `offset + wm_dim > img_dim`, `wm_dim` is reduced.
-- Opacity clamped internally to `[0.0, 1.0]`.
+- Watermark dimensions are clamped to image bounds: if `offset_x + wm_width > img_width`, `wm_width` is reduced to `img_width - offset_x`; same for height.
+- Opacity clamped internally to `[0.0, 1.0]` (values above `1.0` clamped to `1.0`, below `0.0` clamped to `0.0`).
 - Alpha blend formula per channel:
-  - `out = wm_channel * wm_alpha + (1.0 - wm_alpha) * img_channel * img_alpha`
+  - `img_alpha = img_pixel[3] / 255.0`
+  - `wm_alpha = wm_pixel[3] / 255.0 * opacity`
+  - `out_channel = wm_channel * wm_alpha + (1.0 - wm_alpha) * img_channel * img_alpha`
   - Output alpha is always set to `255`.
+- Reads pixels with `DynamicImage::get_pixel(x, y)` and writes with `DynamicImage::put_pixel(x, y, pixel)` on a cloned canvas.
 - In this example, `offset_x` and `offset_y` are hardcoded to `0` — watermark is placed at top-left.
 
 ### Result encoding
@@ -154,6 +159,7 @@ let wm_buf = include_bytes!("sample.png");
 
 ### OPACITY validation
 
+- If `OPACITY` env var is absent → default `1.0` is used.
 - Parsed via `l.parse::<f32>()`.
 - Parse failure → `500 Internal Server Error`, body `Invalid opacity value\n`.
 - Value outside `[0.0, 1.0]` → `500 Internal Server Error`, body `Invalid opacity value\n`.
@@ -166,12 +172,12 @@ let wm_buf = include_bytes!("sample.png");
 |---|---|---|
 | Non-GET/HEAD method | `405 Method Not Allowed` | `This method is not allowed\n`; `Allow: GET, HEAD` header |
 | Empty URL path | `400 Bad Request` | `Malformed request - filename expected\n` |
-| Missing or invalid env vars | `500 Internal Server Error` | `App misconfigured\n` |
+| Missing or invalid env vars (S3 config) | `500 Internal Server Error` | `App misconfigured\n` |
 | `send_request` failure | `500 Internal Server Error` | Empty body |
 | Non-`200` S3 response | Forwarded as-is | S3 status + body passed through to caller |
-| S3 body not a valid image | `200 OK` (forwarded) | S3 body passed through unchanged |
-| Invalid `OPACITY` value | `500 Internal Server Error` | `Invalid opacity value\n` |
-| Invalid watermark format | `500 Internal Server Error` | `Invalid watermark format\n` |
+| S3 body not a valid image (`guess_format` or `load_from_memory` fails) | `200 OK` (forwarded) | S3 body passed through unchanged |
+| Invalid `OPACITY` value (non-numeric or out of range) | `500 Internal Server Error` | `Invalid opacity value\n` |
+| Invalid watermark format (`load_from_memory` fails on embedded PNG) | `500 Internal Server Error` | `Invalid watermark format\n` |
 | Success | `200 OK` | Composited image; `Content-Type` from `out_format.to_mime_type()` |
 
 ---
@@ -225,7 +231,7 @@ cargo build --release
 
 - `include_bytes!("sample.png")` resolves relative to `src/lib.rs`. The file must exist at compile time — its absence is a **compile error**.
 - `OPACITY` must be a float in `[0.0, 1.0]`. Values outside this range or non-numeric strings return `500`.
-- Signed S3 URLs expire after **1 hour**. Each request generates a fresh URL.
+- Signed S3 URLs expire after **1 hour**. Each request generates a fresh signed URL.
 - Non-`200` S3 responses are forwarded as-is to the caller, potentially exposing S3 error details. The source code includes a commented alternative that returns a generic `500` instead.
 - The watermark pixel loop clamps `wm_width` and `wm_height` to stay within the source image bounds relative to `offset_x`/`offset_y`.
 - `offset_x` and `offset_y` are hardcoded to `0` in `main`. To support configurable placement, modify the `watermark(...)` call arguments.
