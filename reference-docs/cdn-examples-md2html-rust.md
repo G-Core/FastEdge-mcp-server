@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-07-23
+      updated: 2026-08-17
 -->
 
 ---
@@ -65,7 +65,7 @@ self.send_http_response(BAD_REQUEST, vec![], None);
 
 **Steps**:
 1. Reads `Content-Type` response header via `self.get_http_response_header("Content-Type")`.
-2. Checks if value starts with `"text/plain"` or `"text/markdown"`. Both trigger Markdown conversion.
+2. Checks if value starts with `"text/plain"` or `"text/markdown"`. Both trigger Markdown conversion. Detection uses `starts_with`, so parameters (e.g. `text/plain; charset=utf-8`) are also matched.
 3. If matched:
    - Removes `Content-Length` by setting to `None` (required before body replacement to avoid length mismatch).
    - Sets `Transfer-Encoding` to `"Chunked"`.

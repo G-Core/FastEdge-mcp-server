@@ -3,8 +3,8 @@
   sources:
     - id: proxy-wasm-sdk-as
       ref: master
-      commit: 60f25c7bd35564e5bafb421be7f37aa4acf1bf81
-      updated: 2026-05-20
+      commit: 8e3bb621bc013a0aed7e52122066b417ad62a207
+      updated: 2026-08-17
 -->
 
 ---
@@ -321,6 +321,8 @@ npm run asbuild:release # release only
 - `onResponseBody` must buffer until `end_of_stream` is `true`; return `StopIterationAndBuffer` otherwise
 - `min` and `max` for `zrange` are received as strings from query params and must be parsed with `parseFloat`
 - `response.status` set via `set_property` in `onResponseBody` is advisory only — the origin HTTP status passes through to the client; the JSON error body is the authoritative error signal
+- Empty query string is treated as an error — app responds with `545` and a JSON error body
+- `validateQueryParams` returns a map containing key `"error"` on failure; the caller must check `params.has("error")` before proceeding
 
 ---
 

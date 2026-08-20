@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-07-23
+      updated: 2026-08-17
 -->
 
 ---
@@ -51,14 +51,14 @@ Only `GET` and `HEAD` are accepted.
 
 ## Core Flow
 
-1. Read `BASE` env var; strip trailing `/`.
+1. Read `BASE` env var; strip trailing `/` via `base.trim_end_matches('/')`.
 2. Validate request path is non-empty and not `/`.
 3. Construct outbound `GET` request: `BASE + path`, `User-Agent: fastedge`.
 4. Call `fastedge::send_request` via internal `request()` helper.
-5. Follow redirects up to `MAX_REDIRECTS = 5` hops.
-6. Decode response body as UTF-8; failure → `500`.
-7. Parse Markdown with `Parser::new_ext(md, Options::ENABLE_TABLES | Options::ENABLE_FOOTNOTES)`.
-8. Render HTML with `pulldown_cmark::html::push_html`.
+5. Follow redirects up to `MAX_REDIRECTS = 5` hops via `request_inner(req, depth)`.
+6. Decode response body as UTF-8 via `String::from_utf8(rsp.body().to_vec())`; failure → `500`.
+7. Parse Markdown with `Parser::new_ext(md.as_str(), Options::ENABLE_TABLES | Options::ENABLE_FOOTNOTES)`.
+8. Render HTML with `pulldown_cmark::html::push_html(&mut html, parser)`.
 9. Wrap in `<!DOCTYPE html><html><body>...</body></html>`; optionally inject `HEAD` env var into `<head>`.
 10. Return `200 OK`, `Content-Type: text/html`.
 
@@ -193,6 +193,7 @@ Build target: `wasm32-wasip1`.
 - `String::from_utf8(rsp.body().to_vec())` fails on binary responses (e.g. images) — returns `500`. Ensure `BASE` points to a text/Markdown origin.
 - Redirect following is implemented manually; `fastedge::send_request` does not auto-follow redirects.
 - `HEAD` env var content is injected as raw HTML — no escaping or validation. Only inject trusted content.
+- `request_inner` only returns `Ok(rsp)` for `200 OK` responses; all other non-redirect status codes are returned as `Err(status)` and forwarded as empty-body responses.
 
 ---
 

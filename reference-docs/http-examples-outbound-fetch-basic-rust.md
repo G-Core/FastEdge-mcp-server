@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-07-23
+      updated: 2026-08-17
 -->
 
 ---
@@ -186,3 +186,120 @@ cargo build --release
 - sdk-reference-rust (full `fastedge` crate API reference)
 - examples-basic-http-rust (minimal sync handler without outbound fetch)
 - platform-overview (FastEdge execution model and WASM target context)
+
+## Source Material
+
+### FILE: examples/http/basic/outbound_fetch/src/lib.rs
+
+```rust
+use anyhow::{Error, Result};
+use fastedge::body::Body;
+use fastedge::http::{Request, Response, StatusCode};
+use serde_json::{json, Value};
+
+#[fastedge::http]
+fn main(_req: Request<Body>) -> Result<Response<Body>> {
+    let upstream_req = Request::builder()
+        .uri("http://jsonplaceholder.typicode.com/users")
+        .body(Body::empty())?;
+
+    let upstream_resp = fastedge::send_request(upstream_req).map_err(Error::msg)?;
+
+    let body_bytes = upstream_resp.body().to_vec();
+    let users: Value = serde_json::from_slice(&body_bytes)?;
+
+    let sliced_users = match users.as_array() {
+        Some(arr) => Value::Array(arr.iter().take(5).cloned().collect()),
+        None => Value::Array(vec![]),
+    };
+
+    let result = json!({
+        "users": sliced_users,
+        "total": 5,
+        "skip": 0,
+        "limit": 30,
+    });
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "application/json")
+        .body(Body::from(result.to_string()))
+        .map_err(Into::into)
+}
+```
+
+
+### FILE: examples/http/basic/outbound_fetch/Cargo.toml
+
+```toml
+[workspace]
+
+[package]
+name = "outbound_fetch"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+fastedge = "0.4"
+anyhow = "1"
+serde_json = "1"
+```
+
+
+### FILE: examples/http/basic/outbound_fetch/README.md
+
+```
+[← Back to examples](../../../README.md)
+
+# Outbound Fetch (Basic HTTP)
+
+Demonstrates outbound HTTP from a FastEdge application using the **legacy sync handler** (`#[fastedge::http]`). Fetches user data from the [JSONPlaceholder](https://jsonplaceholder.typicode.com) public API, selects the first 5 users, and returns them in a paginated JSON envelope.
+
+> **When to use this example:** If you need a synchronous, single-function HTTP handler with outbound requests targeting `wasm32-wasip1`. For new apps, prefer the async WASI handler — see [`examples/http/wasi/`](../../wasi/).
+
+## What it does
+
+On any incoming request:
+
+1. Makes a GET request to `http://jsonplaceholder.typicode.com/users` using `fastedge::send_request`.
+2. Parses the JSON response body.
+3. Takes the first 5 users from the array.
+4. Returns a JSON envelope with pagination metadata.
+
+Example response body:
+
+```json
+{
+  "users": [ { "id": 1, "name": "Leanne Graham", ... }, ... ],
+  "total": 5,
+  "skip": 0,
+  "limit": 30
+}
+```
+
+## APIs used
+
+| API | Purpose |
+|---|---|
+| `#[fastedge::http]` | Sync request-response handler macro |
+| `fastedge::send_request` | Outbound HTTP request to upstream API |
+| `fastedge::http::{Request, Response, StatusCode}` | HTTP types |
+| `fastedge::body::Body` | Request and response bodies |
+| `serde_json` | JSON parsing and serialisation |
+
+## Build
+
+```sh
+cargo build --release
+# Output: target/wasm32-wasip1/release/outbound_fetch.wasm
+```
+
+## Expected behavior
+
+| Request | Response status | Response content-type | Response body |
+|---|---|---|---|
+| `GET /` | 200 | `application/json` | JSON object with `users` (array of ≤5), `total`, `skip`, `limit` |
+```

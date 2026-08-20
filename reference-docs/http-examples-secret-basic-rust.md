@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-07-23
+      updated: 2026-08-17
 -->
 
 # Secret Access — Rust HTTP Example
@@ -251,3 +251,185 @@ node tools/fixture-validator/index.mjs \
 - fastedge-docs skill reference: sdk-reference-rust
 - fastedge-docs skill reference: error-codes
 - manage skill: secret management subcommands (set, list, delete)
+
+## Source Material
+
+### FILE: examples/http/basic/secret/src/lib.rs
+
+```rust
+use anyhow::{Error, Result};
+use std::time::SystemTime;
+
+use fastedge::body::Body;
+use fastedge::http::{Request, Response, StatusCode};
+use fastedge::secret;
+
+#[allow(dead_code)]
+#[fastedge::http]
+fn main(_req: Request<Body>) -> Result<Response<Body>> {
+    let value = match secret::get("SECRET") {
+        Ok(value) => value,
+        Err(secret::Error::AccessDenied) => {
+            return Response::builder()
+                .status(StatusCode::FORBIDDEN)
+                .body(Body::empty())
+                .map_err(Error::msg);
+        }
+        Err(secret::Error::Other(msg)) => {
+            return Response::builder()
+                .status(StatusCode::FORBIDDEN)
+                .body(Body::from(msg))
+                .map_err(Error::msg);
+        }
+        Err(secret::Error::DecryptError) => {
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::empty())
+                .map_err(Error::msg);
+        }
+    };
+
+    if value.is_none() {
+        return Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::empty())
+            .map_err(Error::msg);
+    }
+
+    let ts = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("Time went backwards")
+        .as_secs();
+    let effective_at_value = match secret::get_effective_at("SECRET", ts as u32) {
+        Ok(value) => value,
+        Err(secret::Error::AccessDenied) => {
+            return Response::builder()
+                .status(StatusCode::FORBIDDEN)
+                .body(Body::empty())
+                .map_err(Error::msg);
+        }
+        Err(secret::Error::Other(msg)) => {
+            return Response::builder()
+                .status(StatusCode::FORBIDDEN)
+                .body(Body::from(msg))
+                .map_err(Error::msg);
+        }
+        Err(secret::Error::DecryptError) => {
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::empty())
+                .map_err(Error::msg);
+        }
+    };
+
+    if effective_at_value.is_none() {
+        return Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::empty())
+            .map_err(Error::msg);
+    }
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .body(Body::from(format!(
+            "get={:?}\nget_efective_at={:?}\n",
+            value, effective_at_value
+        )))
+        .map_err(Error::msg)
+}
+```
+
+
+### FILE: examples/http/basic/secret/Cargo.toml
+
+```toml
+[workspace]
+
+[package]
+name = "secret"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+fastedge = "0.4"
+anyhow = "1"
+```
+
+
+### FILE: examples/http/basic/secret/README.md
+
+```
+[← Back to examples](../../../README.md)
+
+# Secret
+
+Demonstrates accessing encrypted secrets injected by the FastEdge platform using `secret::get()` and `secret::get_effective_at()`. Shows how to handle all error variants (access denied, decrypt error) and the time-based secret rotation API.
+
+## What it does
+
+On every request, the handler:
+
+1. Calls `secret::get("SECRET")` — retrieves the current value of the secret named `SECRET`.
+2. If the secret is missing (returned as `None`), returns **404**.
+3. Calls `secret::get_effective_at("SECRET", <unix_ts>)` — retrieves the secret value effective at the current Unix timestamp, demonstrating the rotation/versioning API.
+4. If that value is also missing, returns **404**.
+5. On success, returns **200** with both values in the body (Debug format).
+
+## APIs used
+
+| API | Purpose |
+|---|---|
+| `#[fastedge::http]` | Sync request-response handler macro |
+| `fastedge::secret::get(key)` | Retrieve the current value of a named secret |
+| `fastedge::secret::get_effective_at(key, timestamp)` | Retrieve the secret value effective at a specific Unix timestamp |
+| `fastedge::secret::Error` | Error variants: `AccessDenied`, `Other(msg)`, `DecryptError` |
+| `fastedge::http::{Request, Response, StatusCode}` | HTTP types |
+| `fastedge::body::Body` | Response body |
+
+## Secret error variants
+
+| Variant | HTTP response | Meaning |
+|---|---|---|
+| `Ok(Some(value))` | 200 with body | Secret found |
+| `Ok(None)` | 404 empty | Secret name is valid but not set |
+| `Err(AccessDenied)` | 403 empty | App is not permitted to read this secret |
+| `Err(Other(msg))` | 403 with `msg` body | Other denial with a human-readable message |
+| `Err(DecryptError)` | 500 empty | Secret exists but could not be decrypted |
+
+## Build
+
+```sh
+cargo build --release
+# Output: target/wasm32-wasip1/release/secret.wasm
+```
+
+## Expected behavior
+
+| Scenario | Secret `SECRET` | Response status | Response body |
+|---|---|---|---|
+| Happy path | `"my-value"` | 200 | `get=Some("my-value")\nget_efective_at=Some("my-value")\n` |
+| Secret not set | (absent) | 404 | (empty) |
+| Access denied | — | 403 | (empty) |
+
+> **Note:** The response body contains a typo in the field name (`get_efective_at` instead of `get_effective_at`). This is a known cosmetic issue in the source.
+
+## Local testing
+
+Inject the secret via a `.env` file in your fixtures directory using the `FASTEDGE_VAR_SECRET_<NAME>` prefix:
+
+```
+# fixtures/.env
+FASTEDGE_VAR_SECRET_SECRET=my-test-value
+```
+
+Run with the fixture validator:
+
+```sh
+node tools/fixture-validator/index.mjs \
+  FastEdge-sdk-rust/examples/http/basic/secret/ \
+  --wasm FastEdge-sdk-rust/examples/http/basic/secret/target/wasm32-wasip1/release/secret.wasm
+```
+```

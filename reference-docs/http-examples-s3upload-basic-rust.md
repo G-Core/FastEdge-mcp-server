@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-07-23
+      updated: 2026-08-17
 -->
 
 ---
@@ -171,6 +171,7 @@ cargo build --release
 - `MAX_FILE_SIZE` is silently ignored (no error, no log) when set to a non-numeric string.
 - On S3 success, the response body is replaced entirely with the clean object URL — the original S3 response body is discarded.
 - The `UrlStyle::Path` style is used for `Bucket::new` — bucket name appears in the URL path, not the hostname.
+- Query params (`?name=...`) are parsed manually using `split('&')` and `splitn(2, '=')` into a `HashMap<String, String>`.
 
 ---
 

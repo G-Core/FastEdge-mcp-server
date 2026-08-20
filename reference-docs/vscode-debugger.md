@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-test
-      ref: v0.2.5
+      ref: main
       commit: 61497eca6ead033ac810165bc1e20e1d6dd4678f
-      updated: 2026-07-23
+      updated: 2026-08-17
 -->
 
 # FastEdge Visual Debugger

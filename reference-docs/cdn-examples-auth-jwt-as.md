@@ -3,8 +3,8 @@
   sources:
     - id: proxy-wasm-sdk-as
       ref: master
-      commit: 60f25c7bd35564e5bafb421be7f37aa4acf1bf81
-      updated: 2026-05-20
+      commit: 8e3bb621bc013a0aed7e52122066b417ad62a207
+      updated: 2026-08-17
 -->
 ---
 capabilities:
@@ -62,7 +62,7 @@ Reads a named secret variable configured on the FastEdge application.
 
 - **Parameter**: `name` — secret variable name (string)
 - **Returns**: secret value as a UTF-8 string, or `null` if not found
-- **Type note**: returns `string`, not `ArrayBuffer`; pass directly to `jwtVerify`
+- **Type note**: returns `string`, not `ArrayBuffer`; pass directly to `jwtVerify` without encoding
 
 ```typescript
 const secret = getSecret("SECRET");
@@ -82,6 +82,7 @@ Verifies a JWT token against an HMAC-SHA256 secret.
   - `secret` — HMAC signing secret (string)
 - **Returns**: `JwtValidation` enum value
 - **Package**: `@gcoredev/as-jwt` (separate dependency, not part of proxy-wasm-sdk-as)
+- **Behavior**: does not throw; always check the return value against `JwtValidation.Ok`
 
 ### `JwtValidation` enum
 
@@ -105,11 +106,11 @@ Sends an immediate HTTP response and stops the request. Body must be encoded as 
 
 ### `setLogLevel(level: LogLevelValues): void`
 
-Sets the log verbosity. Default is `LogLevelValues.info`. Called in `createContext`.
+Sets the log verbosity. Default is `LogLevelValues.info`. Called in `createContext`. Present in source for demonstration purposes only — explicitly setting the default is optional.
 
 ### `log(level: LogLevelValues, message: string): void`
 
-Emits a log entry. Used to record token rejection reasons.
+Emits a log entry. Used to record token rejection reasons (e.g. `"Token Expired"`, `"Bad Token"`).
 
 ---
 
@@ -150,7 +151,23 @@ All blocked responses return `FilterHeadersStatusValues.StopIteration`.
 |---|---|---|
 | `SECRET` | HMAC-SHA256 signing key | String; minimum 256 bits / 32 characters |
 
-Configure this secret variable on the FastEdge application before deployment. For secret rotation, see `getSecretEffectiveAt` in the FastEdge secrets reference.
+Configure this secret variable on the FastEdge application before deployment. For secret rotation, use `getSecretEffectiveAt` instead of `getSecret` — see the FastEdge secrets reference.
+
+---
+
+## Testing Tokens
+
+Both tokens use the secret `a-string-secret-at-least-256-bits-long-thats-hard-to-break`.
+
+**Expired token** (returns `403 Forbidden`):
+```
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyLCJleHAiOjk3ODMxMDg2MX0.egSSDoDdAHz8Kqee7be9N168CDEwOiOej96Idm2c1yQ
+```
+
+**Valid token** (expiry: 2035-01-01, returns `200 OK`):
+```
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyLCJleHAiOjIwNTEyMjYwNjF9.zn_pSdcBo8T3SvNgMVYzWc5CU_MKqOlms7TpZXhPtJU
+```
 
 ---
 
@@ -166,6 +183,14 @@ Configure this secret variable on the FastEdge application before deployment. Fo
 
 - `@gcoredev/as-jwt` is a required peer dependency — it is NOT bundled in proxy-wasm-sdk-as.
 - `assemblyscript-json` is declared as a dependency but not directly used in this example.
+
+**Dev dependencies:**
+```json
+{
+  "@assemblyscript/wasi-shim": "^0.1.0",
+  "assemblyscript": "^0.28.9"
+}
+```
 
 ---
 
@@ -208,6 +233,7 @@ Root context name: `"auth"`.
 - The `Authorization` header is validated in two steps: first a null check (missing header → 401), then a `startsWith("Bearer ")` check (wrong scheme → 401). An empty-string header would fail the Bearer scheme check.
 - `jwtVerify` does not throw; always check the return value against `JwtValidation.Ok`.
 - Validation happens in `onRequestHeaders` only. There is no body or response hook in this example.
+- The `setLogLevel(LogLevelValues.info)` call in `createContext` is present for demonstration only — `info` is the default level and the call is not required.
 - For HMAC secret rotation using slot-based secrets, use `getSecretEffectiveAt` instead of `getSecret`. See the FastEdge secrets reference.
 
 ---
@@ -217,4 +243,4 @@ Root context name: `"auth"`.
 - proxy-wasm-sdk-as SDK reference (AssemblyScript)
 - FastEdge secrets reference (`getSecret`, `getSecretEffectiveAt`, rotation slots)
 - CDN app platform overview
-- `@gcoredev/as-jwt` package (npmjs.com)
+- `@gcoredev/as-jwt` package on npmjs.com

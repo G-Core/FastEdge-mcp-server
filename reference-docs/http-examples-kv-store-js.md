@@ -4,7 +4,7 @@
     - id: fastedge-sdk-js
       ref: main
       commit: 81145a9a43ec499240c687bd49376ab20c72b11c
-      updated: 2026-07-23
+      updated: 2026-08-17
 -->
 
 ## KV Store — Example Reference
@@ -132,6 +132,14 @@ Validation is performed by `validateQueryParams(queryParams: URLSearchParams)` i
 - `min` and `max` are required for: `zrange`.
 - `item` is required for: `bfExists`.
 
+**Type definitions (from `utils.ts`):**
+```ts
+const ALL_ACTIONS = ['get', 'scan', 'zscan', 'zrange', 'bfExists'] as const;
+export type Action = (typeof ALL_ACTIONS)[number];
+type ParamKey = 'action' | 'store' | 'key' | 'match' | 'min' | 'max' | 'item' | 'error';
+type Params = { [key in ParamKey]: string };
+```
+
 ---
 
 ### Error Handling
@@ -246,9 +254,30 @@ addEventListener('fetch', (event: FetchEvent) => {
 
 Decodes an `ArrayBuffer` to a UTF-8 string. Returns `''` if `arrVal` is `null`.
 
+```ts
+export const decodeValueArray = (arrVal: ArrayBuffer | null) => {
+  if (arrVal) {
+    const decoder = new TextDecoder();
+    return decoder.decode(arrVal);
+  }
+  return '';
+};
+```
+
 #### `stringifyValueScoreTuples(tupleList: Array<[ArrayBuffer, number]>): string`
 
 Formats sorted-set result tuples as a string: `[{ Value: <decoded>, Score: <number> }, ...]`.
+
+```ts
+export const stringifyValueScoreTuples = (tupleList: Array<[ArrayBuffer, number]>): string => {
+  let strResponse = '[';
+  for (const tuple of tupleList) {
+    strResponse += `{ Value: ${decodeValueArray(tuple[0])}, Score: ${tuple[1]} }, `;
+  }
+  strResponse += ']';
+  return strResponse;
+};
+```
 
 ---
 
@@ -299,3 +328,4 @@ TypeScript types for FastEdge globals (`FetchEvent`, etc.) are provided by `@gco
 - `"type": "module"` must be set in `package.json` for ESM compatibility with `fastedge-build`.
 - The SDK dependency version is `^2.3.0`.
 - `tsconfig.json` `target` is `ES2023`; `moduleResolution` is `Bundler`; `lib` is `["ES2023"]`; `types` is `["@gcoredev/fastedge-sdk-js"]`.
+- Empty string values for required query parameters are treated as missing — validation rejects them the same as absent params.

@@ -3,8 +3,8 @@
   sources:
     - id: proxy-wasm-sdk-as
       ref: master
-      commit: 60f25c7bd35564e5bafb421be7f37aa4acf1bf81
-      updated: 2026-05-20
+      commit: 8e3bb621bc013a0aed7e52122066b417ad62a207
+      updated: 2026-08-17
 -->
 
 ---
@@ -170,6 +170,24 @@ set_buffer_bytes(
 | 504 | Gateway Timeout |
 | other 5xx | Server Error |
 | other | Error |
+
+### Descriptions
+
+| Code | Description |
+|---|---|
+| 400 | The server could not understand the request due to invalid syntax. |
+| 401 | You need to authenticate to access this resource. |
+| 403 | You do not have permission to access this resource. |
+| 404 | The requested page could not be found. It may have been moved or deleted. |
+| 405 | The request method is not supported for this resource. |
+| 408 | The server timed out waiting for the request. |
+| 429 | You have sent too many requests. Please try again later. |
+| 500 | The server encountered an unexpected condition that prevented it from fulfilling the request. |
+| 502 | The server received an invalid response from the upstream server. |
+| 503 | The server is temporarily unavailable. Please try again later. |
+| 504 | The server did not receive a timely response from the upstream server. |
+| other 5xx | The server encountered an error processing your request. |
+| other | An error occurred processing your request. |
 
 ### Categories
 
