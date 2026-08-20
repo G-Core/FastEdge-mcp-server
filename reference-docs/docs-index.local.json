@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0.0",
-  "generated_at": "2026-07-24T07:50:35.090Z",
+  "generated_at": "2026-07-23T17:26:39.807Z",
   "source": {
     "repo": "fastedge-plugin",
-    "commit": "05c2493",
+    "commit": "a33c348",
     "pipeline": "sync-reference-docs"
   },
   "topics": [
