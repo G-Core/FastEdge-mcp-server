@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-test
       ref: main
-      commit: 61497eca6ead033ac810165bc1e20e1d6dd4678f
-      updated: 2026-08-17
+      commit: c79583ecbec74b0d36ae664cd3a148ae34059a75
+      updated: 2026-08-20
 -->
 
 # Runner Internals — Low-Level Runner API

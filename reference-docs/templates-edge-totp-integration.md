@@ -4,7 +4,7 @@
     - id: fastedge-templates
       ref: main
       commit: 87b7dc143db5e74cf0e7eb52f67484f6abc51c43
-      updated: 2026-08-17
+      updated: 2026-08-20
 -->
 
 # edge-totp — Origin Integration
@@ -107,7 +107,7 @@ Self-service enrollment (`{AUTH_PREFIX}/activate`) inherits the trust level of t
 
 **Decision point for sensitive accounts:** If your threat model requires that the second factor remain independent of the password (e.g. privileged users, admin accounts), disable self-service enrollment (`ALLOW_SELF_ENROLLMENT=false`) and require admin provisioning via `POST {AUTH_PREFIX}/enroll` (gated by `ENROLL_API_KEY`, behind your own identity check). Recovery for a lost authenticator also goes through `POST {AUTH_PREFIX}/enroll` with `force: true`.
 
-See the `edge-totp` threat model reference (threat-model.md, risk R5) before relying on self-service enrollment for sensitive accounts.
+See the edge-totp threat model reference (threat-model.md, risk R5) before relying on self-service enrollment for sensitive accounts.
 
 ---
 

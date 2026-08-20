@@ -4,7 +4,7 @@
     - id: proxy-wasm-sdk-as
       ref: master
       commit: 8e3bb621bc013a0aed7e52122066b417ad62a207
-      updated: 2026-08-17
+      updated: 2026-08-20
 -->
 
 # Quickstart: AssemblyScript CDN Apps on FastEdge

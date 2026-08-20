@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-08-17
+      updated: 2026-08-20
 -->
 
 # Secret Rollover (WASI, Rust)
@@ -124,28 +124,56 @@ Slots are ordered by slot number; any non-negative `u32` value is valid as a slo
 ## Implementation Pattern
 
 ```rust
-use fastedge::secret;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-// Read slot from header, default to current unix timestamp
-let slot: u32 = request
-    .headers()
-    .get("x-slot")
-    .and_then(|v| v.to_str().ok())
-    .and_then(|v| v.parse().ok())
-    .unwrap_or_else(|| {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_secs() as u32
+use anyhow::anyhow;
+use fastedge::secret;
+use serde_json::json;
+use wstd::http::body::Body;
+use wstd::http::{Request, Response};
+
+#[wstd::http_server]
+async fn main(request: Request<Body>) -> anyhow::Result<Response<Body>> {
+    // Read slot from header, default to current unix timestamp
+    let slot: u32 = request
+        .headers()
+        .get("x-slot")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse().ok())
+        .unwrap_or_else(|| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("Time went backwards")
+                .as_secs() as u32
+        });
+
+    let secret_name = request
+        .headers()
+        .get("x-secret-name")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("TOKEN_SECRET");
+
+    // Get current (latest) value
+    let current = secret::get(secret_name)
+        .map_err(|e| anyhow!("secret::get failed: {e}"))?;
+
+    // Get value effective at the given slot
+    let effective = secret::get_effective_at(secret_name, slot)
+        .map_err(|e| anyhow!("secret::get_effective_at failed: {e}"))?;
+
+    let result = json!({
+        "secret_name": secret_name,
+        "slot": slot,
+        "current": current,
+        "effective_at_slot": effective,
+        "is_same": current == effective,
     });
 
-// Get current (latest) value
-let current = secret::get(secret_name)
-    .map_err(|e| anyhow!("secret::get failed: {e}"))?;
-
-// Get value effective at the given slot
-let effective = secret::get_effective_at(secret_name, slot)
-    .map_err(|e| anyhow!("secret::get_effective_at failed: {e}"))?;
+    Ok(Response::builder()
+        .status(200)
+        .header("content-type", "application/json")
+        .body(Body::from(result.to_string()))?)
+}
 ```
 
 ## Constraints and Gotchas

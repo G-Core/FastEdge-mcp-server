@@ -4,7 +4,7 @@
     - id: fastedge-templates
       ref: main
       commit: 87b7dc143db5e74cf0e7eb52f67484f6abc51c43
-      updated: 2026-08-17
+      updated: 2026-08-20
 -->
 
 # FastEdge Bolt-On Templates
@@ -41,6 +41,8 @@ Before writing authentication, cookie-hardening, or content-transform logic from
 
 **Attribute application:** `Secure` and `HttpOnly` are added only if not already present. `SameSite=Strict` is set unconditionally, overriding any existing `SameSite` value.
 
+**Implementation notes:** Duplicate `Set-Cookie` headers are preserved — the host collapses them to one, so the filter clears the header and re-adds each cookie as its own occurrence. Empty segments from trailing semicolons are dropped when re-joining. Headers are only rewritten when at least one cookie value actually changes.
+
 **Origin integration:** Configured entirely through environment variables (`COOKIE_NAME`, `SECURE`, `HTTPONLY`, `SAMESITE`) — no origin code required.
 
 ---
@@ -63,9 +65,9 @@ Before writing authentication, cookie-hardening, or content-transform logic from
 
 **Supported identity providers:** Google (OAuth 2.0), GitHub (OAuth 2.0), Microsoft (OAuth 2.0 / OIDC), Facebook (OAuth 2.0), SAML (SAML 2.0).
 
-**Key shared configuration requirements:** `SSO_VARIANT` and `SSO_AUDIENCE` must match on both apps. `SESSION_SECRET` is required in every variant. The `cookie` variant additionally requires an EC keypair (`SESSION_SIGNING_KEY` secret + `SESSION_PUBLIC_JWK` env var).
+**Key shared configuration requirements:** `SSO_VARIANT` and `SSO_AUDIENCE` must match on both apps. `SESSION_SECRET` is required in every variant. The `cookie` variant additionally requires an EC keypair (`SESSION_SIGNING_KEY` secret + `SESSION_PUBLIC_JWK` env var). `AUTH_PREFIX` sets the path prefix reserved for auth routes (default: `/auth`).
 
-**Origin integration:** The template is configured through environment variables and secrets on both apps. For the customer-side wiring contract — how the origin validates tokens or trusts identity headers depending on the chosen variant — see the `edge-sso` integration reference.
+**Origin integration:** This template has an integration reference. For the customer-side wiring contract — how the origin validates tokens or trusts identity headers depending on the chosen variant — see the `edge-sso` integration reference.
 
 ---
 
@@ -88,7 +90,9 @@ Before writing authentication, cookie-hardening, or content-transform logic from
 - The origin must be locked to edge-only traffic (IP allowlist / origin auth / tunnel) — the gate is bypassed if the origin is directly reachable
 - `MFA_AUDIENCE` must be set on both apps; the filter fail-closes (rejects every session) if it is unset
 - `GCORE_API_TOKEN` has write access to every seed in the KV store — scope it to a single-tenant, per-customer isolated KV store
+- The edge `mfa_session` is short-lived (8h, non-sliding) and not cross-PoP revocable
+- CDN logs include the session subject (`sub`) and request path on each authorized request — review log retention policy if `sub` contains PII
 
 **CDN wiring:** Attach `otp-app` as a CDN origin on the `{AUTH_PREFIX}/*` path rule of the customer's CDN resource; attach `otp-filter` as the CDN proxy app in front of protected paths, bypassing `{AUTH_PREFIX}` and `/health`. Both share the CDN host so `mfa_session` is first-party host-only.
 
-**Origin integration:** For the full customer-side wiring contract, trust model, and Profile B JWKS integration, see the `edge-totp` integration reference.
+**Origin integration:** This template has an integration reference. For the full customer-side wiring contract, trust model, and Profile B JWKS integration, see the `edge-totp` integration reference.
