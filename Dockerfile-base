@@ -7,14 +7,23 @@ RUN rustup target add wasm32-wasip1 wasm32-wasip2 && \
 
 # WASI SDK: provides clang/cc so crates with native (cc-rs) build scripts
 # (ring, openssl-sys, zstd-sys, libz-sys, ...) can compile for the wasm32 targets.
+# This image is built for linux/amd64 and linux/arm64 (build-docker-base-image.yaml),
+# so the asset must be picked per-arch — wasi-sdk-20 only shipped a single x86_64
+# "linux" asset; arch-specific Linux builds started at wasi-sdk-24, so this pins 33.
 # wasi-sdk releases don't publish a checksum manifest (unlike Node below), so the
-# expected digest is pinned here — recompute if the version bumps.
+# expected digests are pinned here per-arch — recompute both if the version bumps.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl ca-certificates && \
     mkdir -p /opt/wasi-sdk && \
+    ARCH=$(dpkg --print-architecture) && \
+    case "$ARCH" in \
+        amd64) WASI_SDK_ARCH="x86_64" ; WASI_SDK_SHA256="0ba8b5bfaeb2adf3f29bab5841d76cf5318ab8e1642ea195f88baba1abd47bce" ;; \
+        arm64) WASI_SDK_ARCH="arm64" ; WASI_SDK_SHA256="4f98ee738c7abb45c81a94d1461fc53cc569d1cd01498951c8184d841a027844" ;; \
+        *) echo "Unsupported architecture: $ARCH" && exit 1 ;; \
+    esac && \
     curl -fsSL -o /tmp/wasi-sdk.tar.gz \
-      https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-20/wasi-sdk-20.0-linux.tar.gz && \
-    echo "7030139d495a19fbeccb9449150c2b1531e15d8fb74419872a719a7580aad0f9  /tmp/wasi-sdk.tar.gz" | sha256sum -c - && \
+      "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-33/wasi-sdk-33.0-${WASI_SDK_ARCH}-linux.tar.gz" && \
+    echo "${WASI_SDK_SHA256}  /tmp/wasi-sdk.tar.gz" | sha256sum -c - && \
     tar -xz -C /opt/wasi-sdk --strip-components=1 -f /tmp/wasi-sdk.tar.gz && \
     rm /tmp/wasi-sdk.tar.gz && \
     apt-get autoremove -y && \
