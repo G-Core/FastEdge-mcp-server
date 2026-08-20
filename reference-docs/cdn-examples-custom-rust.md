@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-07-23
+      updated: 2026-08-17
 -->
 
 ---
@@ -250,3 +250,123 @@ self.send_http_response(status_code: u32, headers: Vec<(&str, &str)>, body: Opti
 - CDN app pattern guide (see the _docs-pattern-cdn reference)
 - Host services reference for Rust (see the host-services-rust reference)
 - Platform overview (see the platform-overview reference)
+
+## Source Material
+
+### FILE: examples/cdn/custom/src/lib.rs
+
+```rust
+use proxy_wasm::traits::*;
+use proxy_wasm::types::*;
+use std::time::Duration;
+
+proxy_wasm::main! {{
+    proxy_wasm::set_log_level(LogLevel::Trace);
+    proxy_wasm::set_root_context(|_| -> Box<dyn RootContext> { Box::new(HttpHeadersRoot) });
+}}
+
+const BAD_REQUEST: u32 = 400;
+
+struct HttpHeadersRoot;
+
+impl Context for HttpHeadersRoot {}
+
+impl RootContext for HttpHeadersRoot {
+    fn create_http_context(&self, _context_id: u32) -> Option<Box<dyn HttpContext>> {
+        Some(Box::new(HttpHeaders))
+    }
+
+    fn get_type(&self) -> Option<ContextType> {
+        Some(ContextType::HttpContext)
+    }
+}
+
+struct HttpHeaders;
+
+impl Context for HttpHeaders {}
+
+impl HttpContext for HttpHeaders {
+    fn on_http_request_headers(&mut self, _: usize, _: bool) -> Action {
+        let Some(path) = self.get_property(vec!["request.path"]) else {
+            self.send_http_response(BAD_REQUEST, vec![], Some(b"Malformed request - no path"));
+            return Action::Pause;
+        };
+
+        let Ok(path) = std::str::from_utf8(&path) else {
+            self.send_http_response(
+                BAD_REQUEST,
+                vec![],
+                Some(b"Malformed request - not utf8 string"),
+            );
+            return Action::Pause;
+        };
+
+        //trim first '/'
+        let path = if path.starts_with('/') {
+            &path[1..]
+        } else {
+            path
+        };
+        let mut segments = path.split('/');
+
+        let Some(status_code) = segments.next() else {
+            return Action::Continue;
+        };
+
+        if let Some(delay) = segments.next() {
+            if let Ok(delay) = delay.parse::<u64>() {
+                std::thread::sleep(Duration::from_millis(delay));
+            }
+        }
+
+        let Ok(status_code) = status_code.parse::<u32>() else {
+            self.send_http_response(
+                BAD_REQUEST,
+                vec![],
+                Some(b"Malformed request - invalid status code"),
+            );
+            return Action::Pause;
+        };
+
+        match status_code {
+            0 | 200 => Action::Continue,
+            code if code < 600 => {
+                self.send_http_response(code, vec![], None);
+                Action::Pause
+            }
+            _ => {
+                self.send_http_response(BAD_REQUEST, vec![], None);
+                Action::Pause
+            }
+        }
+    }
+}
+```
+
+### FILE: examples/cdn/custom/Cargo.toml
+
+```toml
+[workspace]
+
+[package]
+name = "custom"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+log = "0.4"
+proxy-wasm = "0.2"
+```
+
+### FILE: examples/cdn/custom/README.md
+
+```
+[← Back to examples](../../README.md)
+
+# Custom (CDN)
+
+Returns HTTP status codes based on the request path, with optional delay support. Useful for testing and debugging CDN behaviour.
+```

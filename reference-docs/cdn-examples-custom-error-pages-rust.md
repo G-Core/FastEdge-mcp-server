@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-07-23
+      updated: 2026-08-17
 -->
 
 ## Custom Error Pages — CDN (Rust)
@@ -12,6 +12,8 @@
 ### Overview
 
 Intercepts 4xx and 5xx HTTP error responses at the CDN edge and replaces their bodies with branded HTML pages rendered via Handlebars templates. Use this pattern when you need consistent, styled error pages served from the edge regardless of what the origin returns.
+
+A build script (`build.rs`) runs at compile time to embed images and messages from the `public/` folder into the WASM binary — there is no filesystem at runtime.
 
 ---
 
@@ -188,6 +190,29 @@ let (message, description) = message_map
     });
 ```
 
+**Pattern 4 — Root context and HTTP context wiring:**
+
+```rust
+proxy_wasm::main! {{
+    proxy_wasm::set_log_level(LogLevel::Trace);
+    proxy_wasm::set_root_context(|_| -> Box<dyn RootContext> { Box::new(HttpBodyRoot) });
+}}
+
+struct HttpBodyRoot;
+
+impl Context for HttpBodyRoot {}
+
+impl RootContext for HttpBodyRoot {
+    fn get_type(&self) -> Option<ContextType> {
+        Some(ContextType::HttpContext)
+    }
+
+    fn create_http_context(&self, _: u32) -> Option<Box<dyn HttpContext>> {
+        Some(Box::new(HttpBody))
+    }
+}
+```
+
 ---
 
 ### Dependencies (`Cargo.toml`)
@@ -203,11 +228,40 @@ regex = "1.10"
 base64 = "0.22"
 ```
 
-- `proxy-wasm`: CDN lifecycle hooks and context traits
-- `handlebars`: template rendering for error pages and message strings
-- `serde_json`: JSON data construction for template variables
-- `regex`: available for pattern matching (used in build script or message processing)
-- `base64` (build dependency only): encodes images into the generated map at compile time
+| Crate | Role |
+|-------|------|
+| `proxy-wasm` | CDN lifecycle hooks and context traits |
+| `handlebars` | Template rendering for error pages and message strings |
+| `serde_json` | JSON data construction for template variables |
+| `regex` | Pattern matching (available for use in build script or message processing) |
+| `base64` (build-dep only) | Encodes images into the generated map at compile time |
+
+Crate type must be `cdylib`:
+
+```toml
+[lib]
+crate-type = ["cdylib"]
+```
+
+---
+
+### Project Layout
+
+```
+custom_error_pages/
+├── build.rs                      # Generates image_map.rs and message_map.rs into OUT_DIR
+├── Cargo.toml
+├── src/
+│   └── lib.rs                    # HttpContext implementation
+├── templates/
+│   └── error_page.hbs            # Handlebars HTML page template
+└── public/
+    ├── styles.css                # Embedded at compile time via include_str!
+    ├── images/
+    │   └── <status>.jpg          # Per-status images; also 4000.jpg / 5000.jpg for fallbacks
+    └── messages/
+        └── <status>.hbs          # First line = title, second line = description
+```
 
 ---
 
@@ -215,7 +269,7 @@ base64 = "0.22"
 
 1. Add an image: `public/images/<status>.jpg`
 2. Add a message file: `public/messages/<status>.hbs` (first line = title, second line = description)
-3. Recompile and redeploy — the build script regenerates the embedded maps
+3. Recompile and redeploy — the build script regenerates the embedded maps automatically
 
 ---
 
@@ -230,10 +284,11 @@ base64 = "0.22"
 - **Handlebars rendering is two-stage.** Message and description strings may themselves contain `{{status}}` placeholders. Render them first with `json!({ "status": ... })`, then pass the rendered strings into the final page template. Registering and rendering in a single pass will not expand variables inside message/description values.
 - **`handlebars::Handlebars::render` panics on template registration failure if `.unwrap()` is used.** In production code, handle `register_template_string` and `render` errors explicitly unless the templates are known-valid at compile time.
 - **`get_property` returns `Option<Vec<u8>>` in both hooks.** The property may be absent even for valid responses. Always handle the `None` case before attempting to decode.
+- **Generic fallback keys use sentinel values, not HTTP status ranges.** The image and message maps use `4000` (not `400`) for the generic 4xx fallback and `5000` (not `500`) for the generic 5xx fallback. These are not valid HTTP status codes — they are sentinel keys used only in the embedded maps.
 
 ---
 
-### Related
+### See Also
 
 - CDN apps reference — proxy-wasm lifecycle hooks (`on_http_response_headers`, `on_http_response_body`), `HttpContext` trait, `Action` enum, and `get_property` / `set_http_response_header` / `set_http_response_body` signatures
 - Host services reference — KV store, secrets, and dictionary APIs available in CDN apps

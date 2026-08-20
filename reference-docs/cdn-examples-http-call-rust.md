@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-07-23
+      updated: 2026-08-17
 -->
 
 # HTTP Call — CDN (Rust)
@@ -244,27 +244,7 @@ on_http_call_response(token_id, num_headers, body_size, _)
 
 ---
 
-## Gotchas
-
-- `Action::Pause` must be returned from `on_http_request_headers` after dispatching — failing to pause allows the request to proceed before the async response arrives.
-- State must be tracked in struct fields (e.g. `state: u32`) because `on_http_call_response` and `on_http_request_headers` execute in separate hook invocations on the same context instance.
-- `timeout` uses `Duration::from_millis()`; passing zero may cause immediate failure depending on runtime behavior.
-- The callback `on_http_call_response` is defined on the `Context` trait, not `HttpContext` — implement it on the per-request struct, not the root context.
-- `num_headers == 0` is the only reliable signal for call failure; do not rely on `body_size` or `token_id` for failure detection.
-- `:authority` in headers must match the `upstream` argument passed to `dispatch_http_call`.
-
----
-
-## See Also
-
-- proxy-wasm Rust SDK reference (traits: Context, RootContext, HttpContext)
-- CDN app scaffold blueprint
-- FastEdge platform overview
-- FastEdge error codes reference
-
-## Source Material
-
-### FILE: examples/cdn/http_call/src/lib.rs
+## Complete Example
 
 ```rust
 use proxy_wasm::traits::*;
@@ -305,7 +285,6 @@ impl Context for HttpHeaders {
         println!(
             "Received http call response with token id: {token_id}, num_headers: {num_headers}"
         );
-        //If num_headers is 0, then the HTTP call failed.
         if num_headers != 0 {
             let headers = self.get_http_call_response_headers();
             let headers_str = headers
@@ -315,7 +294,7 @@ impl Context for HttpHeaders {
                 .join(",");
             println!("Response headers: [{}]", headers_str);
 
-            self.state = 1; // Set state to 1 to indicate that the HTTP call response was received successfully.
+            self.state = 1;
 
             self.resume_http_request();
         } else {
@@ -376,32 +355,22 @@ fn to_status_code(status: Status) -> u32 {
 }
 ```
 
+---
 
-### FILE: examples/cdn/http_call/Cargo.toml
+## Gotchas
 
-```toml
-[workspace]
+- `Action::Pause` must be returned from `on_http_request_headers` after dispatching — failing to pause allows the request to proceed before the async response arrives.
+- State must be tracked in struct fields (e.g. `state: u32`) because `on_http_call_response` and `on_http_request_headers` execute in separate hook invocations on the same context instance.
+- `timeout` uses `Duration::from_millis()`; passing zero may cause immediate failure depending on runtime behavior.
+- The callback `on_http_call_response` is defined on the `Context` trait, not `HttpContext` — implement it on the per-request struct, not the root context.
+- `num_headers == 0` is the only reliable signal for call failure; do not rely on `body_size` or `token_id` for failure detection.
+- `:authority` in headers must match the `upstream` argument passed to `dispatch_http_call`.
 
-[package]
-name = "http_call"
-version = "0.1.0"
-edition = "2024"
+---
 
-[lib]
-crate-type = ["cdylib"]
+## See Also
 
-[dependencies]
-log = "0.4"
-proxy-wasm = "0.2"
-```
-
-
-### FILE: examples/cdn/http_call/README.md
-
-```
-[← Back to examples](../../README.md)
-
-# HTTP Call (CDN)
-
-Makes asynchronous HTTP calls to external services with timeout handling using the proxy-wasm ABI.
-```
+- proxy-wasm Rust SDK reference (traits: Context, RootContext, HttpContext)
+- CDN app scaffold blueprint
+- FastEdge platform overview
+- FastEdge error codes reference

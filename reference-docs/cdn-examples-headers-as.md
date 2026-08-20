@@ -3,8 +3,8 @@
   sources:
     - id: proxy-wasm-sdk-as
       ref: master
-      commit: 60f25c7bd35564e5bafb421be7f37aa4acf1bf81
-      updated: 2026-05-20
+      commit: 8e3bb621bc013a0aed7e52122066b417ad62a207
+      updated: 2026-08-17
 -->
 
 ---
@@ -199,6 +199,17 @@ if (diff.missing.size > 0 || diff.extra.size > 0) {
 }
 ```
 
+## Multi-Value Headers
+
+`new-header-03` is deliberately added twice — `add()` is called with the same name twice. This produces a multi-value header with two separate `new-header-03` entries. The validation pattern uses `Set<string>` of `"name:value"` pairs to assert both values are present.
+
+## Cross-Phase Response Header Writes
+
+`stream_context.headers.response.add(...)` can be called during `onRequestHeaders`. Headers written in the request phase appear in the final response alongside those set in `onResponseHeaders`. The distinction:
+
+- `stream_context.headers.response.add("new-response-header", "value-01")` — **safe** in request phase
+- `stream_context.headers.response.get("new-response-header")` — **panics** in request phase
+
 ## Error Response Codes Used
 
 | Code | Meaning                           | Trigger                                                     |
@@ -239,9 +250,7 @@ onLog(): void {
 
 **`replace()` upserts on FastEdge**: `replace()` creates the header with the given value if the named header does not exist — it does not behave as a no-op on absent headers. Guard calls to `replace()` with a prior `get()` length check when you intend to update only an existing header.
 
-**Response header reads during request phase**: Reading `stream_context.headers.response` (e.g. via `get()`) during `onRequestHeaders` causes a runtime panic because response headers are not available in the request phase. Writing response headers via `add()` during `onRequestHeaders` is safe and those headers appear in the final response. The distinction:
-- `stream_context.headers.response.add("new-response-header", "value-01")` — **safe** in request phase
-- `stream_context.headers.response.get("new-response-header")` — **panics** in request phase
+**Response header reads during request phase**: Reading `stream_context.headers.response` (e.g. via `get()`) during `onRequestHeaders` causes a runtime panic because response headers are not available in the request phase. Writing response headers via `add()` during `onRequestHeaders` is safe and those headers appear in the final response.
 
 ## Build
 

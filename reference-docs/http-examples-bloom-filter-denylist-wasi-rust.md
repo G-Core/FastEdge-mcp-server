@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-07-23
+      updated: 2026-08-17
 -->
 
 ---
@@ -150,3 +150,162 @@ Uses the `wstd` WASI Component Model HTTP server macro.
 - KV Store provisioning and population via FastEdge API
 - examples-bloom-filter-denylist-js (JavaScript mirror of this example)
 - platform-overview (KV Store concepts)
+
+## Source Material
+
+### FILE: examples/http/wasi/bloom_filter_denylist/src/lib.rs
+
+```rust
+/*
+ * Copyright 2025 G-Core Innovations SARL
+ */
+/*
+Bloom-filter IP denylist example.
+
+Checks the client IP (from the `x-real-ip` request header, falling back to
+`x-forwarded-for`) against a bloom filter stored in FastEdge KV. Returns 403
+on a hit, 200 otherwise.
+
+Required configuration:
+  - Environment variable: DENYLIST_STORE (KV store name holding the bloom filter)
+
+The bloom-filter key is hardcoded to `blocked-ips`. The handler is read-only;
+populate the filter out of band.
+
+Mirror of the FastEdge-sdk-js `bloom-filter-denylist` example.
+*/
+
+use std::env;
+
+use anyhow::anyhow;
+use fastedge::key_value::{Error as StoreError, Store};
+use serde_json::json;
+use wstd::http::body::Body;
+use wstd::http::{Request, Response};
+
+const BLOOM_KEY: &str = "blocked-ips";
+
+#[wstd::http_server]
+async fn main(req: Request<Body>) -> anyhow::Result<Response<Body>> {
+    let store_name = match env::var("DENYLIST_STORE") {
+        Ok(s) if !s.trim().is_empty() => s,
+        _ => {
+            return json_response(
+                500,
+                json!({ "error": "DENYLIST_STORE environment variable is not configured" }),
+            );
+        }
+    };
+
+    let headers = req.headers();
+    let client_ip = headers
+        .get("x-real-ip")
+        .or_else(|| headers.get("x-forwarded-for"))
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    let Some(ip) = client_ip else {
+        return json_response(500, json!({ "error": "client IP not available" }));
+    };
+
+    let store = match Store::open(&store_name) {
+        Ok(s) => s,
+        Err(StoreError::AccessDenied) => {
+            return json_response(
+                403,
+                json!({ "error": "access denied opening denylist store" }),
+            );
+        }
+        Err(e) => {
+            return json_response(500, json!({ "error": format!("store open error: {e}") }));
+        }
+    };
+
+    let blocked = store
+        .bf_exists(BLOOM_KEY, ip)
+        .map_err(|e| anyhow!("bf_exists error: {e}"))?;
+
+    if blocked {
+        // Bloom filter says "maybe in set" — a small fraction of hits will be false
+        // positives. Acceptable for a denylist (you over-block some legitimate users);
+        // not acceptable for allowlists — use `store.get()` against a regular key instead.
+        return json_response(403, json!({ "allowed": false, "ip": ip }));
+    }
+
+    json_response(200, json!({ "allowed": true, "ip": ip }))
+}
+
+fn json_response(status: u16, value: serde_json::Value) -> anyhow::Result<Response<Body>> {
+    Ok(Response::builder()
+        .status(status)
+        .header("content-type", "application/json")
+        .body(Body::from(value.to_string()))?)
+}
+```
+
+### FILE: examples/http/wasi/bloom_filter_denylist/Cargo.toml
+
+```toml
+[workspace]
+
+[package]
+name = "bloom_filter_denylist_wasi"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wstd = "0.6"
+fastedge = "0.4"
+anyhow = "1"
+serde_json = "1"
+```
+
+### FILE: examples/http/wasi/bloom_filter_denylist/README.md
+
+```
+[← Back to examples](../../../README.md)
+
+# Bloom Filter — IP Denylist (WASI)
+
+Rejects requests from IPs present in a KV Store bloom filter. Reads the client IP from the
+`x-real-ip` request header (falling back to `x-forwarded-for`), checks it against a
+pre-populated bloom filter, and returns **403** on a hit or **200** otherwise.
+
+Demonstrates `fastedge::key_value::Store` + `bf_exists()` and the conventional way to obtain
+the client IP from a Component Model HTTP handler.
+
+## Configuration
+
+- Environment variable `DENYLIST_STORE` — name of the KV store that holds the bloom filter.
+- Bloom-filter key — hardcoded to `blocked-ips`. Change `BLOOM_KEY` in `src/lib.rs` if your
+  key is different.
+
+## Behaviour
+
+| `bf_exists("blocked-ips", ip)` | Response |
+| --- | --- |
+| `true` | `403` `{ "allowed": false, "ip": "..." }` |
+| `false` | `200` `{ "allowed": true, "ip": "..." }` |
+
+## Tradeoff: false positives
+
+Bloom filters answer "**definitely not** in set" vs "**maybe** in set". When `bf_exists`
+returns `true`, the IP *probably* was added — but a small fraction of hits will be false
+positives, meaning some legitimate IPs will be over-blocked. Acceptable for a denylist; for
+allowlists or anything requiring exact membership, use `store.get()` against a regular key
+instead.
+
+## Populating the filter
+
+The edge handler is read-only. Populate `blocked-ips` out of band (for example, via the
+FastEdge API).
+
+## Related
+
+Mirror of `FastEdge-sdk-js/examples/bloom-filter-denylist/`.
+```

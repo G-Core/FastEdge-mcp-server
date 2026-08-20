@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-07-23
+      updated: 2026-08-17
 -->
 
 ---
@@ -147,3 +147,123 @@ package = "component:simple_fetch"
 - sdk-reference-rust
 - examples-simple-request-rust (basic sync HTTP handler, `fastedge` crate)
 - host-services-rust (outbound fetch via host services)
+
+## Source Material
+
+### FILE: examples/http/wasi/simple_fetch/src/lib.rs
+
+```rust
+/*
+* Copyright 2025 G-Core Innovations SARL
+*/
+/*
+Example app demonstrating the WASI-HTTP interface via the wstd crate.
+
+The app receives an incoming HTTP request and makes an outbound HTTP request
+to the URL specified in the `x-fetch-url` header (defaults to https://httpbin.org/get).
+
+Build with cargo-component:
+  cargo component build --release
+*/
+
+use anyhow::anyhow;
+use wstd::http::body::Body;
+use wstd::http::{Client, Request, Response};
+
+#[wstd::http_server]
+async fn main(request: Request<Body>) -> anyhow::Result<Response<Body>> {
+    let target_url = request
+        .headers()
+        .get("x-fetch-url")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("https://httpbin.org/get")
+        .to_string();
+
+    println!("Fetching: {target_url}");
+
+    let upstream_req = Request::get(&target_url)
+        .header("accept", "application/json")
+        .body(Body::empty())
+        .map_err(|e| anyhow!("failed to build request: {e}"))?;
+
+    let client = Client::new();
+    let response = client
+        .send(upstream_req)
+        .await
+        .map_err(|e| anyhow!("request failed: {e}"))?;
+
+    println!("Response status: {}", response.status());
+
+    Ok(response)
+}
+```
+
+
+### FILE: examples/http/wasi/simple_fetch/Cargo.toml
+
+```toml
+[workspace]
+
+[package]
+name = "simple_fetch"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wstd = "0.6"
+anyhow = "1"
+
+[package.metadata.component]
+package = "component:simple_fetch"
+```
+
+
+### FILE: examples/http/wasi/simple_fetch/README.md
+
+```
+[← Back to examples](../../../README.md)
+
+# Simple Fetch
+
+A minimal example demonstrating outbound HTTP requests using the [WASI-HTTP](https://github.com/WebAssembly/wasi-http) interface via the [`wstd`](https://crates.io/crates/wstd) crate.
+
+Uses the WASI component model with an **async** handler and a proper HTTP client (`wstd::http::Client`). The same async pattern is used by all examples in `examples/http/wasi/`.
+
+## How it works
+
+The app receives an incoming request, reads the target URL from the `x-fetch-url` header, makes an outbound GET request to that URL, and streams the response back to the caller.
+
+If the `x-fetch-url` header is absent, it defaults to `https://httpbin.org/get`.
+
+## Request headers
+
+| Header | Required | Description |
+|--------|----------|-------------|
+| `x-fetch-url` | No | URL to fetch. Defaults to `https://httpbin.org/get` |
+
+## Example
+
+```bash
+curl -H "x-fetch-url: https://httpbin.org/uuid" https://<your-app-domain>/
+```
+
+## Build
+
+```bash
+cargo build --release
+# Output: target/wasm32-wasip2/release/simple_fetch.wasm
+```
+
+## Key differences from basic HTTP examples
+
+| | Basic HTTP (`fastedge` crate) | WASI HTTP (`wstd` crate) |
+|---|---|---|
+| Handler | `fn main(req)` — sync | `async fn main(req)` — async |
+| Macro | `#[fastedge::http]` | `#[wstd::http_server]` |
+| Outbound HTTP | `fastedge::send_request(req)` | `Client::new().send(req).await` |
+| Build target | `wasm32-wasip1` | `wasm32-wasip2` |
+```

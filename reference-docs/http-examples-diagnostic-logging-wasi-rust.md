@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-07-23
+      updated: 2026-08-17
 -->
 
 ---
@@ -190,3 +190,152 @@ Use `key=value` pairs separated by spaces (`logfmt`-ish format). Benefits:
 - host-services-rust (other host service integrations available to Rust WASI apps)
 - CDN (proxy-wasm) variant: `fastedge::proxywasm::utils::set_user_diag` — same semantics, different module path (see CDN apps reference)
 - examples-kv-store-wasi-rust (another Rust WASI HTTP example showing KV Store usage)
+
+## Source Material
+
+### FILE: examples/http/wasi/diagnostic_logging/src/lib.rs
+
+```rust
+/*
+ * Copyright 2025 G-Core Innovations SARL
+ */
+/*
+Diagnostic logging example.
+
+Tiny pass-through proxy that writes a single `set_user_diag` tag per request
+summarising the outcome (config_error, origin_unreachable, or proxied). The
+tag appears in the FastEdge platform's per-request log viewer and is distinct
+from stdout — it's intended for filterable outcome labels, not verbose
+traces.
+
+Required configuration:
+  - Environment variable: ORIGIN_URL (origin to proxy to)
+
+Uses `logfmt`-ish formatting (`outcome=<verb> key=value ...`) so the tag is
+easy to slice in log search tooling.
+*/
+
+use std::env;
+
+use fastedge::utils::set_user_diag;
+use wstd::http::body::Body;
+use wstd::http::{Client, Request, Response};
+
+#[wstd::http_server]
+async fn main(req: Request<Body>) -> anyhow::Result<Response<Body>> {
+    let method = req.method().as_str().to_string();
+    let path = req.uri().path().to_string();
+
+    let origin = match env::var("ORIGIN_URL") {
+        Ok(u) if !u.trim().is_empty() => u,
+        _ => {
+            set_user_diag("outcome=config_error reason=origin_missing");
+            return Ok(Response::builder()
+                .status(500)
+                .header("content-type", "text/plain; charset=utf-8")
+                .body(Body::from("ORIGIN_URL is not configured"))?);
+        }
+    };
+
+    let outbound = Request::get(&origin).body(Body::empty())?;
+    let resp = match Client::new().send(outbound).await {
+        Ok(r) => r,
+        Err(e) => {
+            set_user_diag(&format!(
+                "outcome=origin_unreachable method={method} path={path} err={e}"
+            ));
+            return Ok(Response::builder()
+                .status(502)
+                .header("content-type", "text/plain; charset=utf-8")
+                .body(Body::from("origin unreachable"))?);
+        }
+    };
+
+    let status = resp.status().as_u16();
+    set_user_diag(&format!(
+        "outcome=proxied method={method} path={path} status={status}"
+    ));
+
+    let (parts, mut body) = resp.into_parts();
+    let bytes = body.contents().await?;
+    let content_type = parts
+        .headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream")
+        .to_string();
+
+    Ok(Response::builder()
+        .status(parts.status)
+        .header("content-type", content_type)
+        .body(Body::from(bytes))?)
+}
+```
+
+
+### FILE: examples/http/wasi/diagnostic_logging/Cargo.toml
+
+```toml
+[workspace]
+
+[package]
+name = "diagnostic_logging_wasi"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wstd = "0.6"
+fastedge = "0.4"
+anyhow = "1"
+```
+
+
+### FILE: examples/http/wasi/diagnostic_logging/README.md
+
+```
+[← Back to examples](../../../README.md)
+
+# Diagnostic Logging (WASI)
+
+Pass-through proxy that writes a single `fastedge::utils::set_user_diag` tag per request
+summarising the outcome. The tag appears in the FastEdge platform's per-request log viewer,
+distinct from stdout, and is designed to be filtered/counted/aggregated by SREs looking at
+per-request outcomes.
+
+## Configuration
+
+- `ORIGIN_URL` environment variable — the origin that requests are proxied to.
+
+## Outcomes
+
+Each request writes exactly one of:
+
+| Condition | Tag |
+| --- | --- |
+| `ORIGIN_URL` missing | `outcome=config_error reason=origin_missing` |
+| Origin unreachable | `outcome=origin_unreachable method=<M> path=<P> err=<E>` |
+| Request proxied | `outcome=proxied method=<M> path=<P> status=<S>` |
+
+## `set_user_diag` vs `println!`
+
+| | `println!` | `set_user_diag` |
+| --- | --- | --- |
+| Channel | stdout — general application logs | per-request structured tag in platform log viewer |
+| Cardinality | many per request | **one per request** — multiple calls leave only the last or are concatenated (undefined) |
+| Best for | verbose traces, debug details | a single filterable outcome label |
+| Forbidden | — | secrets and PII (tags appear in platform logs) |
+
+## Convention
+
+Call `set_user_diag` **once**, on every branch, late enough in the handler to know the
+outcome. The `logfmt`-ish format (`outcome=<verb> key=value key=value …`) is easy to slice in
+log search tooling — keep keys short and stable so they make good filter terms.
+
+## Related
+
+CDN (proxy-wasm) variant: `fastedge::proxywasm::utils::set_user_diag` — same semantics,
+different module path. See `docs/CDN_APPS.md`.
+```

@@ -3,8 +3,8 @@
   sources:
     - id: proxy-wasm-sdk-as
       ref: master
-      commit: 60f25c7bd35564e5bafb421be7f37aa4acf1bf81
-      updated: 2026-05-20
+      commit: 8e3bb621bc013a0aed7e52122066b417ad62a207
+      updated: 2026-08-17
 -->
 
 # A/B Testing — AssemblyScript (CDN)
@@ -100,6 +100,8 @@ set_property("request.url", String.UTF8.encode(newUrl))
 ```
 
 `set_property` / `get_property` key: `"request.url"`, `"request.path"`, `"request.scheme"`, `"request.host"`, `"request.query"`.
+
+URL rewrite is skipped entirely if `schemeBuf.byteLength === 0` or `hostBuf.byteLength === 0`.
 
 ### Step 5 — Add upstream headers
 

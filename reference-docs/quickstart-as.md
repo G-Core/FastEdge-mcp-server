@@ -3,8 +3,8 @@
   sources:
     - id: proxy-wasm-sdk-as
       ref: master
-      commit: 60f25c7bd35564e5bafb421be7f37aa4acf1bf81
-      updated: 2026-05-20
+      commit: 8e3bb621bc013a0aed7e52122066b417ad62a207
+      updated: 2026-08-17
 -->
 
 # Quickstart: AssemblyScript CDN Apps on FastEdge
@@ -118,7 +118,7 @@ registerRootContext((context_id: u32) => {
 |------|---------|
 | `export * from ".../assembly/proxy"` | Exposes wasm entry points the host runtime calls into. Required in every app. Must be the first line. |
 | `RootContext` subclass | Created once per worker. `createContext` produces a `Context` instance for each hook invocation. |
-| `Context` subclass | Handles a single lifecycle hook phase. Instance fields do not persist across hooks (hook state isolation). |
+| `Context` subclass | Handles a single lifecycle hook phase. A fresh instance is created for each hook phase — instance fields do not persist across hooks (hook state isolation). |
 | `registerRootContext` | Registers the root context factory with the proxy runtime. |
 
 ### Lifecycle hooks
