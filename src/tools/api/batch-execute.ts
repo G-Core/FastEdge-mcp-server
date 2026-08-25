@@ -209,6 +209,32 @@ export async function batchExecuteHandler(
         ? resolveRefsTyped(call.body, results)
         : undefined;
 
+    // Re-check the *resolved* path: the pre-flight check above ran on the
+    // template, where "$name.field" is a single opaque segment. A prior step's
+    // data is untrusted (it can carry "/" or ".."), so the concrete path has to
+    // clear the allowlist again before it goes out with the operator's API key.
+    const resolvedDenial = checkAllowed(call.method, resolvedPath);
+    if (resolvedDenial) {
+      return textResult(
+        JSON.stringify(
+          {
+            error: "policy_denied",
+            message: `Step ${i + 1} resolved to a path that is not permitted by this MCP server's access policy.`,
+            denied_step: {
+              step: i + 1,
+              method: call.method,
+              template_path: call.path,
+              resolved_path: resolvedPath,
+              reason: resolvedDenial.reason,
+            },
+            completed,
+          },
+          null,
+          2,
+        ),
+      );
+    }
+
     const result = await apiCaller({
       method: call.method,
       path: resolvedPath,

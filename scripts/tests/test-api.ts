@@ -11,6 +11,7 @@ import { AddressInfo } from "node:net";
 
 import {
   DEFAULT_TIMEOUT_MS,
+  callGcoreApi,
   resolveTimeoutMs,
   serializeBody,
   type ApiCallOptions,
@@ -234,6 +235,101 @@ test("batchExecuteHandler: reports every denied step, not just the first", async
   const parsed = parseResponse(resp) as { denied_steps: Array<{ step: number }> };
   assert.equal(parsed.denied_steps.length, 2);
   assert.deepEqual(parsed.denied_steps.map((d) => d.step), [1, 2]);
+});
+
+test("batchExecuteHandler: resolved path that escapes the allowlist is denied (ICM-50568)", async () => {
+  const calls: BatchCall[] = [
+    { method: "GET", path: "/fastedge/v1/apps", as: "planted" },
+    { method: "DELETE", path: "/fastedge/v1/apps/$planted.v" },
+  ];
+
+  const seen: string[] = [];
+  const mockCaller = async (opts: ApiCallOptions): Promise<ApiCallResult> => {
+    seen.push(opts.path);
+    return { status: 200, data: { v: "../../../cdn/resources/123" } };
+  };
+
+  const resp = await batchExecuteHandler({ calls }, mockCaller);
+  const parsed = parseResponse(resp) as {
+    error: string;
+    denied_step: { step: number; resolved_path: string };
+  };
+  assert.equal(parsed.error, "policy_denied");
+  assert.equal(parsed.denied_step.step, 2);
+  assert.deepEqual(seen, ["/fastedge/v1/apps"], "traversal path must never be dispatched");
+});
+
+test("checkAllowed: normalizes traversal before matching", () => {
+  assert.ok(
+    checkAllowed("DELETE", "/fastedge/v1/apps/../../../cdn/origin_groups", sampleAllowlist),
+    "traversal must not match",
+  );
+  assert.equal(
+    checkAllowed("GET", "/fastedge/v1/apps/x/..", sampleAllowlist),
+    null,
+    "traversal that normalizes back onto an allowed path stays allowed",
+  );
+  assert.ok(
+    checkAllowed("DELETE", "/fastedge/v1/apps/%2e%2e%2f%2e%2e", sampleAllowlist),
+    "percent-encoded traversal must be denied",
+  );
+});
+
+test("checkAllowed: policy view matches the outbound URL for control chars", () => {
+  // WHATWG URL parsing strips TAB/LF/CR anywhere, so "%<LF>2f" would otherwise
+  // dodge the encoded-separator check and reach the gateway as "%2f".
+  assert.ok(
+    checkAllowed("DELETE", "/fastedge/v1/apps/..%\n2f..%\n2fcdn", sampleAllowlist),
+    "LF-obfuscated encoded slash must be denied",
+  );
+  // A space before "?" is trailing input once you hand-split on "?" (parser
+  // trims it) but is percent-encoded on the wire — the two views must agree.
+  const denial = checkAllowed("GET", "/fastedge/v1/apps ?x=1", sampleAllowlist);
+  assert.ok(denial, "path that dispatches as /fastedge/v1/apps%20 must not match /fastedge/v1/apps");
+  // A control char between two slashes: passes a leading-slash check on the raw
+  // input, but the parser strips it into a protocol-relative "//host/...".
+  for (const path of [
+    "/\n/attacker.example/fastedge/v1/apps",
+    "/\t/attacker.example/fastedge/v1/apps",
+    "/\r/attacker.example/../fastedge/v1/apps",
+  ]) {
+    assert.ok(
+      checkAllowed("GET", path, sampleAllowlist),
+      `expected denial for ${JSON.stringify(path)}`,
+    );
+  }
+});
+
+test("callGcoreApi: refuses to send the API key off the configured origin", async () => {
+  // No fetch happens: the guard returns before the request is made.
+  const result = await callGcoreApi({
+    method: "GET",
+    path: "@attacker.example/../fastedge/v1/apps",
+    authHeader: "APIKey test",
+  });
+  assert.equal(result.status, 0);
+  assert.match(
+    (result.data as { error: string }).error,
+    /attacker\.example/,
+    "expected an origin-escape refusal",
+  );
+});
+
+test("checkAllowed: denies paths that manipulate the request authority", () => {
+  // Each of these normalizes onto an allowlisted path, but concatenating it
+  // onto GCORE_API_BASE changes the host or the requested path.
+  for (const path of [
+    "@attacker.example/../fastedge/v1/apps",   // → https://attacker.example/fastedge/v1/apps
+    "//attacker.example/fastedge/v1/apps",
+    "fastedge/v1/apps",                          // no leading slash
+    "/\\attacker.example/../fastedge/v1/apps",
+    "\\/attacker.example/../fastedge/v1/apps",
+  ]) {
+    assert.ok(
+      checkAllowed("GET", path, sampleAllowlist),
+      `expected denial for ${JSON.stringify(path)}`,
+    );
+  }
 });
 
 test("batchExecuteHandler: fail-fast on 4xx, returns completed + failed step", async () => {
