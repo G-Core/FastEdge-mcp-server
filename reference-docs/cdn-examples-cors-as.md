@@ -4,7 +4,7 @@
     - id: proxy-wasm-sdk-as
       ref: master
       commit: 8e3bb621bc013a0aed7e52122066b417ad62a207
-      updated: 2026-08-17
+      updated: 2026-08-20
 -->
 
 # CORS — AssemblyScript (CDN)
@@ -283,7 +283,6 @@ registerRootContext((context_id: u32) => {
 }, "cors");
 ```
 
-
 ### FILE: examples/cors/package.json
 
 ```json
@@ -305,7 +304,6 @@ registerRootContext((context_id: u32) => {
   }
 }
 ```
-
 
 ### FILE: examples/cors/README.md
 

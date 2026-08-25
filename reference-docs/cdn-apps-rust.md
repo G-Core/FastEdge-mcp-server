@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-08-17
+      updated: 2026-08-20
 -->
 
 # FastEdge Rust SDK — CDN Apps (Proxy-Wasm)
@@ -197,10 +197,10 @@ impl HttpContext for HelloWorld {
 
 | Callback                                                          | Phase            | Description                                         |
 | ----------------------------------------------------------------- | ---------------- | --------------------------------------------------- |
-| `on_http_request_headers(num_headers, end_of_stream) -> Action`   | Request headers  | Inspect or modify request headers before forwarding |
-| `on_http_request_body(body_size, end_of_stream) -> Action`        | Request body     | Inspect or modify request body before forwarding    |
-| `on_http_response_headers(num_headers, end_of_stream) -> Action`  | Response headers | Inspect or modify response headers from origin      |
-| `on_http_response_body(body_size, end_of_stream) -> Action`       | Response body    | Inspect or modify response body from origin         |
+| `on_http_request_headers(num_headers: usize, end_of_stream: bool) -> Action`  | Request headers  | Inspect or modify request headers before forwarding |
+| `on_http_request_body(body_size: usize, end_of_stream: bool) -> Action`       | Request body     | Inspect or modify request body before forwarding    |
+| `on_http_response_headers(num_headers: usize, end_of_stream: bool) -> Action` | Response headers | Inspect or modify response headers from origin      |
+| `on_http_response_body(body_size: usize, end_of_stream: bool) -> Action`      | Response body    | Inspect or modify response body from origin         |
 
 All callbacks have default no-op implementations. Override only the phases your app needs to process.
 

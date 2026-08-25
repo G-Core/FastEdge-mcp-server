@@ -4,7 +4,7 @@
     - id: proxy-wasm-sdk-as
       ref: master
       commit: 8e3bb621bc013a0aed7e52122066b417ad62a207
-      updated: 2026-08-17
+      updated: 2026-08-20
 -->
 
 ---
@@ -165,12 +165,14 @@ if (!end_of_stream) {
 
 **Execution flow**:
 1. Read query string: `get_property("request.query")` → `ArrayBuffer`, decode to string
-2. Validate query params via `validateQueryParams(query)` → `Map<string, string>`
-3. Open store: `KvStore.open(store)` — send error response if `null`
-4. Dispatch on `action` parameter
-5. Serialize result map with `stringifyMap` → JSON string
-6. Replace response body: `set_buffer_bytes(BufferTypeValues.HttpResponseBody, 0, body_buffer_length, encoded)`
-7. Returns `FilterDataStatusValues.Continue`
+2. If query string is empty, send error response immediately
+3. Validate query params via `validateQueryParams(query)` → `Map<string, string>`
+4. Check `params.has("error")` — send error response if validation failed
+5. Open store: `KvStore.open(store)` — send error response if `null`
+6. Dispatch on `action` parameter
+7. Serialize result map with `stringifyMap` → JSON string
+8. Replace response body: `set_buffer_bytes(BufferTypeValues.HttpResponseBody, 0, body_buffer_length, encoded)`
+9. Returns `FilterDataStatusValues.Continue`
 
 **Error path**: calls `sendErrorResponse(msg, body_buffer_length)` which:
 - Sets `response.status` to `545` via `set_property("response.status", ...)`
@@ -208,11 +210,13 @@ switch (action) {
     const storeArrBuff = myStore.get(key);
     // null → responseBodyMap.set("Response", "null (Not found)")
     // non-null → responseBodyMap.set("Response", String.UTF8.decode(storeArrBuff))
+    break;
   }
   case "scan": {
     const match = params.get("match");
     const keys = myStore.scan(match);
     // returns string[] — responseBodyMap.set("Response", keys.join(", "))
+    break;
   }
   case "zrange": {
     const key = params.get("key");
@@ -220,18 +224,21 @@ switch (action) {
     const max = params.get("max");
     const tuples = myStore.zrangeByScore(key, parseFloat(min), parseFloat(max));
     // returns ValueScoreTuple[]
+    break;
   }
   case "zscan": {
     const key = params.get("key");
     const match = params.get("match");
     const tuples = myStore.zscan(key, match);
     // returns ValueScoreTuple[]
+    break;
   }
   case "bfExists": {
     const key = params.get("key");
     const item = params.get("item");
     const exists = myStore.bfExists(key, item);
     // returns bool → responseBodyMap.set("Response", exists ? "true" : "false")
+    break;
   }
 }
 ```
@@ -252,7 +259,7 @@ Error response:
 { "error": "<error message>" }
 ```
 
-Error HTTP status: `545` (set via `response.status` property).
+Error HTTP status: `545` (set via `response.status` property — advisory only).
 
 ---
 
@@ -273,6 +280,14 @@ Internal helper (not exported). Splits query string on `&`, handles `key=value` 
 ### `urlDecode(str: string): string`
 
 Decodes `%xx` hex sequences and converts `+` to space. If `%xx` is not a valid hex sequence, passes through literally.
+
+### `stringifyMap(map: Map<string, string>): string`
+
+Exported helper. Serializes a `Map<string, string>` to a JSON object string. Iterates keys in insertion order, produces `{ "key": "value", ... }` format.
+
+### `stringifyValueScoreTuples(arr: Array<ValueScoreTuple>): string`
+
+Exported helper. Serializes an array of `ValueScoreTuple` to a comma-separated string of `{ value: <decoded>, score: <f64> }` entries. Decodes each `tuple.value` (`ArrayBuffer`) with `String.UTF8.decode`.
 
 ---
 
@@ -323,6 +338,7 @@ npm run asbuild:release # release only
 - `response.status` set via `set_property` in `onResponseBody` is advisory only — the origin HTTP status passes through to the client; the JSON error body is the authoritative error signal
 - Empty query string is treated as an error — app responds with `545` and a JSON error body
 - `validateQueryParams` returns a map containing key `"error"` on failure; the caller must check `params.has("error")` before proceeding
+- `ArrayBuffer` decoding: both `KvStore.get` return values and `ValueScoreTuple.value` fields must be decoded with `String.UTF8.decode` before use as strings
 
 ---
 

@@ -4,7 +4,7 @@
     - id: proxy-wasm-sdk-as
       ref: master
       commit: 8e3bb621bc013a0aed7e52122066b417ad62a207
-      updated: 2026-08-17
+      updated: 2026-08-20
 -->
 
 ---
@@ -114,6 +114,8 @@ onRequestHeaders(a: u32, end_of_stream: bool): FilterHeadersStatusValues
 
 All properties return `ArrayBuffer`. Decode with `String.UTF8.decode(buf)` before use. Check `buf.byteLength > 0` before decoding to detect missing values.
 
+Routing to the selected origin is achieved by writing `request.url` — this is not an HTTP redirect. No `Location` header is set and no 3xx response is sent to the client. The upstream fetch target is rewritten transparently.
+
 ---
 
 ## API Calls
@@ -196,6 +198,13 @@ Build scripts (from `package.json`):
 | `asbuild:release` | `asc assembly/index.ts --target release` |
 | `asbuild` | Runs both debug and release |
 
+Build output:
+
+| File | Description |
+|------|-------------|
+| `build/geoRedirect.wasm` | Optimised release binary — upload this to FastEdge |
+| `build/geoRedirect-debug.wasm` | Debug binary with source maps |
+
 ---
 
 ## Key Patterns
@@ -225,6 +234,16 @@ const defaultOrigin = getEnv("DEFAULT");
 if (!defaultOrigin) { /* handles both null and empty string */ }
 ```
 
+**Logging country code and matched origin for observability:**
+```typescript
+log(
+  LogLevelValues.info,
+  `Country code: ( ${countryCode} ): ${
+    countrySpecificOrigin === "" ? "no matching origin" : countrySpecificOrigin
+  }`,
+);
+```
+
 ---
 
 ## Constraints and Gotchas
@@ -236,6 +255,7 @@ if (!defaultOrigin) { /* handles both null and empty string */ }
 - Country code matching is case-sensitive and depends on the exact casing provided by `request.country` at runtime.
 - `getEnv` returns `""` (empty string) when a country-code variable is not set; the `=== ""` check must be used for country-specific origin fallback (not a null check).
 - The `DEFAULT` check uses `!defaultOrigin` (falsy), catching both null and empty string returns.
+- The app logs at INFO level: country code with matched origin, host value (if present), and final request URL. These are visible in FastEdge application logs.
 
 ---
 

@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-08-17
+      updated: 2026-08-20
 -->
 
 # HTTP Call — CDN (Rust)
@@ -365,6 +365,7 @@ fn to_status_code(status: Status) -> u32 {
 - The callback `on_http_call_response` is defined on the `Context` trait, not `HttpContext` — implement it on the per-request struct, not the root context.
 - `num_headers == 0` is the only reliable signal for call failure; do not rely on `body_size` or `token_id` for failure detection.
 - `:authority` in headers must match the `upstream` argument passed to `dispatch_http_call`.
+- The callback may fire before or after response hooks depending on runtime timing — state tracking via struct fields is the correct synchronization mechanism.
 
 ---
 

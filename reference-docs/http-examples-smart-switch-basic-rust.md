@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: main
       commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-08-17
+      updated: 2026-08-20
 -->
 
 ---
@@ -183,6 +183,7 @@ Build output: `target/wasm32-wasip1/release/smart_switch.wasm`
 - **`fastedge::send_request` errors map to `StatusCode`**: These are not `anyhow::Error` or `std::error::Error`; match on `fastedge::Error` variants explicitly.
 - **`"ACCEPTED"` string determines success**: The command result is compared as a string; only `"ACCEPTED"` maps to `204`. Any other value maps to `404`.
 - **Auth is a plain header match**: `Authorization` header value is compared directly to `PASSWORD` env var — no bearer prefix stripping, no hashing.
+- **`serde` listed as dependency but not directly used in source**: `serde_json` handles all JSON parsing; `serde` is a transitive requirement.
 
 ---
 
