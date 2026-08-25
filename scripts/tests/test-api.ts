@@ -252,10 +252,13 @@ test("batchExecuteHandler: resolved path that escapes the allowlist is denied (I
   const resp = await batchExecuteHandler({ calls }, mockCaller);
   const parsed = parseResponse(resp) as {
     error: string;
-    denied_step: { step: number; resolved_path: string };
+    denied_steps: Array<{ step: number; path: string; template_path: string; resolved_path: string }>;
   };
   assert.equal(parsed.error, "policy_denied");
-  assert.equal(parsed.denied_step.step, 2);
+  assert.equal(parsed.denied_steps.length, 1, "same payload shape as a pre-flight denial");
+  assert.equal(parsed.denied_steps[0].step, 2);
+  assert.equal(parsed.denied_steps[0].path, "/fastedge/v1/apps/../../../cdn/resources/123");
+  assert.equal(parsed.denied_steps[0].template_path, "/fastedge/v1/apps/$planted.v");
   assert.deepEqual(seen, ["/fastedge/v1/apps"], "traversal path must never be dispatched");
 });
 

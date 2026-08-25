@@ -220,13 +220,16 @@ export async function batchExecuteHandler(
           {
             error: "policy_denied",
             message: `Step ${i + 1} resolved to a path that is not permitted by this MCP server's access policy.`,
-            denied_step: {
-              step: i + 1,
-              method: call.method,
-              template_path: call.path,
-              resolved_path: resolvedPath,
-              reason: resolvedDenial.reason,
-            },
+            denied_steps: [
+              {
+                step: i + 1,
+                method: call.method,
+                path: resolvedPath,
+                template_path: call.path,
+                resolved_path: resolvedPath,
+                reason: resolvedDenial.reason,
+              },
+            ],
             completed,
           },
           null,
