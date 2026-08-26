@@ -20,8 +20,8 @@
   "author": "Gcore",
   "license": "Apache-2.0",
   "dependencies": {
-    "@gcoredev/fastedge-sdk-js": "^2.2.0",
-    "@modelcontextprotocol/sdk": "^1.25.2",
+    "@gcoredev/fastedge-sdk-js": "^2.5.1",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "dedent": "^1.7.0",
     "qs": "^6.14.0",
     "toml": "^3.0.0",

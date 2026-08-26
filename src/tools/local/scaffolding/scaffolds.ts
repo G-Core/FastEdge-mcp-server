@@ -1,5 +1,5 @@
 import dedent from "dedent";
-import { exec } from "node:child_process";
+import { exec, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -11,6 +11,7 @@ import { normalizePath, INVALID_PATH } from "../../../utils/index.js";
 import type { Language, ScaffoldTemplateType } from "./types.js";
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export function registerListAvailableTemplates(
   server: McpServer,
@@ -152,20 +153,28 @@ export function registerCreateBoilerPlateCode(
         // - --no-verify: Skip "Do you want to continue?" confirmation (validate-config.ts:211)
         // - --{language}: Specify language flag (--javascript, --typescript, etc.)
         // - --pnpm or --yarn: Use alternative package manager (optional)
-        const languageFlag = `--${params.language}`;
-        const packageManagerFlag =
-          params.packageManager && params.packageManager !== "npm"
-            ? `--${params.packageManager}`
-            : "";
-        const command =
-          `npx --yes create-fastedge-app@beta "${outputPath}" --template ${params.template} ${languageFlag} --no-verify ${packageManagerFlag}`.trim();
+        const args = [
+          "--yes",
+          "create-fastedge-app@beta",
+          outputPath,
+          "--template",
+          params.template,
+          `--${params.language}`,
+          "--no-verify",
+          ...(params.packageManager && params.packageManager !== "npm"
+            ? [`--${params.packageManager}`]
+            : []),
+        ];
 
-        // Execute the CLI command
-        const { stderr } = await execAsync(command, {
+        // Execute via execFile with an args array instead of a shell command string,
+        // so outputPath can never be interpreted as shell syntax. shell is only
+        // needed on Windows, where npx is a .cmd shim execFile can't exec directly.
+        const { stderr } = await execFileAsync("npx", args, {
           cwd: options.workspaceRoot,
           env: process.env,
           timeout: 120000, // 2 minute timeout for scaffolding + npm install
           maxBuffer: 10 * 1024 * 1024, // 10MB buffer
+          shell: process.platform === "win32",
         });
 
         const elapsed = Date.now() - startTime;

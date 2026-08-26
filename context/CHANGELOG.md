@@ -14,6 +14,28 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-08-26] - security: OS command injection via shell:true build/scaffold sinks (ICM-50570)
+
+External report (two confirmed PoCs, commit 30f5967): `normalizePath()` (`src/utils/index.ts`) blocks `..` traversal and absolute/Windows-drive paths but never sanitized shell metacharacters (`;`, `"`, `&`, `|`, `$`, backticks). Its output reached shell-executing sinks unescaped — `scaffold-fastedge-project` (`src/tools/local/scaffolding/scaffolds.ts`) built an `npx` command string for `child_process.exec` (always shell-backed) by interpolating the normalized `outputDir`; `build-wasm`'s JS/TS path (`src/tools/local/workspace/compiler/jsBuild.ts`) called `child_process.spawn(..., { shell: true })`. Either let an attacker-controlled `outputDir`/`entryFile` (from a malicious repo an agent scaffolds/builds, or a direct HTTP/SSE tool call) run arbitrary commands with the operator's `GCORE_API_KEY` in the process env.
+
+**First draft (reverted) added a shell-metacharacter denylist to `normalizePath()` itself.** Codex (MoM) review caught that this was the wrong choke point: `normalizePath()` is also used by non-shell callers (`uploadBinary` in `src/tools/api/binaries/api.ts`, build-directory/tsconfig resolution in `src/tools/local/workspace/compiler/index.ts`), so the denylist rejected legitimate paths like `dist/app(v2).wasm` that never reach a shell. It also missed a third shell sink review didn't originally cover — see below — so patching the normalizer wasn't even sufficient on its own.
+
+**Fix — remove the shell from every affected sink instead of sanitizing input for it**:
+
+- `src/tools/local/scaffolding/scaffolds.ts` — `scaffold-fastedge-project` switched from `exec(command string)` to `execFile("npx", argsArray)`. `outputPath` is now passed as a discrete argv element, never concatenated into shell text.
+- `src/tools/local/workspace/compiler/jsBuild.ts` — `spawn` no longer hardcodes `shell: true`.
+- `src/tools/local/workspace/compiler/asBuild.ts` — same `spawn("npx", ascArgs, { shell: true })` pattern as `jsBuild.ts`, feeding the same `normalizePath`-derived `entryFilePath`/`outputFilePath`. Missed in the first pass; found by the Codex (MoM) review. Fixed the same way.
+- All three: `shell` is now `process.platform === "win32"` only, not hardcoded `true`. The MCP server's production path is the Linux Docker container (`setupCrossPlatformEnvironment` already assumes Linux x64), where `npx` is a real executable and no shell is needed; the conditional preserves local Windows dev (where `npx` is a `.cmd` shim `spawn`/`execFile` can't exec directly) without opening the Linux/Docker attack surface the PoCs targeted.
+- `src/utils/index.ts` — left unchanged (reverted to pre-fix behavior): traversal/absolute-path checks only, no metacharacter denylist.
+
+**Known residual, out of scope for this ICM** (Codex/MoM review, not independently reproduced): on Windows, `shell: true` still routes through `cmd.exe`, which has its own metacharacter set (`%`, `!`, `^`) beyond what any POSIX-shell denylist would catch, and older Node releases had a documented `.cmd` argument-injection issue (CVE-2024-27980). The ICM's PoCs and this server's only supported deployment (Docker/Linux) don't hit this path; Windows is local-dev-only today. Not fixed here — flag if Windows becomes a supported deployment target.
+
+`src/tools/local/workspace/compiler/rustBuild.ts` spawns `cargo` with `shell: "/bin/bash"` unconditionally, and interpolates a `target` value read from `.cargo/config.toml`/`Cargo.toml` in the cloned project (`rustConfigWasiTarget`) into `--target=${target}`. Flagged by Codex (MoM) review as a structurally similar (untrusted-file-content → shell arg) but distinct issue — not `normalizePath`-derived, and the repo comment says bash is intentional for the container's cargo/rustup shims. Not touched here; needs its own investigation before changing.
+
+**Verified**: full `pnpm run test` suite (78 tests) and reference-index tests still pass; `normalizePath("/workspace", "dist/app(v2).wasm")` now resolves correctly instead of being rejected; the two PoC payloads still can't execute anything at any of the three sinks (no shell on Linux, so they're inert argv/array elements, not shell text).
+
+---
+
 ## [2026-08-25] - security: batch_execute policy bypass via resolved paths (ICM-50568)
 
 External report: `batch_execute` ran `checkAllowed` on the **template** path (where `$name.field` is one opaque segment, so `/fastedge/v1/apps/$planted.v` matched `/fastedge/v1/apps/{app_id}`), then dispatched the **resolved** path with no second check. A prior step's data is untrusted (prompt injection, or just an API response containing free text), so `$planted.v = "../../../cdn/resources/123"` produced a request `new URL()` normalized to `/cdn/resources/123` — outside the allowlist, sent with the operator's `GCORE_API_KEY`.

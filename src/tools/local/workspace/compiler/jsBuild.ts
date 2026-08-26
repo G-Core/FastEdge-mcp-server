@@ -25,7 +25,10 @@ export function compileJavascriptBinary(
           ...(tsconfigPath ? ["--tsconfig", tsconfigPath] : []),
         ],
         {
-          shell: true,
+          // shell is only needed on Windows, where npx is a .cmd shim spawn can't
+          // exec directly. Avoiding it elsewhere (Docker/Linux, the production path)
+          // closes the command-injection surface a shell would otherwise open.
+          shell: process.platform === "win32",
           stdio: ["ignore", "pipe", "pipe"],
           cwd,
           env: { ...process.env },
