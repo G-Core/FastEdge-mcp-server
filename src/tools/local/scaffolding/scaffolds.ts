@@ -167,14 +167,14 @@ export function registerCreateBoilerPlateCode(
         ];
 
         // Execute via execFile with an args array instead of a shell command string,
-        // so outputPath can never be interpreted as shell syntax. shell is only
-        // needed on Windows, where npx is a .cmd shim execFile can't exec directly.
+        // so outputPath can never be interpreted as shell syntax. No shell on any
+        // platform: this server only ships as a Linux Docker image (see
+        // DEVELOPMENT.md) — native Windows execution isn't a supported path.
         const { stderr } = await execFileAsync("npx", args, {
           cwd: options.workspaceRoot,
           env: process.env,
           timeout: 120000, // 2 minute timeout for scaffolding + npm install
           maxBuffer: 10 * 1024 * 1024, // 10MB buffer
-          shell: process.platform === "win32",
         });
 
         const elapsed = Date.now() - startTime;

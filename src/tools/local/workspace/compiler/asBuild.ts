@@ -49,10 +49,9 @@ export function compileAssemblyScriptBinary(
       }
 
       const asBuild = spawn("npx", ascArgs, {
-        // shell is only needed on Windows, where npx is a .cmd shim spawn can't
-        // exec directly. Avoiding it elsewhere (Docker/Linux, the production path)
-        // closes the command-injection surface a shell would otherwise open.
-        shell: process.platform === "win32",
+        // No shell, on any platform: this server only ships as a Linux Docker
+        // image (see DEVELOPMENT.md) — native Windows execution of build tooling
+        // isn't a supported path, so there's no reason to open a shell for it.
         stdio: ["ignore", "pipe", "pipe"],
         cwd,
         env: { ...process.env },
