@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-test
       ref: main
-      commit: c79583ecbec74b0d36ae664cd3a148ae34059a75
-      updated: 2026-08-20
+      commit: 9c4ab58dddbffed3e446ab10e9249f07edc6165f
+      updated: 2026-08-25
 -->
 
 # FastEdge Test Framework API
@@ -71,8 +71,8 @@ defineTestSuite({
   wasmBuffer: Buffer;     // pre-loaded WASM binary — mutually exclusive with wasmPath
   runnerConfig?: {
     dotenv?: {
-      enabled?: boolean;                          // load .env into WASM before each test — see the DOTENV reference
-      path?: string;                              // directory to load dotenv files from; defaults to process CWD
+      enabled?: boolean;  // load .env into WASM before each test — see the DOTENV reference
+      path?: string;      // directory to load dotenv files from; defaults to process CWD
     };
     enforceProductionPropertyRules?: boolean;     // default true
     runnerType?: "http-wasm" | "proxy-wasm";      // override automatic WASM type detection

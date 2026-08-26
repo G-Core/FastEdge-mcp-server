@@ -1,6 +1,6 @@
 {
   "name": "mcp-play",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "A simple Node.js application to play with the Model Context Protocol.",
   "main": "src/server.ts",
   "type": "module",

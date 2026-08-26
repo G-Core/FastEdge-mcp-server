@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-test
       ref: main
-      commit: c79583ecbec74b0d36ae664cd3a148ae34059a75
-      updated: 2026-08-20
+      commit: 9c4ab58dddbffed3e446ab10e9249f07edc6165f
+      updated: 2026-08-25
 -->
 
 # FastEdge Visual Debugger
@@ -75,24 +75,6 @@ npx fastedge-debug --project-dir .. ../fixtures/scenario-1.test.json
 
 When omitted, behavior is unchanged — the positional argument or `process.cwd()` is used as the starting point.
 
-Programmatic usage:
-```typescript
-import { startServer } from "@gcoredev/fastedge-test/server";
-
-// Start on the default port (5179)
-await startServer();
-
-// Start on a custom port
-await startServer(3000);
-```
-
-**Signature:**
-```typescript
-function startServer(port?: number): Promise<void>;
-```
-
-The returned promise resolves once the server is bound and ready to accept connections.
-
 ---
 
 ## Dual-Mode Behaviour
@@ -120,24 +102,30 @@ See the dotenv reference for the full setup — prefix scheme, file options, pri
 
 ## What the UI Shows
 
-| Panel | Content |
-|---|---|
-| Request | Method, URL, headers, body sent to the WASM |
-| Response | Status, headers, body returned by the WASM |
-| Logs | Streamed log output, filterable by level (trace/debug/info/warn/error/critical) |
-| Hook results | **CDN only** — phase callbacks (`onRequestHeaders`, `onRequestBody`, `onResponseHeaders`, `onResponseBody`) |
-| Property accesses | **CDN only** — which CDN properties the filter read |
-
-Log verbosity is controlled by `logLevel` in `fastedge-config.test.json`:
-`0` = trace (everything), `1` = debug, `2` = info, `3` = warn, `4` = error.
+The UI provides a graphical interface for loading WASM modules, configuring requests, and inspecting results. All UI interactions use the same REST and WebSocket endpoints available to API consumers.
 
 ---
 
-## test-config Integration
+## Programmatic Usage
 
-The debugger auto-loads `fastedge-config.test.json` from the project root on startup — WASM path, request, headers, and CDN properties are pre-filled each session.
+Import `startServer` from the `./server` export to start the server from your own script or test setup:
 
-Use `/gcore-fastedge:test` to create or update this file. Full schema: see the test-config reference.
+```typescript
+import { startServer } from "@gcoredev/fastedge-test/server";
+
+// Start on the default port (5179)
+await startServer();
+
+// Start on a custom port
+await startServer(3000);
+```
+
+**Signature:**
+```typescript
+function startServer(port?: number): Promise<void>;
+```
+
+The returned promise resolves once the server is bound and ready to accept connections.
 
 ---
 
