@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-test
       ref: main
-      commit: c79583ecbec74b0d36ae664cd3a148ae34059a75
-      updated: 2026-08-20
+      commit: 9c4ab58dddbffed3e446ab10e9249f07edc6165f
+      updated: 2026-08-25
 -->
 
 # test-config Reference
