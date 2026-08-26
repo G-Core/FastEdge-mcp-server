@@ -94,7 +94,26 @@ export async function callGcoreApi(
     };
   }
 
-  const url = new URL(`${GCORE_API_BASE}${opts.path}`);
+  // Last line of defence: the Authorization header carries the operator's API
+  // key, so it must only ever leave for the configured Gcore origin. A path
+  // that manipulates the authority once concatenated (e.g. "@evil.example/...",
+  // which WHATWG URL parsing reads as userinfo) would otherwise send the key to
+  // an attacker-controlled host. The policy layer rejects these too; this guard
+  // does not depend on it.
+  let url: URL;
+  try {
+    url = new URL(`${GCORE_API_BASE}${opts.path}`);
+  } catch {
+    return { status: 0, data: { error: `Invalid API path: ${opts.path}` } };
+  }
+  if (url.origin !== new URL(GCORE_API_BASE).origin) {
+    return {
+      status: 0,
+      data: {
+        error: `Refusing to send an authenticated request to ${url.origin}: path "${opts.path}" escapes the configured Gcore API base ${GCORE_API_BASE}.`,
+      },
+    };
+  }
   if (opts.query) {
     for (const [key, value] of Object.entries(opts.query)) {
       url.searchParams.set(key, value);

