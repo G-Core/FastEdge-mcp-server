@@ -49,7 +49,9 @@ export function compileAssemblyScriptBinary(
       }
 
       const asBuild = spawn("npx", ascArgs, {
-        shell: true,
+        // No shell, on any platform: this server only ships as a Linux Docker
+        // image (see DEVELOPMENT.md) — native Windows execution of build tooling
+        // isn't a supported path, so there's no reason to open a shell for it.
         stdio: ["ignore", "pipe", "pipe"],
         cwd,
         env: { ...process.env },
