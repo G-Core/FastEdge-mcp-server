@@ -11,11 +11,12 @@
     "build:watch": "tsc -p ./tsconfig.build.json --watch",
     "generate:schemas:prod": "SPEC_BASE_URL=${SPEC_BASE_URL:-https://api.gcore.com} tsx scripts/generate-schemas.ts",
     "generate:schemas:preprod": "SPEC_BASE_URL=https://api.preprod.world tsx scripts/generate-schemas.ts",
-    "test": "npm run test:api && npm run test:reference-index",
+    "test": "npm run test:api && npm run test:compiler-injection && npm run test:reference-index",
     "test:api": "tsx --test scripts/tests/test-api.ts",
     "test:reference-index": "bash scripts/tests/test-reference-index.sh",
     "server:dev": "tsx src/server.ts",
-    "server:inspect": "export DANGEROUSLY_OMIT_AUTH=true && npx @modelcontextprotocol/inspector npm run server:dev"
+    "server:inspect": "export DANGEROUSLY_OMIT_AUTH=true && npx @modelcontextprotocol/inspector npm run server:dev",
+    "test:compiler-injection": "tsx --test scripts/tests/test-compiler-injection.ts"
   },
   "author": "Gcore",
   "license": "Apache-2.0",

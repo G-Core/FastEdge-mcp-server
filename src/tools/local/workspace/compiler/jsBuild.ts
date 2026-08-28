@@ -45,6 +45,12 @@ export function compileJavascriptBinary(
         stderr += data;
       });
 
+      // Without a shell, a missing `npx` surfaces as an async 'error' event, not
+      // an exit code. Unhandled, that kills the whole MCP server process.
+      jsBuild.on("error", (err: Error) => {
+        reject(new Error(`failed to start build: ${err.message}`));
+      });
+
       jsBuild.on("close", (code: number) => {
         if (code !== 0) {
           reject(new Error(`build exited with code ${code}: ${stderr}`));
