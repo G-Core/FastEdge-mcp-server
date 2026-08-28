@@ -63,6 +63,12 @@ export function compileAssemblyScriptBinary(
         stderr += data;
       });
 
+      // Without a shell, a missing `npx` surfaces as an async 'error' event, not
+      // an exit code. Unhandled, that kills the whole MCP server process.
+      asBuild.on("error", (err: Error) => {
+        reject(new Error(`failed to start asc build: ${err.message}`));
+      });
+
       asBuild.on("close", (code: number) => {
         if (code !== 0) {
           reject(new Error(`asc build exited with code ${code}: ${stderr}`));

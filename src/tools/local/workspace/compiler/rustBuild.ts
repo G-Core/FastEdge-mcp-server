@@ -68,15 +68,13 @@ export function compileRustAndFindBinary(
   cwd: string
 ) {
   return new Promise<string>(async (resolve, reject) => {
-    // Inside Docker container, always use bash regardless of host OS
-    const shell = "/bin/bash";
-
     const target = rustConfigWasiTarget(entryFilePath);
     const cargoBuild = spawn(
       "cargo",
       ["build", "--message-format=json", `--target=${target}`],
       {
-        shell,
+        // No shell: `target` comes from the project's own .cargo/config.toml,
+        // so shell interpolation would be a command-injection sink (ICM-50655).
         stdio: ["ignore", "pipe", "pipe"],
         cwd,
         env: { ...process.env },
@@ -92,6 +90,12 @@ export function compileRustAndFindBinary(
 
     cargoBuild.stderr?.on("data", (data: Buffer) => {
       stderr += data;
+    });
+
+    // Without a shell, a missing `cargo` surfaces as an async 'error' event, not
+    // an exit code. Unhandled, that kills the whole MCP server process.
+    cargoBuild.on("error", (err: Error) => {
+      reject(new Error(`failed to start cargo build: ${err.message}`));
     });
 
     cargoBuild.on("close", (code: number) => {
