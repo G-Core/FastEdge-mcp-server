@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0.0",
-  "generated_at": "2026-08-26T10:20:38.669Z",
+  "generated_at": "2026-08-28T10:08:36.778Z",
   "source": {
     "repo": "fastedge-plugin",
-    "commit": "0ec6d97",
+    "commit": "7cbff02",
     "pipeline": "sync-reference-docs"
   },
   "topics": [
@@ -42348,7 +42348,7 @@
     {
       "id": "templates-catalog",
       "title": "FastEdge Bolt-On Templates",
-      "description": "auto-updated: true sources: - id: fastedge-templates ref: main commit: 87b7dc143db5e74cf0e7eb52f67484f6abc51c43 updated: 2026-08-20 -->",
+      "description": "auto-updated: true sources: - id: fastedge-templates ref: main commit: 87b7dc143db5e74cf0e7eb52f67484f6abc51c43 updated: 2026-08-28 -->",
       "path": "reference/fastedge-docs/templates/catalog.md",
       "skill": "fastedge-docs",
       "category": "reference",
@@ -42366,7 +42366,7 @@
         "commit",
         "87b7dc143db5e74cf0e7eb52f67484f6abc51c43",
         "updated",
-        "2026-08-20",
+        "2026-08-28",
         "fastedge",
         "bolt-on",
         "templates",
@@ -42378,7 +42378,7 @@
         "scratch",
         "check"
       ],
-      "content_sha256": "910cf26789610f4f959d807e57f149e1cf0af1cb1bcdcc089f45792bb595ff83",
+      "content_sha256": "276f200073225fda2d6e948c5086b6ca94a3dc6485c05d068f47e708cacf4301",
       "sections": [
         {
           "id": "templates-catalog#introduction",
@@ -42397,7 +42397,7 @@
             "commit",
             "87b7dc143db5e74cf0e7eb52f67484f6abc51c43",
             "updated",
-            "2026-08-20",
+            "2026-08-28",
             "fastedge",
             "bolt-on",
             "templates",
@@ -42632,7 +42632,7 @@
     {
       "id": "templates-edge-sso-integration",
       "title": "edge-sso — Origin Integration Reference",
-      "description": "auto-updated: true sources: - id: fastedge-templates ref: main commit: 87b7dc143db5e74cf0e7eb52f67484f6abc51c43 updated: 2026-08-20 -->",
+      "description": "auto-updated: true sources: - id: fastedge-templates ref: main commit: 87b7dc143db5e74cf0e7eb52f67484f6abc51c43 updated: 2026-08-28 -->",
       "path": "reference/fastedge-docs/templates/edge-sso-integration.md",
       "skill": "fastedge-docs",
       "category": "reference",
@@ -42650,7 +42650,7 @@
         "commit",
         "87b7dc143db5e74cf0e7eb52f67484f6abc51c43",
         "updated",
-        "2026-08-20",
+        "2026-08-28",
         "edge-sso",
         "origin",
         "integration",
@@ -42661,7 +42661,7 @@
         "pair",
         "auth-app"
       ],
-      "content_sha256": "6b3e417969b4c786f86226a022f2180d50d870c6b9092c5a00870b2af82aadf3",
+      "content_sha256": "2e6ad50dc4ddd37a13e5a391bfb0b6b6b66736a5a19e1673ca5c3a99da89451c",
       "sections": [
         {
           "id": "templates-edge-sso-integration#introduction",
@@ -42680,7 +42680,7 @@
             "commit",
             "87b7dc143db5e74cf0e7eb52f67484f6abc51c43",
             "updated",
-            "2026-08-20",
+            "2026-08-28",
             "edge-sso",
             "origin",
             "integration",
@@ -43018,7 +43018,7 @@
     {
       "id": "templates-edge-totp-integration",
       "title": "edge-totp — Origin Integration",
-      "description": "auto-updated: true sources: - id: fastedge-templates ref: main commit: 87b7dc143db5e74cf0e7eb52f67484f6abc51c43 updated: 2026-08-20 -->",
+      "description": "auto-updated: true sources: - id: fastedge-templates ref: main commit: 87b7dc143db5e74cf0e7eb52f67484f6abc51c43 updated: 2026-08-28 -->",
       "path": "reference/fastedge-docs/templates/edge-totp-integration.md",
       "skill": "fastedge-docs",
       "category": "reference",
@@ -43036,7 +43036,7 @@
         "commit",
         "87b7dc143db5e74cf0e7eb52f67484f6abc51c43",
         "updated",
-        "2026-08-20",
+        "2026-08-28",
         "edge-totp",
         "origin",
         "integration",
@@ -43047,7 +43047,7 @@
         "existing",
         "password"
       ],
-      "content_sha256": "2f2493935877ac046f328513d03575666424c44043fa8f4d319e59f96b93dccb",
+      "content_sha256": "b56ed31a6c1051c60ca802bcf65dbf419863985e1e1597c79064fdb2eef15019",
       "sections": [
         {
           "id": "templates-edge-totp-integration#introduction",
@@ -43066,7 +43066,7 @@
             "commit",
             "87b7dc143db5e74cf0e7eb52f67484f6abc51c43",
             "updated",
-            "2026-08-20",
+            "2026-08-28",
             "edge-totp",
             "origin",
             "integration",
