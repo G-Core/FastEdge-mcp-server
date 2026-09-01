@@ -147,6 +147,19 @@ Make sure to set the following environment variables:
 
 See [DEVELOPMENT.md](./DEVELOPMENT.md) for the full env var table and the preprod build recipe.
 
+## Permissions
+
+The container entrypoint automatically detects the owner of the `/workspace` mount and drops privileges to that UID/GID so generated files are not root-owned. If builds fail with "Permission denied", pass `-e HOST_UID=$(id -u) -e HOST_GID=$(id -g)` to `docker run` to override the detected user:
+
+```bash
+docker run --rm -i \
+  -v "$(pwd):/workspace" \
+  -e WORKSPACE_ROOT=/workspace \
+  -e HOST_UID=$(id -u) -e HOST_GID=$(id -g) \
+  -e GCORE_API_KEY=your_api_key \
+  ghcr.io/g-core/fastedge-mcp-server:latest
+```
+
 ## Supported FastEdge Templates
 
 The MCP server includes the following templates:

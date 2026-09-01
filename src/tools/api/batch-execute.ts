@@ -324,7 +324,9 @@ export const batchCallSchema = z
     }
   });
 
-export function registerBatchExecuteTool(server: McpServer) {
+export function registerBatchExecuteTool(server: McpServer, gcoreApiKey: string) {
+  const authedCaller = (opts: ApiCallOptions) =>
+    callGcoreApi({ ...opts, authHeader: `APIKey ${gcoreApiKey}` });
   server.registerTool(
     "batch_execute",
     {
@@ -335,6 +337,6 @@ export function registerBatchExecuteTool(server: McpServer) {
         calls: z.array(batchCallSchema),
       },
     },
-    async ({ calls }) => batchExecuteHandler({ calls: calls as BatchCall[] }),
+    async ({ calls }) => batchExecuteHandler({ calls: calls as BatchCall[] }, authedCaller),
   );
 }

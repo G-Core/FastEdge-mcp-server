@@ -66,7 +66,9 @@ export const gcoreApiBodySchema = z
     "Request body. MUST be a JSON object or array (never a JSON-encoded string). Example: { name: 'foo', binary: 123 }. The MCP layer serializes it before sending; pre-stringifying causes the Gcore gateway to reject with 'value must be an object'.",
   );
 
-export function registerGcoreApiTool(server: McpServer) {
+export function registerGcoreApiTool(server: McpServer, gcoreApiKey: string) {
+  const authedCaller = (opts: ApiCallOptions) =>
+    callGcoreApi({ ...opts, authHeader: `APIKey ${gcoreApiKey}` });
   server.registerTool(
     "gcore_api",
     {
@@ -83,6 +85,6 @@ export function registerGcoreApiTool(server: McpServer) {
         body: gcoreApiBodySchema,
       },
     },
-    async (input) => gcoreApiHandler(input as GcoreApiInput),
+    async (input) => gcoreApiHandler(input as GcoreApiInput, authedCaller),
   );
 }

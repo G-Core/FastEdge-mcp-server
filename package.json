@@ -11,12 +11,17 @@
     "build:watch": "tsc -p ./tsconfig.build.json --watch",
     "generate:schemas:prod": "SPEC_BASE_URL=${SPEC_BASE_URL:-https://api.gcore.com} tsx scripts/generate-schemas.ts",
     "generate:schemas:preprod": "SPEC_BASE_URL=https://api.preprod.world tsx scripts/generate-schemas.ts",
-    "test": "npm run test:api && npm run test:compiler-injection && npm run test:reference-index",
+    "test": "npm run test:api && npm run test:compiler-injection && npm run test:path-confinement && npm run test:subprocess-bounds && npm run test:subprocess-env && npm run test:scaffold-pin && npm run test:permissions && npm run test:reference-index",
     "test:api": "tsx --test scripts/tests/test-api.ts",
     "test:reference-index": "bash scripts/tests/test-reference-index.sh",
     "server:dev": "tsx src/server.ts",
     "server:inspect": "export DANGEROUSLY_OMIT_AUTH=true && npx @modelcontextprotocol/inspector npm run server:dev",
-    "test:compiler-injection": "tsx --test scripts/tests/test-compiler-injection.ts"
+    "test:compiler-injection": "tsx --test scripts/tests/test-compiler-injection.ts",
+    "test:path-confinement": "tsx --test scripts/tests/test-path-confinement.ts",
+    "test:subprocess-bounds": "tsx --test scripts/tests/test-subprocess-bounds.ts",
+    "test:subprocess-env": "tsx --test scripts/tests/test-subprocess-env.ts",
+    "test:scaffold-pin": "tsx --test scripts/tests/test-scaffold-pin.ts",
+    "test:permissions": "tsx --test scripts/tests/test-permissions.ts"
   },
   "author": "Gcore",
   "license": "Apache-2.0",
@@ -24,7 +29,6 @@
     "@gcoredev/fastedge-sdk-js": "^2.5.1",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "dedent": "^1.7.0",
-    "qs": "^6.14.0",
     "toml": "^3.0.0",
     "zod": "^4.3.5"
   },
@@ -32,10 +36,21 @@
     "@apidevtools/swagger-parser": "^12.1.0",
     "@modelcontextprotocol/inspector": "^0.18.0",
     "@types/node": "^24.10.9",
-    "@types/qs": "^6.14.0",
     "esbuild": "^0.27.2",
     "npm-run-all2": "^8.0.4",
     "tsx": "^4.20.3",
     "typescript": "^5.9.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "@hono/node-server@<1.19.10": ">=1.19.10",
+      "path-to-regexp@>=8.0.0 <8.4.0": ">=8.4.0",
+      "fast-uri@>=3.0.0 <=3.1.3": ">=3.1.4",
+      "hono@<4.11.7": ">=4.11.7",
+      "ajv@>=7.0.0-alpha.0 <8.18.0": ">=8.18.0",
+      "picomatch@>=4.0.0 <4.0.4": ">=4.0.4",
+      "qs@>=6.7.0 <=6.14.1": ">=6.14.2",
+      "body-parser@>=2.0.0 <2.3.0": ">=2.3.0"
+    }
   }
 }

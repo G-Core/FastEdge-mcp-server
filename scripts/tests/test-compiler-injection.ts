@@ -37,7 +37,7 @@ test("rust build does not execute an injected payload from .cargo/config.toml", 
 
     // The build itself must fail — the point is HOW it fails.
     await assert.rejects(
-      compileRustAndFindBinary(join(dir, "src", "main.rs"), join(dir, "out.wasm"), dir)
+      compileRustAndFindBinary(join(dir, "src", "main.rs"), join(dir, "out.wasm"), dir, dir)
     );
     assert.equal(
       existsSync(sentinel),

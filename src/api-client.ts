@@ -9,6 +9,16 @@ import { GCORE_API_BASE as BAKED_GCORE_API_BASE } from "./generated/config.js";
 export const GCORE_API_BASE =
   process.env.GCORE_API_BASE || BAKED_GCORE_API_BASE;
 
+// Validate the base URL at startup so a misconfigured GCORE_API_BASE fails
+// fast with a readable message rather than throwing inside a request handler.
+let GCORE_API_ORIGIN: string;
+try {
+  GCORE_API_ORIGIN = new URL(GCORE_API_BASE).origin;
+} catch {
+  console.error(`Fatal: GCORE_API_BASE "${GCORE_API_BASE}" is not a valid URL. Set a correct URL (e.g. https://api.gcore.com) and restart.`);
+  process.exit(1);
+}
+
 export const DEFAULT_TIMEOUT_MS = 60_000;
 
 /**
@@ -79,11 +89,7 @@ export function serializeBody(
 export async function callGcoreApi(
   opts: ApiCallOptions,
 ): Promise<ApiCallResult> {
-  const authorization =
-    opts.authHeader ??
-    (process.env.GCORE_API_KEY
-      ? `APIKey ${process.env.GCORE_API_KEY}`
-      : null);
+  const authorization = opts.authHeader ?? null;
   if (!authorization) {
     return {
       status: 0,
@@ -106,7 +112,7 @@ export async function callGcoreApi(
   } catch {
     return { status: 0, data: { error: `Invalid API path: ${opts.path}` } };
   }
-  if (url.origin !== new URL(GCORE_API_BASE).origin) {
+  if (url.origin !== GCORE_API_ORIGIN) {
     return {
       status: 0,
       data: {

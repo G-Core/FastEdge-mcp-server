@@ -1,16 +1,21 @@
 #!/bin/sh
-# Drop privileges to the host user so files created in the bind-mounted
-# workspace are owned by that user instead of root.
+# Resolve the UID/GID to run as, then drop privileges before exec-ing the
+# server process.
 #
-# Target UID/GID resolution order:
-#   1. Explicit HOST_UID / HOST_GID environment variables
+# Resolution order:
+#   1. HOST_UID / HOST_GID environment variables (explicit override)
 #   2. Owner of the mounted workspace directory ($WORKSPACE_ROOT)
-#   3. Fall back to running as-is (root) for backward compatibility
+#   3. If the resolved UID is 0 (no mount, root-owned mount, or Docker Desktop
+#      where bind-mount ownership appears as uid 0 inside the container), fall
+#      back to the baked-in uid/gid 10001 to avoid running as container root.
 #
-# This keeps the container backward-compatible: with no writable mount, or on
-# Docker Desktop (macOS/Windows) where bind-mount ownership is virtualized and
-# typically appears as uid 0 inside the container, the workspace owner resolves
-# to 0 and we stay root.
+# Pass -e HOST_UID=$(id -u) -e HOST_GID=$(id -g) to docker run when the
+# workspace mount is owned by a non-root user but the above detection does not
+# pick it up correctly (e.g. userns-remap setups).
+#
+# The API key is passed to the Node process via fd 3 (a heredoc opened below)
+# and removed from the environment before exec so it does not appear in
+# /proc/<pid>/environ of child processes.
 set -e
 
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-/workspace}"
@@ -35,6 +40,14 @@ fi
 target_uid="${target_uid:-0}"
 target_gid="${target_gid:-$target_uid}"
 
+# When the resolved owner is root (root-owned or absent mount, Docker Desktop
+# virtualized ownership), drop to the baked-in fallback user instead of
+# staying root. This prevents untrusted build code from running as container root.
+if [ "$target_uid" = "0" ]; then
+  target_uid=10001
+  target_gid=10001
+fi
+
 if [ "$(id -u)" = "0" ] && [ "$target_uid" != "0" ] && command -v setpriv >/dev/null 2>&1; then
   # Give the unprivileged user a writable HOME for tool caches
   # (npm / pnpm / create-fastedge-app). The cargo registry already lives in a
@@ -49,7 +62,16 @@ if [ "$(id -u)" = "0" ] && [ "$target_uid" != "0" ] && command -v setpriv >/dev/
   chmod 0700 "$HOME"
   chown "$target_uid:$target_gid" "$HOME"
   export HOME
+  exec 3<<EOF
+${GCORE_API_KEY:-}
+EOF
+  unset GCORE_API_KEY FASTEDGE_API_KEY
   exec setpriv --reuid="$target_uid" --regid="$target_gid" --clear-groups "$@"
 fi
 
+echo "Warning: running as root — setpriv not found" >&2
+exec 3<<EOF
+${GCORE_API_KEY:-}
+EOF
+unset GCORE_API_KEY FASTEDGE_API_KEY
 exec "$@"

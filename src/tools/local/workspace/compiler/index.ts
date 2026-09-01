@@ -90,28 +90,40 @@ export async function buildWasmBinary(
 
   const language = getActiveFileLanguage(entryFilePath, currWorkingDir);
 
+  // Default output path comes from a fixed relative path but still validate
+  // it — a symlink at wasm/output.wasm would bypass caller-supplied path checks.
+  let defaultOutput: string | null = null;
+  if (!wasmBinaryPath) {
+    const checked = normalizePath(workspaceRoot, "wasm/output.wasm");
+    if (checked === INVALID_PATH) {
+      throw new Error("Default output path wasm/output.wasm is invalid (symlink in place?)");
+    }
+    defaultOutput = checked;
+  }
+
   if (language === "rust") {
     return await compileRustAndFindBinary(
       entryFilePath,
-      wasmBinaryPath ?? path.join(workspaceRoot, "wasm/output.wasm"),
-      currWorkingDir
+      wasmBinaryPath ?? defaultOutput!,
+      currWorkingDir,
+      workspaceRoot
     );
   }
 
   if (language === "assemblyscript") {
-    // wasmBinaryPath may be null here — compileAssemblyScriptBinary will
-    // resolve the output from asconfig.json targets.release.outFile.
     return await compileAssemblyScriptBinary(
       entryFilePath,
       wasmBinaryPath,
-      currWorkingDir
+      currWorkingDir,
+      workspaceRoot
     );
   }
 
   return await compileJavascriptBinary(
     entryFilePath,
-    wasmBinaryPath ?? path.join(workspaceRoot, "wasm/output.wasm"),
+    wasmBinaryPath ?? defaultOutput!,
     currWorkingDir,
+    workspaceRoot,
     tsconfig
   );
 }
