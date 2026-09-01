@@ -10,9 +10,9 @@ export function registerApiTools(
   server: McpServer,
   options: { workspaceRoot: string; gcoreApiKey: string },
 ) {
-  registerGcoreApiTool(server);
+  registerGcoreApiTool(server, options.gcoreApiKey);
   registerDescribeApiTool(server);
   registerWorkflowsListTool(server);
-  registerBatchExecuteTool(server);
+  registerBatchExecuteTool(server, options.gcoreApiKey);
   registerUploadBinaryTool(server, options.gcoreApiKey, options.workspaceRoot);
 }

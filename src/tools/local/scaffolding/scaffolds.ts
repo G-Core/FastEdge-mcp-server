@@ -1,12 +1,26 @@
 import dedent from "dedent";
 import { exec, execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { tmpdir } from "node:os";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { ToolOptions } from "../../index.js";
 import { availableFastEdgeTemplates } from "./index.js";
-import { normalizePath, INVALID_PATH } from "../../../utils/index.js";
+import { normalizePath, INVALID_PATH, buildSubprocessEnv } from "../../../utils/index.js";
+
+// Exact version of create-fastedge-app to use. Update this when the package releases
+// a new version — do not use @beta or @latest (workspace .npmrc can redirect the registry).
+const CREATE_APP_PKG = "create-fastedge-app@0.0.16";
+
+// Override npm/npx config to prevent a workspace .npmrc from redirecting the
+// registry to an attacker-controlled host. USERCONFIG=/dev/null disables the
+// user-level config; npm_config_registry overrides the project-level one.
+const NPM_SAFE_ENV = {
+  ...buildSubprocessEnv(),
+  npm_config_registry: "https://registry.npmjs.org/",
+  NPM_CONFIG_USERCONFIG: "/dev/null",
+};
 
 import type { Language, ScaffoldTemplateType } from "./types.js";
 
@@ -34,12 +48,15 @@ export function registerListAvailableTemplates(
     async () => {
       const startTime = Date.now();
       try {
-        // Fetch templates from create-fastedge-app CLI
-        // Use --yes to skip npx prompts, and set a timeout
-        const command = "npx --yes create-fastedge-app@beta --list-templates";
+        // Fetch templates from create-fastedge-app CLI.
+        // Run from tmpdir so a workspace .npmrc cannot redirect the registry;
+        // NPM_SAFE_ENV pins the registry and disables user-level npm config.
+        const command = `npx --yes ${CREATE_APP_PKG} --list-templates`;
         const { stdout, stderr } = await execAsync(command, {
-          timeout: 30000, // 30 second timeout
-          maxBuffer: 10 * 1024 * 1024, // 10MB buffer
+          cwd: tmpdir(),
+          env: NPM_SAFE_ENV,
+          timeout: 30000,
+          maxBuffer: 10 * 1024 * 1024,
         });
 
         if (stderr) {
@@ -155,7 +172,7 @@ export function registerCreateBoilerPlateCode(
         // - --pnpm or --yarn: Use alternative package manager (optional)
         const args = [
           "--yes",
-          "create-fastedge-app@beta",
+          CREATE_APP_PKG,
           outputPath,
           "--template",
           params.template,
@@ -166,15 +183,14 @@ export function registerCreateBoilerPlateCode(
             : []),
         ];
 
-        // Execute via execFile with an args array instead of a shell command string,
-        // so outputPath can never be interpreted as shell syntax. No shell on any
-        // platform: this server only ships as a Linux Docker image (see
-        // DEVELOPMENT.md) — native Windows execution isn't a supported path.
+        // Execute via execFile with an args array — no shell, outputPath never
+        // interpreted as shell syntax. NPM_SAFE_ENV prevents a workspace .npmrc
+        // from redirecting the npm registry.
         const { stderr } = await execFileAsync("npx", args, {
           cwd: options.workspaceRoot,
-          env: process.env,
-          timeout: 120000, // 2 minute timeout for scaffolding + npm install
-          maxBuffer: 10 * 1024 * 1024, // 10MB buffer
+          env: NPM_SAFE_ENV,
+          timeout: 120000,
+          maxBuffer: 10 * 1024 * 1024,
         });
 
         const elapsed = Date.now() - startTime;

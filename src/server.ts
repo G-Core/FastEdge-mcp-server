@@ -13,6 +13,10 @@ const server = new McpServer({
 const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT || process.cwd();
 const GCORE_API_KEY =
   process.env.GCORE_API_KEY || process.env.FASTEDGE_API_KEY || "";
+// Remove from the ambient environment so build subprocesses (cargo build.rs,
+// npm lifecycle scripts, proc-macros) cannot read the key via process.env.
+delete process.env.GCORE_API_KEY;
+delete process.env.FASTEDGE_API_KEY;
 
 registerAllTools(server, {
   workspaceRoot: WORKSPACE_ROOT,

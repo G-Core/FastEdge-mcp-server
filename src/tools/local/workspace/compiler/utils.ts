@@ -1,30 +1,27 @@
-import { chmodSync, existsSync, mkdirSync, cpSync } from "fs";
-import { dirname, join } from "path";
+import { chmodSync, chownSync, statSync, existsSync, mkdirSync, cpSync } from "fs";
+import { dirname, join, resolve } from "path";
 
-// In MCP docker containers, the output WASM files may have restrictive permissions.
-// This function ensures that the output file and its parent directories have
-// permissions set to allow read/write/execute for the host user.
-function wasmOutputPermissions(wasmBinaryPath: string, cwd: string) {
+// Fix ownership of the build output so the host user (who owns the bind-mounted
+// workspace) can read/write/delete it after the container writes it.
+// Only meaningful when running as root (the SA-004 fallback path); when setpriv
+// already dropped to the workspace owner, files are owned correctly and this
+// function is a no-op.
+function wasmOutputPermissions(wasmBinaryPath: string, workspaceRoot: string) {
   try {
-    // Get the directory containing the output file
-    const outputDir = dirname(wasmBinaryPath);
-    let currentDir = outputDir;
-    while (currentDir !== cwd && currentDir !== "/" && currentDir !== ".") {
-      try {
-        chmodSync(currentDir, 0o777);
-      } catch (dirError) {
-        console.warn(`Could not set permissions on ${currentDir}:`, dirError);
-      }
-      currentDir = dirname(currentDir);
+    if (process.getuid?.() !== 0) return;
+    const { uid, gid } = statSync(workspaceRoot);
+    if (uid === 0) return; // root-owned mount — no meaningful owner to match
+    chownSync(wasmBinaryPath, uid, gid);
+    chmodSync(wasmBinaryPath, 0o644);
+    // Fix any directories the build created under workspaceRoot.
+    const root = resolve(workspaceRoot);
+    let dir = dirname(wasmBinaryPath);
+    while (dir.startsWith(root) && dir !== root) {
+      try { chownSync(dir, uid, gid); } catch { /* dir may already be owned correctly */ }
+      dir = dirname(dir);
     }
-    // Ensure the output WASM file has proper permissions for the host user
-    chmodSync(wasmBinaryPath, 0o777);
-  } catch (chmodError) {
-    console.warn(
-      "Failed to set permissions on output file/directory:",
-      chmodError
-    );
-    // Don't reject on chmod failure, just warn
+  } catch (err) {
+    console.warn("Failed to fix output ownership:", err);
   }
 }
 

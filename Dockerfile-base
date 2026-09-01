@@ -72,3 +72,11 @@ SHELL ["/bin/bash", "-c"]
 # Set environment variables for better shell experience
 ENV SHELL=/bin/bash
 ENV TERM=xterm-256color
+
+# Baked-in unprivileged fallback user (UID/GID 10001).
+# The entrypoint starts as root for privilege-drop machinery; when it cannot
+# resolve a real workspace owner (root-owned mount, Docker Desktop), it drops
+# to this user instead of staying root. Do NOT add a USER directive here —
+# the entrypoint must start as root to stat the mount and call setpriv.
+RUN groupadd -g 10001 fastedge && \
+    useradd -u 10001 -g 10001 -m -d /home/fastedge fastedge

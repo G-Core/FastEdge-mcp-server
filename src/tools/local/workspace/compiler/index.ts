@@ -94,17 +94,17 @@ export async function buildWasmBinary(
     return await compileRustAndFindBinary(
       entryFilePath,
       wasmBinaryPath ?? path.join(workspaceRoot, "wasm/output.wasm"),
-      currWorkingDir
+      currWorkingDir,
+      workspaceRoot
     );
   }
 
   if (language === "assemblyscript") {
-    // wasmBinaryPath may be null here — compileAssemblyScriptBinary will
-    // resolve the output from asconfig.json targets.release.outFile.
     return await compileAssemblyScriptBinary(
       entryFilePath,
       wasmBinaryPath,
-      currWorkingDir
+      currWorkingDir,
+      workspaceRoot
     );
   }
 
@@ -112,6 +112,7 @@ export async function buildWasmBinary(
     entryFilePath,
     wasmBinaryPath ?? path.join(workspaceRoot, "wasm/output.wasm"),
     currWorkingDir,
+    workspaceRoot,
     tsconfig
   );
 }

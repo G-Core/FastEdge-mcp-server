@@ -3,6 +3,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as toml from "toml";
 import { wasmOutputPermissions } from "./utils.js";
+import { buildSubprocessEnv } from "../../../../utils/index.js";
+
+const MAX_BUILD_MS = 300_000; // Rust cold builds are legitimately slow
+const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
 
 function findCargoConfig(startDir: string): string | null {
   let dir = startDir;
@@ -65,7 +69,8 @@ function rustConfigWasiTarget(startDir: string): string {
 export function compileRustAndFindBinary(
   entryFilePath: string,
   wasmBinaryPath: string,
-  cwd: string
+  cwd: string,
+  workspaceRoot: string
 ) {
   return new Promise<string>(async (resolve, reject) => {
     const target = rustConfigWasiTarget(entryFilePath);
@@ -77,28 +82,42 @@ export function compileRustAndFindBinary(
         // so shell interpolation would be a command-injection sink (ICM-50655).
         stdio: ["ignore", "pipe", "pipe"],
         cwd,
-        env: { ...process.env },
+        env: buildSubprocessEnv(),
+        timeout: MAX_BUILD_MS,
+        killSignal: "SIGKILL",
       }
     );
 
     let stdout = "";
     let stderr = "";
+    let truncated = false;
 
     cargoBuild.stdout?.on("data", (data: Buffer) => {
+      if (stdout.length + data.length > MAX_OUTPUT_BYTES) {
+        truncated = true;
+        cargoBuild.kill("SIGKILL");
+        return;
+      }
       stdout += data;
     });
 
     cargoBuild.stderr?.on("data", (data: Buffer) => {
+      if (stderr.length + data.length > MAX_OUTPUT_BYTES) {
+        cargoBuild.kill("SIGKILL");
+        return;
+      }
       stderr += data;
     });
 
-    // Without a shell, a missing `cargo` surfaces as an async 'error' event, not
-    // an exit code. Unhandled, that kills the whole MCP server process.
     cargoBuild.on("error", (err: Error) => {
       reject(new Error(`failed to start cargo build: ${err.message}`));
     });
 
-    cargoBuild.on("close", (code: number) => {
+    cargoBuild.on("close", (code: number | null, signal: string | null) => {
+      if (signal === "SIGKILL") {
+        reject(new Error(truncated ? `cargo build killed: output exceeded ${MAX_OUTPUT_BYTES} bytes` : `cargo build timed out after ${MAX_BUILD_MS}ms`));
+        return;
+      }
       if (code !== 0) {
         reject(new Error(`cargo build exited with code ${code}: ${stderr}`));
         return;
@@ -130,7 +149,7 @@ export function compileRustAndFindBinary(
             fs.mkdirSync(path.dirname(wasmBinaryPath), { recursive: true });
             fs.copyFileSync(message.filenames[0], wasmBinaryPath);
             fs.unlinkSync(message.filenames[0]);
-            wasmOutputPermissions(wasmBinaryPath, cwd);
+            wasmOutputPermissions(wasmBinaryPath, workspaceRoot);
             return resolve(wasmBinaryPath);
           }
         }

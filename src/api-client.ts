@@ -79,11 +79,7 @@ export function serializeBody(
 export async function callGcoreApi(
   opts: ApiCallOptions,
 ): Promise<ApiCallResult> {
-  const authorization =
-    opts.authHeader ??
-    (process.env.GCORE_API_KEY
-      ? `APIKey ${process.env.GCORE_API_KEY}`
-      : null);
+  const authorization = opts.authHeader ?? null;
   if (!authorization) {
     return {
       status: 0,
