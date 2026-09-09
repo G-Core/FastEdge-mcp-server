@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-test
       ref: main
-      commit: 9c4ab58dddbffed3e446ab10e9249f07edc6165f
-      updated: 2026-08-25
+      commit: 93d8046c3b98a65b18e189d435f760c8861d481f
+      updated: 2026-09-09
 -->
 
 # test-config Reference
@@ -55,6 +55,11 @@ Supply fields explicitly to avoid editor warnings, or add the `$schema` field an
 `httpPort` is an optional integer available only in HTTP-WASM configs. It pins the `fastedge-run` subprocess to a fixed port instead of dynamically allocating one from the 8100–8199 pool. The schema rejects `httpPort` on `proxy-wasm` configs.
 
 Without `httpPort`, the runner allocates a port from the 8100–8199 range for each test run. The allocated port is not stable across runs.
+
+Use port pinning when:
+- **Codespaces / Docker port-forwarding**: Port-forward rules reference a specific port number. Without pinning, the port changes between runs and breaks the forwarding rule.
+- **Stable live-preview URLs**: Browser tabs or external tooling pointing at a fixed URL require a stable port.
+- **External tooling integration**: Monitoring, load testing, or proxy configurations that hard-code a target address.
 
 If the pinned port is already in use, `HttpWasmRunner.load()` throws immediately with a descriptive error. There is no fallback to dynamic allocation. Pinning a port inside the 8100–8199 dynamic pool is allowed by the schema but risks collisions with other concurrent debug sessions. For shared environments, choose a port outside the pool (e.g. 8250).
 

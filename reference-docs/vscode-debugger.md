@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-test
       ref: main
-      commit: 9c4ab58dddbffed3e446ab10e9249f07edc6165f
-      updated: 2026-08-25
+      commit: 93d8046c3b98a65b18e189d435f760c8861d481f
+      updated: 2026-09-09
 -->
 
 # FastEdge Visual Debugger
@@ -29,13 +29,8 @@ Use the **`FastEdge: Debug Application`** command from the Command Palette to op
 npm install --save-dev @gcoredev/fastedge-test
 
 # Start the visual debugger
-npx @gcoredev/fastedge-test
-
-# Or using the explicit binary name (preferred):
 npx fastedge-debug
 ```
-
-> The shorthand `npx @gcoredev/fastedge-test` works because the package declares exactly one `bin` entry. Prefer the explicit `fastedge-debug` form — it stays correct if a second binary is ever added.
 
 If the package is not installed, fetch and run it in one shot:
 
@@ -43,7 +38,15 @@ If the package is not installed, fetch and run it in one shot:
 npx -p @gcoredev/fastedge-test fastedge-debug
 ```
 
-Opens the debugger UI at `http://localhost:5179`.
+> The shorthand `npx @gcoredev/fastedge-test` works because the package declares exactly one `bin` entry. Prefer the explicit `fastedge-debug` form — it stays correct if a second binary is ever added.
+
+Opens the debugger UI at `http://localhost:5179`. In CLI mode the server also prints the full browser URL with the session token in the fragment:
+
+```
+Open: http://localhost:5179/#token=<hex>
+```
+
+Open that URL directly — the frontend reads the `#token=` fragment and includes it as an `x-fastedge-token` header on every API request. See the API reference for authentication details, including the `x-fastedge-token` header and WebSocket token parameter.
 
 Custom port:
 ```bash
@@ -179,7 +182,15 @@ curl http://localhost:5179/health
 
 ## Port File
 
-When `WORKSPACE_PATH` is set, the server writes the bound port number to `$WORKSPACE_PATH/.fastedge-debug/.debug-port` on startup and deletes it on shutdown. When `WORKSPACE_PATH` is not set, the file is written under the current working directory. Use this file for programmatic port discovery when starting the server as a subprocess.
+When `WORKSPACE_PATH` is set, the server writes the bound port to `$WORKSPACE_PATH/.fastedge-debug/.debug-port` on startup and deletes it on shutdown. When `WORKSPACE_PATH` is not set, the file is written under the current working directory.
+
+The file format is `PORT:SHA256_HASH` — the decimal port number, a colon, then the hex-encoded SHA-256 of the session token. To extract just the port:
+
+```js
+const port = parseInt(fs.readFileSync(".fastedge-debug/.debug-port", "utf8").trim().split(":")[0], 10);
+```
+
+Use this file for programmatic port discovery when starting the server as a subprocess.
 
 ---
 
