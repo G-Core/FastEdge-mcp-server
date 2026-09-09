@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-test
       ref: main
-      commit: 9c4ab58dddbffed3e446ab10e9249f07edc6165f
-      updated: 2026-08-25
+      commit: 93d8046c3b98a65b18e189d435f760c8861d481f
+      updated: 2026-09-09
 -->
 
 # Server API — REST and WebSocket Endpoints
@@ -13,9 +13,50 @@ The `@gcoredev/fastedge-test` debugger server exposes REST and WebSocket interfa
 
 **Base URL:** `http://localhost:5179`
 
-The port can be overridden via the `PORT` environment variable. When `WORKSPACE_PATH` is set, the active port is written to `$WORKSPACE_PATH/.fastedge-debug/.debug-port` on startup and deleted on shutdown.
+The port can be overridden via the `PORT` environment variable. When `WORKSPACE_PATH` is set, the active port is written to `$WORKSPACE_PATH/.fastedge-debug/.debug-port` on startup and deleted on shutdown. The file contains `PORT:SHA256_HASH`, where `PORT` is the decimal port number and `SHA256_HASH` is the hex-encoded SHA-256 of the session token. Consumers that only need the port should parse the prefix up to the first colon (e.g. `parseInt(content.split(":")[0], 10)`).
 
 > **Note on header values.** Response-side and hook-result headers use `Record<string, string | string[]>` — single-valued headers are a `string`, multi-valued headers (notably `Set-Cookie` per RFC 6265) are a `string[]`. Request-side header inputs are single-valued `Record<string, string>`.
+
+---
+
+## Authentication
+
+The debugger server requires a session token on all `/api/*` requests. `/health` is the only unauthenticated endpoint.
+
+When started from the CLI (`npx fastedge-debug`), the server generates a random 32-byte hex token and prints the full browser URL to stderr:
+
+```
+Open: http://localhost:5179/#token=<hex>
+```
+
+The fragment after `#token=` is your session token.
+
+**HTTP requests** — send the token as a header on every `/api/*` call:
+
+```
+x-fastedge-token: <token>
+```
+
+**WebSocket** — two mechanisms exist, tried in preference order:
+
+1. **`Sec-WebSocket-Protocol: fastedge-token.<token>`** (preferred) — the token is embedded in the subprotocol list rather than the URL, keeping it out of proxy and server access logs. The server echoes the subprotocol back on accept.
+2. **`?token=<token>` query parameter** (fallback) — for legacy or non-browser tooling that cannot set subprotocols. Avoid this form in new consumers: the token appears in server and proxy logs.
+
+```javascript
+const ws = new WebSocket(
+  `ws://127.0.0.1:5179/ws`,
+  [`fastedge-token.${token}`],
+);
+```
+
+**Environment variables related to authentication and binding:**
+
+| Variable | Default | Description |
+|---|---|---|
+| `FASTEDGE_DEBUG_TOKEN` | unset | Inject a known token instead of generating one. When set, the `Open:` URL is not printed to stderr. |
+| `FASTEDGE_BIND_HOST` | `127.0.0.1` | Interface the HTTP server binds to. |
+| `FASTEDGE_EXPECTED_HOST` | unset | Extra hostname (suffix match) allowed in `Host` / `Origin` headers — for Codespaces forwarded URLs. |
+| `WORKSPACE_PATH` | `process.cwd()` | Workspace root; affects `.env` resolution, port file, and config file placement. |
 
 ---
 
@@ -44,7 +85,7 @@ X-Source: ai_agent
 
 #### GET /health
 
-Returns server status and service identity.
+Returns server status and service identity. Does not require authentication.
 
 **Response**
 
@@ -85,7 +126,7 @@ Returns the number of currently connected WebSocket clients. Useful in CI toolin
 **Example**
 
 ```bash
-curl http://localhost:5179/api/client-count
+curl -H "x-fastedge-token: <token>" http://localhost:5179/api/client-count
 ```
 
 ```json
@@ -133,6 +174,7 @@ Loads a WASM binary into the runner. Accepts a file path or base64-encoded binar
 ```bash
 curl -X POST http://localhost:5179/api/load \
   -H "Content-Type: application/json" \
+  -H "x-fastedge-token: <token>" \
   -d '{
     "wasmPath": "/home/user/project/build/module.wasm",
     "dotenv": { "enabled": true }
@@ -152,6 +194,7 @@ curl -X POST http://localhost:5179/api/load \
 ```bash
 curl -X POST http://localhost:5179/api/load \
   -H "Content-Type: application/json" \
+  -H "x-fastedge-token: <token>" \
   -d '{
     "wasmBase64": "AGFzbQEAAAA...",
     "dotenv": { "enabled": false }
@@ -170,6 +213,7 @@ curl -X POST http://localhost:5179/api/load \
 ```bash
 curl -X POST http://localhost:5179/api/load \
   -H "Content-Type: application/json" \
+  -H "x-fastedge-token: <token>" \
   -d '{
     "wasmPath": "/home/user/project/build/app.wasm",
     "httpPort": 8100
@@ -224,6 +268,7 @@ Requires a WASM module already loaded via `POST /api/load`.
 ```bash
 curl -X PATCH http://localhost:5179/api/dotenv \
   -H "Content-Type: application/json" \
+  -H "x-fastedge-token: <token>" \
   -d '{
     "dotenv": { "enabled": true, "path": "/home/user/project" }
   }'
@@ -344,6 +389,7 @@ type HookResult = {
 ```bash
 curl -X POST http://localhost:5179/api/execute \
   -H "Content-Type: application/json" \
+  -H "x-fastedge-token: <token>" \
   -H "X-Source: api" \
   -d '{
     "path": "/api/data?format=json",
@@ -374,6 +420,7 @@ curl -X POST http://localhost:5179/api/execute \
 ```bash
 curl -X POST http://localhost:5179/api/execute \
   -H "Content-Type: application/json" \
+  -H "x-fastedge-token: <token>" \
   -H "X-Source: api" \
   -d '{
     "url": "https://example.com/page",
@@ -415,11 +462,7 @@ curl -X POST http://localhost:5179/api/execute \
   "calculatedProperties": {
     "request.url": "https://example.com/page",
     "request.host": "example.com",
-    "request.path": "/page",
-    "request.query": "",
-    "request.scheme": "https",
-    "request.extension": "",
-    "request.method": "GET"
+    "request.path": "/page"
   }
 }
 ```
@@ -472,6 +515,7 @@ Requires a WASM module loaded via `POST /api/load`.
 ```bash
 curl -X POST http://localhost:5179/api/call \
   -H "Content-Type: application/json" \
+  -H "x-fastedge-token: <token>" \
   -d '{
     "hook": "onRequestHeaders",
     "request": {
@@ -573,6 +617,7 @@ Requires a WASM module loaded via `POST /api/load`. Accepts optional `X-Source` 
 ```bash
 curl -X POST http://localhost:5179/api/send \
   -H "Content-Type: application/json" \
+  -H "x-fastedge-token: <token>" \
   -H "X-Source: ai_agent" \
   -d '{
     "url": "https://example.com/api/resource",
@@ -630,11 +675,7 @@ curl -X POST http://localhost:5179/api/send \
   "calculatedProperties": {
     "request.url": "https://example.com/api/resource",
     "request.host": "example.com",
-    "request.path": "/api/resource",
-    "request.query": "",
-    "request.scheme": "https",
-    "request.extension": "",
-    "request.method": "POST"
+    "request.path": "/api/resource"
   }
 }
 ```
@@ -710,7 +751,7 @@ type TestConfig = ProxyWasmConfig | HttpWasmConfig;
 **Example**
 
 ```bash
-curl http://localhost:5179/api/config
+curl -H "x-fastedge-token: <token>" http://localhost:5179/api/config
 ```
 
 ```json
@@ -768,6 +809,7 @@ The `config` object must match one of the two `TestConfig` variants. `appType` a
 ```bash
 curl -X POST http://localhost:5179/api/config \
   -H "Content-Type: application/json" \
+  -H "x-fastedge-token: <token>" \
   -H "X-Source: api" \
   -d '{
     "config": {
@@ -803,14 +845,14 @@ curl -X POST http://localhost:5179/api/config \
 
 #### POST /api/config/save-as
 
-Saves the provided configuration to an arbitrary file path. Creates intermediate directories as needed. Appends `.json` if the path does not already end in `.json`.
+Saves the provided configuration to a file path previously vended by the save dialog. The path must have been registered by `/api/config/show-save-dialog` first; unregistered paths are rejected with `403`. The path is single-use — it is removed from the pending set once consumed. Creates intermediate directories as needed.
 
 **Request Body**
 
 ```typescript
 {
   config: object;     // The configuration object to serialize as JSON
-  filePath: string;   // Target file path (absolute or relative to project root)
+  filePath: string;   // A path previously returned by the save dialog
 }
 ```
 
@@ -819,7 +861,7 @@ Saves the provided configuration to an arbitrary file path. Creates intermediate
 ```typescript
 {
   ok: true;
-  savedPath: string;  // Resolved absolute path where the file was written
+  savedPath: string;  // The file path where the config was written
 }
 ```
 
@@ -828,6 +870,7 @@ Saves the provided configuration to an arbitrary file path. Creates intermediate
 ```bash
 curl -X POST http://localhost:5179/api/config/save-as \
   -H "Content-Type: application/json" \
+  -H "x-fastedge-token: <token>" \
   -d '{
     "config": {
       "appType": "proxy-wasm",
@@ -839,7 +882,7 @@ curl -X POST http://localhost:5179/api/config/save-as \
       },
       "properties": {}
     },
-    "filePath": "configs/staging.test"
+    "filePath": "/home/user/project/configs/staging.test.json"
   }'
 ```
 
@@ -855,6 +898,7 @@ curl -X POST http://localhost:5179/api/config/save-as \
 | Status | Condition |
 |---|---|
 | `400` | Missing `config` or `filePath` |
+| `403` | `filePath` was not vended by the save dialog (or was already used) |
 | `500` | File write or directory creation failed |
 
 ---
@@ -937,6 +981,7 @@ When a request body fails schema validation (Zod), `error` is a flattened Zod er
 | Status | Meaning |
 |---|---|
 | `400` | Invalid request body, missing required fields, or precondition not met (e.g. no WASM loaded) |
+| `403` | Host/token check failed, or a save-as path was not vended by the save dialog |
 | `404` | Resource not found (config file, schema file) |
 | `500` | Internal server error during execution or I/O |
 
@@ -944,18 +989,37 @@ When a request body fails schema validation (Zod), `error` is a flattened Zod er
 
 ## WebSocket Protocol
 
+### Authentication
+
+The server accepts the session token via two mechanisms, tried in this order:
+
+1. **`Sec-WebSocket-Protocol: fastedge-token.<token>`** (preferred) — the token is embedded in the subprotocol list, keeping it out of URLs and proxy access logs. The server echoes the matching subprotocol back on accept.
+2. **`?token=<token>` query parameter** (fallback) — for legacy or non-browser tooling that cannot set subprotocols. Avoid in new consumers: the token appears in server and proxy logs.
+
+```javascript
+const token = new URL(location.href).hash.slice("#token=".length);
+const ws = new WebSocket(`ws://127.0.0.1:5179/ws`, [`fastedge-token.${token}`]);
+```
+
+Fallback URL form:
+
+```
+ws://127.0.0.1:<port>/ws?token=<token>
+```
+
 ### Connection
 
 Connect to:
 
 ```
-ws://localhost:{port}/ws
+ws://127.0.0.1:{port}/ws
 ```
 
 Default port: `5179`.
 
 ```javascript
-const ws = new WebSocket('ws://localhost:5179/ws');
+const token = new URL(location.href).hash.slice("#token=".length);
+const ws = new WebSocket(`ws://127.0.0.1:5179/ws`, [`fastedge-token.${token}`]);
 
 ws.addEventListener('message', (event) => {
   const msg = JSON.parse(event.data);
@@ -965,7 +1029,7 @@ ws.addEventListener('message', (event) => {
 
 ### Lifecycle
 
-1. **Connect** — server accepts all connections and immediately sends a `connection_status` event confirming the connection and current client count.
+1. **Connect** — server validates the token and origin, then immediately sends a `connection_status` event confirming the connection and current client count.
 2. **Ping / pong** — server sends WebSocket `ping` frames every 15 seconds. Clients that have not responded within 30 seconds are terminated. Standard WebSocket clients handle pong automatically.
 3. **Disconnect** — when a client disconnects, the server broadcasts an updated `connection_status` to remaining clients.
 
@@ -1363,7 +1427,7 @@ import { startServer } from '@gcoredev/fastedge-test/server';
 
 The server listens on port `5179` by default. Override with the `PORT` environment variable. When the preferred port is busy, the server tries up to 10 sequential ports before failing.
 
-When `WORKSPACE_PATH` is set, the active port is written to `$WORKSPACE_PATH/.fastedge-debug/.debug-port` on startup and removed on shutdown. Use this file to discover the port dynamically in CI or multi-process tooling.
+When `WORKSPACE_PATH` is set, the active port is written to `$WORKSPACE_PATH/.fastedge-debug/.debug-port` on startup and removed on shutdown. The file contains `PORT:SHA256_HASH` — consumers that only need the port should parse the prefix up to the first colon (e.g. `parseInt(content.split(":")[0], 10)`). Use this file to discover the port dynamically in CI or multi-process tooling.
 
 ---
 
