@@ -41,6 +41,9 @@ export async function compileJavascriptBinary(
   if (result.signal === "SIGKILL") {
     throw new Error(`build timed out after ${MAX_BUILD_MS}ms`);
   }
+  if (result.signal) {
+    throw new Error(`build killed by signal ${result.signal}: ${result.stderr}`);
+  }
   if (result.code !== 0) {
     throw new Error(`build exited with code ${result.code}: ${result.stderr}`);
   }

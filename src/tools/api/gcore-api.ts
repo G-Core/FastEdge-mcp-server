@@ -68,7 +68,7 @@ export const gcoreApiBodySchema = z
 
 export function registerGcoreApiTool(server: McpServer, gcoreApiKey: string) {
   const authedCaller = (opts: ApiCallOptions) =>
-    callGcoreApi({ ...opts, authHeader: `APIKey ${gcoreApiKey}` });
+    callGcoreApi({ ...opts, ...(gcoreApiKey ? { authHeader: `APIKey ${gcoreApiKey}` } : {}) });
   server.registerTool(
     "gcore_api",
     {

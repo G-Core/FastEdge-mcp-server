@@ -9,8 +9,10 @@ const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
 
 function findCargoConfig(startDir: string, workspaceRoot: string): string | null {
   let dir = startDir;
-  const root = path.resolve(workspaceRoot);
-  while (dir.startsWith(root) && dir !== path.parse(dir).root) {
+  let root: string;
+  try { root = fs.realpathSync(workspaceRoot); } catch { return null; }
+  const rootPrefix = root + path.sep;
+  while ((dir === root || dir.startsWith(rootPrefix)) && dir !== path.parse(dir).root) {
     const configPath = path.join(dir, ".cargo", "config.toml");
     if (fs.existsSync(configPath)) {
       return configPath;
@@ -22,8 +24,10 @@ function findCargoConfig(startDir: string, workspaceRoot: string): string | null
 
 function findCargoToml(startDir: string, workspaceRoot: string): string | null {
   let dir = startDir;
-  const root = path.resolve(workspaceRoot);
-  while (dir.startsWith(root) && dir !== path.parse(dir).root) {
+  let root: string;
+  try { root = fs.realpathSync(workspaceRoot); } catch { return null; }
+  const rootPrefix = root + path.sep;
+  while ((dir === root || dir.startsWith(rootPrefix)) && dir !== path.parse(dir).root) {
     const cargoPath = path.join(dir, "Cargo.toml");
     if (fs.existsSync(cargoPath)) {
       return cargoPath;
@@ -93,6 +97,9 @@ export async function compileRustAndFindBinary(
   }
   if (result.signal === "SIGKILL") {
     throw new Error(`cargo build timed out after ${MAX_BUILD_MS}ms`);
+  }
+  if (result.signal) {
+    throw new Error(`cargo build killed by signal ${result.signal}: ${result.stderr}`);
   }
   if (result.code !== 0) {
     throw new Error(`cargo build exited with code ${result.code}: ${result.stderr}`);

@@ -14,12 +14,12 @@ import { normalizePath, INVALID_PATH, buildSubprocessEnv } from "../../../utils/
 const CREATE_APP_PKG = "create-fastedge-app@0.0.16";
 
 // Override npm/npx config to prevent a workspace .npmrc from redirecting the
-// registry to an attacker-controlled host. USERCONFIG=/dev/null disables the
-// user-level config; npm_config_registry overrides the project-level one.
+// registry to an attacker-controlled host. npm_config_userconfig=/dev/null
+// disables the user-level config; npm_config_registry overrides the project-level one.
 const NPM_SAFE_ENV = {
   ...buildSubprocessEnv(),
   npm_config_registry: "https://registry.npmjs.org/",
-  NPM_CONFIG_USERCONFIG: "/dev/null",
+  npm_config_userconfig: "/dev/null",
 };
 
 import type { Language, ScaffoldTemplateType } from "./types.js";

@@ -76,6 +76,9 @@ export async function compileAssemblyScriptBinary(
   if (result.signal === "SIGKILL") {
     throw new Error(`asc build timed out after ${MAX_BUILD_MS}ms`);
   }
+  if (result.signal) {
+    throw new Error(`asc build killed by signal ${result.signal}: ${result.stderr}`);
+  }
   if (result.code !== 0) {
     throw new Error(`asc build exited with code ${result.code}: ${result.stderr}`);
   }

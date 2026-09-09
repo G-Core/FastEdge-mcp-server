@@ -326,7 +326,7 @@ export const batchCallSchema = z
 
 export function registerBatchExecuteTool(server: McpServer, gcoreApiKey: string) {
   const authedCaller = (opts: ApiCallOptions) =>
-    callGcoreApi({ ...opts, authHeader: `APIKey ${gcoreApiKey}` });
+    callGcoreApi({ ...opts, ...(gcoreApiKey ? { authHeader: `APIKey ${gcoreApiKey}` } : {}) });
   server.registerTool(
     "batch_execute",
     {

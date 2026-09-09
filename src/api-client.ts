@@ -95,7 +95,7 @@ export async function callGcoreApi(
       status: 0,
       data: {
         error:
-          "No authorization provided. Set GCORE_API_KEY env var or pass an Authorization header.",
+          "No authorization provided. Set GCORE_API_KEY (or FASTEDGE_API_KEY) in your environment.",
       },
     };
   }

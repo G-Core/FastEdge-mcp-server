@@ -69,7 +69,7 @@ EOF
   exec setpriv --reuid="$target_uid" --regid="$target_gid" --clear-groups "$@"
 fi
 
-echo "Warning: running as root — setpriv not found" >&2
+if [ "$(id -u)" = "0" ]; then echo "Warning: running as root — setpriv not found" >&2; fi
 exec 3<<EOF
 ${GCORE_API_KEY:-${FASTEDGE_API_KEY:-}}
 EOF

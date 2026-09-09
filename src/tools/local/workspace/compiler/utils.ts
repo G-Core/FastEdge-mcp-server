@@ -98,8 +98,7 @@ export function spawnBounded(
     let stdout = "";
     let stderr = "";
     let truncated = false;
-    let stdoutBytes = 0;
-    let stderrBytes = 0;
+    let totalBytes = 0;
 
     function killGroup() {
       try { process.kill(-child.pid!, "SIGKILL"); } catch { /* ESRCH — already gone */ }
@@ -108,8 +107,8 @@ export function spawnBounded(
     const timer = setTimeout(killGroup, opts.timeoutMs);
 
     child.stdout?.on("data", (data: Buffer) => {
-      stdoutBytes += data.byteLength;
-      if (stdoutBytes > opts.maxOutputBytes) {
+      totalBytes += data.byteLength;
+      if (totalBytes > opts.maxOutputBytes) {
         truncated = true;
         killGroup();
         return;
@@ -118,8 +117,8 @@ export function spawnBounded(
     });
 
     child.stderr?.on("data", (data: Buffer) => {
-      stderrBytes += data.byteLength;
-      if (stderrBytes > opts.maxOutputBytes) {
+      totalBytes += data.byteLength;
+      if (totalBytes > opts.maxOutputBytes) {
         truncated = true;
         killGroup();
         return;

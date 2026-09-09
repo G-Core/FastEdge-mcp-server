@@ -25,7 +25,8 @@ export function normalizePath(workspaceRoot: string, filePath: string): string {
     return INVALID_PATH;
   }
 
-  const rootReal = realpathSync(workspaceRoot);
+  let rootReal: string;
+  try { rootReal = realpathSync(workspaceRoot); } catch { return INVALID_PATH; }
   const candidate = path.join(rootReal, normalizedPath);
 
   // For output paths that don't exist yet, walk up to the nearest existing ancestor.
@@ -39,7 +40,8 @@ export function normalizePath(workspaceRoot: string, filePath: string): string {
       return INVALID_PATH;
     }
     if (stat.isSymbolicLink()) return INVALID_PATH; // symlinks rejected
-    const probeReal = realpathSync(probe);
+    let probeReal: string;
+    try { probeReal = realpathSync(probe); } catch { return INVALID_PATH; }
     if (probeReal !== rootReal && !probeReal.startsWith(rootReal + path.sep)) {
       return INVALID_PATH;
     }
@@ -64,11 +66,11 @@ export function buildSubprocessEnv(): NodeJS.ProcessEnv {
   ];
   const env: NodeJS.ProcessEnv = {};
   for (const k of PASSTHROUGH) {
-    if (process.env[k]) env[k] = process.env[k];
+    if (process.env[k] !== undefined) env[k] = process.env[k];
   }
   // CC_*/CXX_* per-target cross-compiler vars set by the Dockerfile for wasm builds.
   for (const k of Object.keys(process.env)) {
-    if (/^(CC|CXX|CFLAGS|CXXFLAGS)_/.test(k) && process.env[k]) env[k] = process.env[k];
+    if (/^(CC|CXX|CFLAGS|CXXFLAGS)_/.test(k) && process.env[k] !== undefined) env[k] = process.env[k];
   }
   return env;
 }
