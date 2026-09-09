@@ -1,30 +1,29 @@
-import { chmodSync, existsSync, mkdirSync, cpSync } from "fs";
-import { dirname, join } from "path";
+import { spawn } from "child_process";
+import { chmodSync, chownSync, statSync, existsSync, mkdirSync, cpSync, realpathSync } from "fs";
+import { dirname, join, sep } from "path";
 
-// In MCP docker containers, the output WASM files may have restrictive permissions.
-// This function ensures that the output file and its parent directories have
-// permissions set to allow read/write/execute for the host user.
-function wasmOutputPermissions(wasmBinaryPath: string, cwd: string) {
+// Fix ownership of the build output so the host user (who owns the bind-mounted
+// workspace) can read/write/delete it after the container writes it.
+// Only meaningful when running as root (when the entrypoint could not drop root
+// privileges via setpriv); when already running as the workspace owner, files
+// are owned correctly and this function is a no-op.
+function wasmOutputPermissions(wasmBinaryPath: string, workspaceRoot: string) {
   try {
-    // Get the directory containing the output file
-    const outputDir = dirname(wasmBinaryPath);
-    let currentDir = outputDir;
-    while (currentDir !== cwd && currentDir !== "/" && currentDir !== ".") {
-      try {
-        chmodSync(currentDir, 0o777);
-      } catch (dirError) {
-        console.warn(`Could not set permissions on ${currentDir}:`, dirError);
-      }
-      currentDir = dirname(currentDir);
+    if (process.getuid?.() !== 0) return;
+    const { uid, gid } = statSync(workspaceRoot);
+    if (uid === 0) return; // root-owned mount — no meaningful owner to match
+    chownSync(wasmBinaryPath, uid, gid);
+    chmodSync(wasmBinaryPath, 0o644);
+    // Fix any directories the build created under workspaceRoot.
+    // Use realpathSync + trailing sep so partial name matches (e.g. /workspace2) are rejected.
+    const root = realpathSync(workspaceRoot) + sep;
+    let dir = dirname(wasmBinaryPath);
+    while (dir.startsWith(root)) {
+      try { chownSync(dir, uid, gid); } catch { /* dir may already be owned correctly */ }
+      dir = dirname(dir);
     }
-    // Ensure the output WASM file has proper permissions for the host user
-    chmodSync(wasmBinaryPath, 0o777);
-  } catch (chmodError) {
-    console.warn(
-      "Failed to set permissions on output file/directory:",
-      chmodError
-    );
-    // Don't reject on chmod failure, just warn
+  } catch (err) {
+    console.warn("Failed to fix output ownership:", err);
   }
 }
 
@@ -61,6 +60,82 @@ function setupCrossPlatformEnvironment(): void {
   } catch (error) {
     console.error("Failed to copy wizer dependencies:", error);
   }
+}
+
+export interface SpawnResult {
+  stdout: string;
+  stderr: string;
+  code: number | null;
+  signal: string | null;
+  /** true when the process was killed because output exceeded maxOutputBytes */
+  truncated: boolean;
+}
+
+/**
+ * Spawn a child process bounded by a wall-clock timeout and a combined
+ * stdout+stderr byte cap. The child runs in its own process group (detached)
+ * so the entire group — including grandchildren such as wizer, rustc, and
+ * build scripts — is killed together on timeout or overflow.
+ */
+export function spawnBounded(
+  cmd: string,
+  args: string[],
+  opts: {
+    cwd: string;
+    env: NodeJS.ProcessEnv;
+    timeoutMs: number;
+    maxOutputBytes: number;
+  }
+): Promise<SpawnResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      cwd: opts.cwd,
+      env: opts.env,
+      detached: true, // own process group so we can kill grandchildren
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let truncated = false;
+    let totalBytes = 0;
+
+    function killGroup() {
+      try { process.kill(-child.pid!, "SIGKILL"); } catch { /* ESRCH — already gone */ }
+    }
+
+    const timer = setTimeout(killGroup, opts.timeoutMs);
+
+    child.stdout?.on("data", (data: Buffer) => {
+      totalBytes += data.byteLength;
+      if (totalBytes > opts.maxOutputBytes) {
+        truncated = true;
+        killGroup();
+        return;
+      }
+      stdout += data;
+    });
+
+    child.stderr?.on("data", (data: Buffer) => {
+      totalBytes += data.byteLength;
+      if (totalBytes > opts.maxOutputBytes) {
+        truncated = true;
+        killGroup();
+        return;
+      }
+      stderr += data;
+    });
+
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      reject(new Error(`failed to start process: ${err.message}`));
+    });
+
+    child.on("close", (code, signal) => {
+      clearTimeout(timer);
+      resolve({ stdout, stderr, code, signal, truncated });
+    });
+  });
 }
 
 export { wasmOutputPermissions, setupCrossPlatformEnvironment };

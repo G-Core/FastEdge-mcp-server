@@ -20,7 +20,7 @@ Create a file called `.vscode/mcp.json` in your workspace with the following con
       "command": "bash",
       "args": [
         "-c",
-        "docker run --rm -i --pull=always -v ${workspaceFolder}:/workspace -e WORKSPACE_ROOT=/workspace -e \"GCORE_API_KEY=$GCORE_API_KEY\" ghcr.io/g-core/fastedge-mcp-server:latest"
+        "docker run --rm -i --pull=always -v ${workspaceFolder}:/workspace -e WORKSPACE_ROOT=/workspace -e HOST_UID=$(id -u) -e HOST_GID=$(id -g) -e \"GCORE_API_KEY=$GCORE_API_KEY\" ghcr.io/g-core/fastedge-mcp-server:latest"
       ],
       "env": {
         "GCORE_API_KEY": "your_api_key_here"
@@ -51,9 +51,14 @@ You can test the Docker image manually:
 docker run --rm -i --pull=always \
   -v "$(pwd):/workspace" \
   -e "WORKSPACE_ROOT=/workspace" \
+  -e HOST_UID=$(id -u) -e HOST_GID=$(id -g) \
   -e "GCORE_API_KEY=your_api_key" \
   ghcr.io/g-core/fastedge-mcp-server:latest
 ```
+
+## Permissions
+
+The container entrypoint automatically detects the owner of the `/workspace` mount and drops privileges to that UID/GID so generated files are not root-owned. If builds fail with "Permission denied", pass `-e HOST_UID=$(id -u) -e HOST_GID=$(id -g)` to `docker run` (both `docker run` examples above already include these flags).
 
 ## Requirements
 

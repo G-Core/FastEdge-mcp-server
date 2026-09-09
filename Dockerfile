@@ -1,4 +1,6 @@
-# Build argument for base image
+# Base image built from Dockerfile-base and published to GHCR.
+# Update both the tag and the digest together when publishing a new base image.
+# apt/rustup runs inside the pinned base build — accepted.
 ARG BASE_IMAGE=ghcr.io/g-core/fastedge-mcp-server-base:latest
 
 # Build stage
@@ -35,9 +37,12 @@ ENV WORKSPACE_ROOT=/workspace
 # Set up a volume mount point for workspace data
 VOLUME [ "/workspace" ]
 
-# Entrypoint drops privileges to the host user (owner of the /workspace mount,
-# or HOST_UID/HOST_GID if set) so generated files are not root-owned. Falls
-# back to running as root when the resolved UID is 0 (e.g. no mount or root-owned mount).
+# Entrypoint resolves the target UID/GID from the /workspace mount owner, then
+# drops privileges via setpriv so generated files are owned by that user. When
+# the mount is missing, root-owned, or Docker Desktop-virtualized (uid 0 inside
+# the container), it falls back to uid/gid 10001 instead of running as root.
+# Override with -e HOST_UID=$(id -u) -e HOST_GID=$(id -g) on docker run when
+# automatic detection does not produce the right owner.
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

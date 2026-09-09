@@ -1,66 +1,53 @@
-import { spawn } from "child_process";
 import {
   wasmOutputPermissions,
   setupCrossPlatformEnvironment,
+  spawnBounded,
 } from "./utils.js";
+import { buildSubprocessEnv } from "../../../../utils/index.js";
 
-export function compileJavascriptBinary(
+const MAX_BUILD_MS = 180_000;
+const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
+
+export async function compileJavascriptBinary(
   entryFilePath: string,
   wasmBinaryPath: string,
   cwd: string,
+  workspaceRoot: string,
   tsconfigPath?: string
-) {
-  return new Promise<string>(async (resolve, reject) => {
-    try {
-      setupCrossPlatformEnvironment();
+): Promise<string> {
+  setupCrossPlatformEnvironment();
 
-      const jsBuild = spawn(
-        "npx",
-        [
-          "fastedge-build",
-          "--input",
-          entryFilePath,
-          "--output",
-          wasmBinaryPath,
-          ...(tsconfigPath ? ["--tsconfig", tsconfigPath] : []),
-        ],
-        {
-          // No shell, on any platform: this server only ships as a Linux Docker
-          // image (see DEVELOPMENT.md) — native Windows execution of build tooling
-          // isn't a supported path, so there's no reason to open a shell for it.
-          stdio: ["ignore", "pipe", "pipe"],
-          cwd,
-          env: { ...process.env },
-        }
-      );
-
-      let stdout = "";
-      let stderr = "";
-
-      jsBuild.stdout?.on("data", (data: Buffer) => {
-        stdout += data;
-      });
-
-      jsBuild.stderr?.on("data", (data: Buffer) => {
-        stderr += data;
-      });
-
-      // Without a shell, a missing `npx` surfaces as an async 'error' event, not
-      // an exit code. Unhandled, that kills the whole MCP server process.
-      jsBuild.on("error", (err: Error) => {
-        reject(new Error(`failed to start build: ${err.message}`));
-      });
-
-      jsBuild.on("close", (code: number) => {
-        if (code !== 0) {
-          reject(new Error(`build exited with code ${code}: ${stderr}`));
-          return;
-        }
-        wasmOutputPermissions(wasmBinaryPath, cwd);
-        resolve(wasmBinaryPath);
-      });
-    } catch (err) {
-      reject(err);
+  const result = await spawnBounded(
+    "npx",
+    [
+      "fastedge-build",
+      "--input",
+      entryFilePath,
+      "--output",
+      wasmBinaryPath,
+      ...(tsconfigPath ? ["--tsconfig", tsconfigPath] : []),
+    ],
+    {
+      cwd,
+      env: buildSubprocessEnv(),
+      timeoutMs: MAX_BUILD_MS,
+      maxOutputBytes: MAX_OUTPUT_BYTES,
     }
-  });
+  );
+
+  if (result.truncated) {
+    throw new Error(`build killed: output exceeded ${MAX_OUTPUT_BYTES} bytes`);
+  }
+  if (result.signal === "SIGKILL") {
+    throw new Error(`build timed out after ${MAX_BUILD_MS}ms`);
+  }
+  if (result.signal) {
+    throw new Error(`build killed by signal ${result.signal}: ${result.stderr}`);
+  }
+  if (result.code !== 0) {
+    throw new Error(`build exited with code ${result.code}: ${result.stderr}`);
+  }
+
+  wasmOutputPermissions(wasmBinaryPath, workspaceRoot);
+  return wasmBinaryPath;
 }

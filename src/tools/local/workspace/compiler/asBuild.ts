@@ -1,14 +1,21 @@
-import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 
-import { wasmOutputPermissions } from "./utils.js";
+import { wasmOutputPermissions, spawnBounded } from "./utils.js";
+import { buildSubprocessEnv, normalizePath, INVALID_PATH } from "../../../../utils/index.js";
+
+const MAX_BUILD_MS = 180_000;
+const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
 
 interface AsConfig {
   targets?: Record<string, { outFile?: string }>;
 }
 
-function readAsConfigOutFile(buildRoot: string, targetName: string): string {
+function readAsConfigOutFile(
+  buildRoot: string,
+  targetName: string,
+  workspaceRoot: string
+): string {
   const configPath = path.join(buildRoot, "asconfig.json");
   if (!fs.existsSync(configPath)) {
     throw new Error(
@@ -30,55 +37,52 @@ function readAsConfigOutFile(buildRoot: string, targetName: string): string {
         "either supply an explicit outputFile to build-wasm, or configure the target in asconfig.json."
     );
   }
-  return path.join(buildRoot, target.outFile);
+  // outFile is user-controlled (from asconfig.json) — validate against workspace
+  const rawAbs = path.join(buildRoot, target.outFile);
+  const rel = path.relative(workspaceRoot, rawAbs);
+  const checked = normalizePath(workspaceRoot, rel);
+  if (checked === INVALID_PATH) {
+    throw new Error(
+      `asconfig.json outFile "${target.outFile}" escapes the workspace boundary`
+    );
+  }
+  return checked;
 }
 
-export function compileAssemblyScriptBinary(
+export async function compileAssemblyScriptBinary(
   entryFilePath: string,
   outputFilePath: string | null,
-  cwd: string
-) {
-  return new Promise<string>(async (resolve, reject) => {
-    try {
-      const resolvedOutput =
-        outputFilePath ?? readAsConfigOutFile(cwd, "release");
+  cwd: string,
+  workspaceRoot: string
+): Promise<string> {
+  const resolvedOutput =
+    outputFilePath ?? readAsConfigOutFile(cwd, "release", workspaceRoot);
 
-      const ascArgs = ["asc", entryFilePath, "--target", "release"];
-      if (outputFilePath) {
-        ascArgs.push("--outFile", outputFilePath);
-      }
+  const ascArgs = ["asc", entryFilePath, "--target", "release"];
+  if (outputFilePath) {
+    ascArgs.push("--outFile", outputFilePath);
+  }
 
-      const asBuild = spawn("npx", ascArgs, {
-        // No shell, on any platform: this server only ships as a Linux Docker
-        // image (see DEVELOPMENT.md) — native Windows execution of build tooling
-        // isn't a supported path, so there's no reason to open a shell for it.
-        stdio: ["ignore", "pipe", "pipe"],
-        cwd,
-        env: { ...process.env },
-      });
-
-      let stderr = "";
-
-      asBuild.stderr?.on("data", (data: Buffer) => {
-        stderr += data;
-      });
-
-      // Without a shell, a missing `npx` surfaces as an async 'error' event, not
-      // an exit code. Unhandled, that kills the whole MCP server process.
-      asBuild.on("error", (err: Error) => {
-        reject(new Error(`failed to start asc build: ${err.message}`));
-      });
-
-      asBuild.on("close", (code: number) => {
-        if (code !== 0) {
-          reject(new Error(`asc build exited with code ${code}: ${stderr}`));
-          return;
-        }
-        wasmOutputPermissions(resolvedOutput, cwd);
-        resolve(resolvedOutput);
-      });
-    } catch (err) {
-      reject(err);
-    }
+  const result = await spawnBounded("npx", ascArgs, {
+    cwd,
+    env: buildSubprocessEnv(),
+    timeoutMs: MAX_BUILD_MS,
+    maxOutputBytes: MAX_OUTPUT_BYTES,
   });
+
+  if (result.truncated) {
+    throw new Error(`asc build killed: output exceeded ${MAX_OUTPUT_BYTES} bytes`);
+  }
+  if (result.signal === "SIGKILL") {
+    throw new Error(`asc build timed out after ${MAX_BUILD_MS}ms`);
+  }
+  if (result.signal) {
+    throw new Error(`asc build killed by signal ${result.signal}: ${result.stderr}`);
+  }
+  if (result.code !== 0) {
+    throw new Error(`asc build exited with code ${result.code}: ${result.stderr}`);
+  }
+
+  wasmOutputPermissions(resolvedOutput, workspaceRoot);
+  return resolvedOutput;
 }
