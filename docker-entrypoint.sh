@@ -63,7 +63,7 @@ if [ "$(id -u)" = "0" ] && [ "$target_uid" != "0" ] && command -v setpriv >/dev/
   chown "$target_uid:$target_gid" "$HOME"
   export HOME
   exec 3<<EOF
-${GCORE_API_KEY:-}
+${GCORE_API_KEY:-${FASTEDGE_API_KEY:-}}
 EOF
   unset GCORE_API_KEY FASTEDGE_API_KEY
   exec setpriv --reuid="$target_uid" --regid="$target_gid" --clear-groups "$@"
@@ -71,7 +71,7 @@ fi
 
 echo "Warning: running as root — setpriv not found" >&2
 exec 3<<EOF
-${GCORE_API_KEY:-}
+${GCORE_API_KEY:-${FASTEDGE_API_KEY:-}}
 EOF
 unset GCORE_API_KEY FASTEDGE_API_KEY
 exec "$@"
