@@ -3,8 +3,8 @@
   sources:
     - id: proxy-wasm-sdk-as
       ref: master
-      commit: 8e3bb621bc013a0aed7e52122066b417ad62a207
-      updated: 2026-08-20
+      commit: ddb8d2e76e8f4fab30de6bce8dd0150231cd7d31
+      updated: 2026-09-22
 -->
 ---
 type: example

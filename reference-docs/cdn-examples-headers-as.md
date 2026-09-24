@@ -3,8 +3,8 @@
   sources:
     - id: proxy-wasm-sdk-as
       ref: master
-      commit: 8e3bb621bc013a0aed7e52122066b417ad62a207
-      updated: 2026-08-20
+      commit: ddb8d2e76e8f4fab30de6bce8dd0150231cd7d31
+      updated: 2026-09-22
 -->
 
 ---
@@ -66,14 +66,14 @@ registerRootContext((context_id: u32) => {
 
 All header operations are accessed via `stream_context.headers.request` or `stream_context.headers.response`.
 
-| Method              | Signature                                       | Description                                                                                              |
-| ------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `get(name)`         | `(name: string) => string`                      | Returns the value of the named header, or empty string if not present                                    |
-| `add(name, value)`  | `(name: string, value: string) => void`          | Adds a header; multiple calls with the same name produce multiple values                                 |
-| `replace(name, value)` | `(name: string, value: string) => void`      | Upserts the header value — creates the header if it does not exist (see Known Issues)                    |
-| `remove(name)`      | `(name: string) => void`                        | Removes the header (see Known Issues)                                                                    |
-| `get_headers()`     | `() => Headers` (alias: `HeaderPair[]`)         | Returns all headers as an array of `{ key: ArrayBuffer, value: ArrayBuffer }`                            |
-| `set_headers(headers)` | `(headers: Headers) => void`                | Replaces the full header collection                                                                      |
+| Method                     | Signature                               | Description                                                                                           |
+| -------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `get(name)`                | `(name: string) => string`              | Returns the value of the named header, or empty string if not present                                 |
+| `add(name, value)`         | `(name: string, value: string) => void` | Adds a header; multiple calls with the same name produce multiple values                              |
+| `replace(name, value)`     | `(name: string, value: string) => void` | Upserts the header value — creates the header if it does not exist (see Known Issues)                 |
+| `remove(name)`             | `(name: string) => void`                | Removes the header (see Known Issues)                                                                 |
+| `get_headers()`            | `() => Headers` (alias: `HeaderPair[]`) | Returns all headers as an array of `{ key: ArrayBuffer, value: ArrayBuffer }`                         |
+| `set_headers(headers)`     | `(headers: Headers) => void`            | Replaces the full header collection                                                                   |
 
 ### `Headers` / `HeaderPair` type
 

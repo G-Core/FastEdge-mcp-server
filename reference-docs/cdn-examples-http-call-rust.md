@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-rust
       ref: main
-      commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-08-20
+      commit: 6eedcca9d5c0ddd4ff79ca475965393891da2d75
+      updated: 2026-09-22
 -->
 
 # HTTP Call — CDN (Rust)
@@ -285,6 +285,7 @@ impl Context for HttpHeaders {
         println!(
             "Received http call response with token id: {token_id}, num_headers: {num_headers}"
         );
+        // If num_headers is 0, then the HTTP call failed.
         if num_headers != 0 {
             let headers = self.get_http_call_response_headers();
             let headers_str = headers
@@ -294,7 +295,7 @@ impl Context for HttpHeaders {
                 .join(",");
             println!("Response headers: [{}]", headers_str);
 
-            self.state = 1;
+            self.state = 1; // Set state to 1 to indicate that the HTTP call response was received successfully.
 
             self.resume_http_request();
         } else {

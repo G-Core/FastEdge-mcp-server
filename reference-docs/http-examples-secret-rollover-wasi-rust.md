@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-rust
       ref: main
-      commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-08-20
+      commit: 6eedcca9d5c0ddd4ff79ca475965393891da2d75
+      updated: 2026-09-22
 -->
 
 # Secret Rollover (WASI, Rust)
@@ -134,7 +134,7 @@ use wstd::http::{Request, Response};
 
 #[wstd::http_server]
 async fn main(request: Request<Body>) -> anyhow::Result<Response<Body>> {
-    // Read slot from header, default to current unix timestamp
+    // Read the slot from the x-slot header, defaulting to current timestamp
     let slot: u32 = request
         .headers()
         .get("x-slot")
@@ -153,11 +153,10 @@ async fn main(request: Request<Body>) -> anyhow::Result<Response<Body>> {
         .and_then(|v| v.to_str().ok())
         .unwrap_or("TOKEN_SECRET");
 
-    // Get current (latest) value
-    let current = secret::get(secret_name)
-        .map_err(|e| anyhow!("secret::get failed: {e}"))?;
+    // Get the current secret value (latest slot)
+    let current = secret::get(secret_name).map_err(|e| anyhow!("secret::get failed: {e}"))?;
 
-    // Get value effective at the given slot
+    // Get the secret effective at the requested slot
     let effective = secret::get_effective_at(secret_name, slot)
         .map_err(|e| anyhow!("secret::get_effective_at failed: {e}"))?;
 

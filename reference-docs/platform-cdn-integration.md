@@ -181,7 +181,24 @@ curl -s -X PATCH "https://api.gcore.com/cdn/resources/<resource-id>" \
   }'
 ```
 
+**`PATCH /cdn/resources/{id}` merges `options`** — keys you omit (e.g. `hostHeader`) are kept `[live]`. Do not confuse this with the rule-vs-resource replace semantics above, which govern request-time override, not the API.
+
 Rules are managed through their own endpoints under `/cdn/resources/{resource_id}/rules`. The full rule API is in the Gcore CDN documentation.
+
+### Cached content after a routing change
+
+Request-phase filters run before the cache lookup (see [cdn-filter-runtime.md](./cdn-filter-runtime.md)), so attaching or changing an `on_request_headers` filter takes effect on cached paths without a purge. What does **not** change on its own is content already cached from the previous configuration — e.g. after a rule that points a path at a different origin, or a change to response-phase output. That content keeps being served until it expires (observed ~15 min).
+
+In that case, purge only the affected paths, then verify:
+
+```bash
+curl -s -X POST "https://api.gcore.com/cdn/resources/<resource-id>/purge" \
+  -H "Authorization: APIKey $GCORE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"paths": ["/affected/path/*"]}'
+```
+
+`{"paths": []}` purges **the entire resource** and sends all traffic back to origin — use it only with explicit user confirmation. The FastEdge MCP server's default access policy blocks this endpoint; when it is blocked, give the user the command to run themselves.
 
 ## Operational Notes
 
@@ -191,7 +208,7 @@ Rules are managed through their own endpoints under `/cdn/resources/{resource_id
 - **Hook absence vs. `enabled: false`.** Both result in the hook not running. Removing the key entirely is cleaner; toggling `enabled: false` preserves the hook's other config for easy re-enable.
 - **`execute_on_shield` only matters when origin shielding is on.** If `shielded: false` on the resource, the shield-layer setting has no effect — the hook only ever runs at the edge.
 - **Rule weight ordering.** When multiple rules match a request path, only the rule with the lowest weight applies. Rules don't compose.
-- **Changes propagate.** CDN configuration changes can take a few minutes to propagate to all PoPs. The resource may briefly be in `status: "processed"` after an update.
+- **Changes propagate.** CDN configuration changes can take a few minutes to propagate to all PoPs. The resource may briefly be in `status: "processed"` after an update. Content cached under the old configuration may also need a path-scoped purge (above).
 
 ## See Also
 

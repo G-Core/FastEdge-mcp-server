@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-rust
       ref: main
-      commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-08-20
+      commit: 6eedcca9d5c0ddd4ff79ca475965393891da2d75
+      updated: 2026-09-22
 -->
 
 ---
@@ -16,7 +16,7 @@ capabilities: [outbound-fetch, header-read, async]
 
 # Example: Simple Fetch (WASI HTTP, Rust)
 
-Demonstrates outbound HTTP requests using the WASI-HTTP interface via the `wstd` crate. Reads a target URL from an incoming request header and proxies the response back to the caller.
+Demonstrates outbound HTTP requests using the WASI-HTTP interface via the `wstd` crate. Reads a target URL from an incoming request header and proxies the response back to the caller. Optionally forwards a custom header to the outbound request.
 
 ## Crate and Handler
 
@@ -32,13 +32,16 @@ Demonstrates outbound HTTP requests using the WASI-HTTP interface via the `wstd`
 | Header | Required | Type | Default | Description |
 |--------|----------|------|---------|-------------|
 | `x-fetch-url` | No | String (fully-qualified URL) | `https://httpbin.org/get` | URL to fetch outbound |
+| `x-fetch-header` | No | String (`key: value`) | — | Additional header to forward to the outbound request; parsed on `:` separator |
 
 ## Behavior
 
 1. Read `x-fetch-url` header from the incoming request; fall back to `https://httpbin.org/get` if absent or unparseable.
-2. Build an outbound `GET` request to that URL with `accept: application/json` header.
-3. Send via `Client::new().send(req).await`.
-4. Return the upstream `Response<Body>` directly to the caller — no decomposition.
+2. Begin building an outbound `GET` request to that URL with `accept: application/json` header.
+3. If `x-fetch-header` is present and parseable as `key: value` (split on first `:`), add that header to the outbound request builder.
+4. Finalize the builder with `.body(Body::empty())`.
+5. Send via `Client::new().send(req).await`.
+6. Return the upstream `Response<Body>` directly to the caller — no decomposition.
 
 ## Key API Patterns
 
@@ -58,14 +61,34 @@ let target_url = request
 - `.unwrap_or(default)` provides a safe fallback
 - `.to_string()` required — `Request::get` takes a `&str` or `String`; ensure the URL is owned before use
 
+### Conditionally Adding an Outbound Header
+
+```rust
+let mut builder = Request::get(&target_url).header("accept", "application/json");
+
+if let Some(fetch_header) = request
+    .headers()
+    .get("x-fetch-header")
+    .and_then(|v| v.to_str().ok())
+{
+    if let Some((key, value)) = fetch_header.split_once(':') {
+        builder = builder.header(key.trim(), value.trim());
+    }
+}
+```
+
+- The builder is `mut` to allow conditional chaining.
+- `.split_once(':')` splits on the first `:`, returning `Option<(&str, &str)>`.
+- `.trim()` removes surrounding whitespace from key and value before passing to `.header()`.
+- If `x-fetch-header` is absent or unparseable, the builder proceeds without the extra header.
+
 ### Building an Outbound Request
 
 ```rust
 use wstd::http::{Client, Request};
 use wstd::http::body::Body;
 
-let upstream_req = Request::get(&target_url)
-    .header("accept", "application/json")
+let upstream_req = builder
     .body(Body::empty())
     .map_err(|e| anyhow!("failed to build request: {e}"))?;
 ```
@@ -138,6 +161,8 @@ package = "component:simple_fetch"
 - The URL extracted from the header must be converted to an owned `String` with `.to_string()` before passing to `Request::get`.
 - The header parsing chain (`.get` → `.to_str()` → `.ok()`) returns `Option` — always provide a fallback via `.unwrap_or`.
 - Non-UTF-8 header values are silently discarded by `.to_str().ok()`.
+- `x-fetch-header` is parsed with `.split_once(':')` — only the first `:` is used as the separator; values containing `:` are preserved correctly.
+- The request builder must be declared `mut` when conditionally adding headers after initial construction.
 - `anyhow` must be declared as a dependency to use the `anyhow!()` macro.
 - All examples in `examples/http/wasi/` use the same `async fn main` + `#[wstd::http_server]` pattern.
 
@@ -147,3 +172,134 @@ package = "component:simple_fetch"
 - sdk-reference-rust
 - examples-simple-request-rust (basic sync HTTP handler, `fastedge` crate)
 - host-services-rust (outbound fetch via host services)
+
+## Source Material
+
+### FILE: examples/http/wasi/simple_fetch/src/lib.rs
+
+```rust
+/*
+* Copyright 2025 G-Core Innovations SARL
+*/
+/*
+Example app demonstrating the WASI-HTTP interface via the wstd crate.
+
+The app receives an incoming HTTP request and makes an outbound HTTP request
+to the URL specified in the `x-fetch-url` header (defaults to https://httpbin.org/get).
+
+Build with cargo-component:
+  cargo component build --release
+*/
+
+use anyhow::anyhow;
+use wstd::http::body::Body;
+use wstd::http::{Client, Request, Response};
+
+#[wstd::http_server]
+async fn main(request: Request<Body>) -> anyhow::Result<Response<Body>> {
+    let target_url = request
+        .headers()
+        .get("x-fetch-url")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("https://httpbin.org/get")
+        .to_string();
+
+    println!("Fetching: {target_url}");
+
+    let mut builder = Request::get(&target_url).header("accept", "application/json");
+
+    if let Some(fetch_header) = request
+        .headers()
+        .get("x-fetch-header")
+        .and_then(|v| v.to_str().ok())
+    {
+        if let Some((key, value)) = fetch_header.split_once(':') {
+            builder = builder.header(key.trim(), value.trim());
+        }
+    }
+
+    let upstream_req = builder
+        .body(Body::empty())
+        .map_err(|e| anyhow!("failed to build request: {e}"))?;
+
+    let client = Client::new();
+    let response = client
+        .send(upstream_req)
+        .await
+        .map_err(|e| anyhow!("request failed: {e}"))?;
+
+    println!("Response status: {}", response.status());
+
+    Ok(response)
+}
+```
+
+
+### FILE: examples/http/wasi/simple_fetch/Cargo.toml
+
+```toml
+[workspace]
+
+[package]
+name = "simple_fetch"
+version = "0.1.1"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wstd = "0.6"
+anyhow = "1"
+
+[package.metadata.component]
+package = "component:simple_fetch"
+```
+
+
+### FILE: examples/http/wasi/simple_fetch/README.md
+
+```
+[← Back to examples](../../../README.md)
+
+# Simple Fetch
+
+A minimal example demonstrating outbound HTTP requests using the WASI-HTTP interface via the `wstd` crate.
+
+Uses the WASI component model with an **async** handler and a proper HTTP client (`wstd::http::Client`). The same async pattern is used by all examples in `examples/http/wasi/`.
+
+## How it works
+
+The app receives an incoming request, reads the target URL from the `x-fetch-url` header, makes an outbound GET request to that URL, and streams the response back to the caller.
+
+If the `x-fetch-url` header is absent, it defaults to `https://httpbin.org/get`.
+
+## Request headers
+
+| Header | Required | Description |
+|--------|----------|-------------|
+| `x-fetch-url` | No | URL to fetch. Defaults to `https://httpbin.org/get` |
+
+## Example
+
+```bash
+curl -H "x-fetch-url: https://httpbin.org/uuid" https://<your-app-domain>/
+```
+
+## Build
+
+```bash
+cargo build --release
+# Output: target/wasm32-wasip2/release/simple_fetch.wasm
+```
+
+## Key differences from basic HTTP examples
+
+| | Basic HTTP (`fastedge` crate) | WASI HTTP (`wstd` crate) |
+|---|---|---|
+| Handler | `fn main(req)` — sync | `async fn main(req)` — async |
+| Macro | `#[fastedge::http]` | `#[wstd::http_server]` |
+| Outbound HTTP | `fastedge::send_request(req)` | `Client::new().send(req).await` |
+| Build target | `wasm32-wasip1` | `wasm32-wasip2` |
+```
