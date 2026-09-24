@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-rust
       ref: main
-      commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-08-20
+      commit: 6eedcca9d5c0ddd4ff79ca475965393891da2d75
+      updated: 2026-09-22
 -->
 
 ## Custom Error Pages — CDN (Rust)

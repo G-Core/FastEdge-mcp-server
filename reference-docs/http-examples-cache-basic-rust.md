@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-rust
       ref: main
-      commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-08-20
+      commit: 6eedcca9d5c0ddd4ff79ca475965393891da2d75
+      updated: 2026-09-22
 -->
 
 ---
@@ -133,3 +133,149 @@ use fastedge::http::{Request, Response, StatusCode};
 - examples-cache-basic-rust (this file) pairs with the HTTP app deploy reference for upload and wiring steps
 - platform-overview for cache subsystem lifecycle and eviction behavior
 - best-practices for cache key namespacing and TTL selection guidance
+
+## Source Material
+
+### FILE: examples/http/basic/cache/src/lib.rs
+
+```rust
+/*
+ * Copyright 2025 G-Core Innovations SARL
+ */
+/*
+Example app demonstrating cache-aside pattern via the cache interface.
+
+On each request the app:
+  1. Builds a cache key from the request path.
+  2. Returns the cached body immediately on a hit (x-cache: hit).
+  3. On a miss, generates a response body, stores it in the cache, and
+     returns it (x-cache: miss).
+
+Environment variables:
+  CACHE_TTL_MS  How long to cache the generated body in milliseconds
+                (default: 30000)
+
+Build:
+  cargo build --release
+*/
+
+use std::env;
+
+use fastedge::body::Body;
+use fastedge::cache;
+use fastedge::http::{Request, Response, StatusCode};
+
+#[fastedge::http]
+fn main(req: Request<Body>) -> anyhow::Result<Response<Body>> {
+    let ttl_ms: u64 = env::var("CACHE_TTL_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(30_000);
+
+    let path = req.uri().path().to_string();
+    let cache_key = format!("page:{path}");
+
+    // Cache hit — return stored body
+    if let Some(cached) = cache::get(&cache_key)? {
+        println!("cache hit: {cache_key}");
+        return Ok(Response::builder()
+            .status(StatusCode::OK)
+            .header("content-type", "text/html")
+            .header("x-cache", "hit")
+            .body(Body::from(cached))?);
+    }
+
+    // Cache miss — generate the response body
+    println!("cache miss: {cache_key}");
+    let body = generate_body(&path);
+
+    // Store in cache with TTL
+    cache::set(&cache_key, body.as_bytes(), Some(ttl_ms))?;
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "text/html")
+        .header("x-cache", "miss")
+        .body(Body::from(body))?)
+}
+
+/// Simulates an expensive computation or template render.
+fn generate_body(path: &str) -> String {
+    format!(
+        "<!DOCTYPE html>\
+        <html><head><title>FastEdge Cache Demo</title></head>\
+        <body>\
+          <h1>Hello from FastEdge</h1>\
+          <p>Path: <code>{path}</code></p>\
+          <p>This response was generated and is now cached.</p>\
+        </body></html>"
+    )
+}
+```
+
+
+### FILE: examples/http/basic/cache/Cargo.toml
+
+```toml
+[workspace]
+
+[package]
+name = "cache_basic"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+fastedge = "0.4"
+anyhow = "1"
+```
+
+
+### FILE: examples/http/basic/cache/README.md
+
+```
+[← Back to examples](../../../README.md)
+
+# Cache (Basic)
+
+Demonstrates the cache-aside pattern using `fastedge::cache` — store a generated response body with a TTL and serve it directly on subsequent requests without re-computing it.
+
+## Configuration
+
+| Env var | Required | Description |
+|---|---|---|
+| `CACHE_TTL_MS` | No | How long to cache each response in milliseconds. Default: `30000` (30 s). |
+
+## How it works
+
+```
+GET /api/data  →  cache miss  →  generate body  →  store in cache  →  200 (x-cache: miss)
+GET /api/data  →  cache hit   →  return cached body                →  200 (x-cache: hit)
+```
+
+The cache key is `page:<request-path>`. Each unique path gets its own cache entry. The response body is a simple HTML page that includes the request path — stand in for any expensive computation or template render.
+
+## What it returns
+
+```
+HTTP/1.1 200 OK
+content-type: text/html
+x-cache: hit | miss
+
+<!DOCTYPE html><html>...</html>
+```
+
+## Build
+
+```sh
+cargo build --release
+# Output: target/wasm32-wasip1/release/cache_basic.wasm
+```
+
+## APIs used
+
+- `fastedge::cache::get(key)` — retrieve cached bytes by key; returns `Ok(Option<Vec<u8>>)`
+- `fastedge::cache::set(key, bytes, ttl_ms)` — store bytes with optional TTL in milliseconds; `None` means no expiry
+```

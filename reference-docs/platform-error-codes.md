@@ -10,7 +10,10 @@ FastEdge returns specific HTTP status codes (530-533) when the Wasm runtime enco
 
 **Meaning:** The Wasm module failed to start up before processing the request.
 
+**Signal:** a CDN app that fails to instantiate also returns `x-cdn-internal-status: 3100`. That header distinguishes "failed to start" from "the app ran and errored" (531).
+
 **Common Causes:**
+- **Unresolved imports (CDN apps)** — the binary imports a host function the proxy-wasm host does not provide, most commonly an HTTP-app (component-model) API used in a filter, e.g. top-level `fastedge::cache` in Rust instead of `fastedge::proxywasm::cache`. **Every path returns 530**, including paths that never reach the call, and the build gives no warning. See [cdn-filter-runtime.md](./cdn-filter-runtime.md).
 - Missing required environment variables that the app reads during initialization
 - Corrupted or invalid Wasm binary
 - Binary was compiled for the wrong target (not `wasm32-wasip1`)
@@ -21,9 +24,15 @@ FastEdge returns specific HTTP status codes (530-533) when the Wasm runtime enco
    - JS: `fastedge-build ./src/index.js ./<name>.wasm` completed without errors
    - Rust: `cargo build --release --target wasm32-wasip1` succeeded
 2. Check binary size: `ls -la *.wasm` or `ls -la target/wasm32-wasip1/release/*.wasm`
-3. Test locally: `fastedge-run http -w ./app.wasm --port 8080`
-4. Verify all required env vars are set via API or portal
-5. Re-upload the binary and update the app
+3. **CDN apps:** inspect the import table — any `gcore:fastedge/...` import in a proxy-wasm build is unresolvable:
+   ```bash
+   wasm-tools print app.wasm | grep -o '(import "[^"]*"' | sort -u
+   ```
+4. Run locally:
+   - HTTP apps: `fastedge-run http -w ./app.wasm --port 8080`
+   - CDN apps: `fastedge-run` does not run proxy-wasm — use `@gcoredev/fastedge-test`. Note a local run does not reproduce host instantiation, so a clean local run does not rule out step 3.
+5. Verify all required env vars are set via API or portal
+6. Re-upload the binary and update the app
 
 ---
 
@@ -32,6 +41,7 @@ FastEdge returns specific HTTP status codes (530-533) when the Wasm runtime enco
 **Meaning:** The app started successfully but threw an unhandled exception during request processing.
 
 **Common Causes:**
+- Calling `getEnv()` / `getSecret()` at module top level (JS) — they are request-time only; call them inside the handler
 - Uncaught JavaScript exception (TypeError, ReferenceError, etc.)
 - Rust panic (`unwrap()` on `None` or `Err`)
 - Failed `fetch()` call without error handling

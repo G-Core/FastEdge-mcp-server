@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-sdk-rust
       ref: main
-      commit: 6347a7c2fda0d03e66f1214db5eec041c16801b7
-      updated: 2026-08-20
+      commit: 6eedcca9d5c0ddd4ff79ca475965393891da2d75
+      updated: 2026-09-22
 -->
 
 # Rust Host Services Reference
@@ -260,7 +260,7 @@ async fn main(_request: Request<Body>) -> anyhow::Result<Response<Body>> {
 
 Module: `fastedge::dictionary`
 
-Provides fast, read-only lookups for configuration values that do not change during the lifetime of a deployment.
+Provides fast, read-only lookups for configuration values that do not change during the lifetime of a deployment. Dictionary = read-only config, key_value = persistent data, secret = encrypted credentials.
 
 ### API
 
