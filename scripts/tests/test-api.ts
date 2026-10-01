@@ -5,6 +5,7 @@
  */
 
 import { test } from "node:test";
+import { spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import { AddressInfo } from "node:net";
@@ -325,6 +326,8 @@ test("allowedApiOrigin: only exact Gcore API origins may receive the key", () =>
     "https://api.gcore.com/",
     "https://API.gcore.com",                      // hosts are case-insensitive
     "https://api.preprod.world",
+    "https://api.cdb-staging.cdn.orange.com",
+    "https://api.controlcenter.internationalcarriers.orange.com",
   ]) {
     assert.ok(allowedApiOrigin(base), `expected ${base} to be allowed`);
   }
@@ -336,11 +339,25 @@ test("allowedApiOrigin: only exact Gcore API origins may receive the key", () =>
     "https://user:pass@api.gcore.com",            // userinfo
     "https://attacker.example",
     "http://localhost:8080",
+    "blob:https://api.gcore.com",                 // inherits an https origin
     "not a url",
     "",
   ]) {
     assert.equal(allowedApiOrigin(base), null, `expected ${JSON.stringify(base)} to be rejected`);
   }
+});
+
+test("startup: GCORE_API_BASE is enforced when api-client loads", () => {
+  const run = (base: string) =>
+    spawnSync(
+      process.execPath,
+      ["--import", "tsx", "-e", 'import("./src/api-client.ts")'],
+      { env: { ...process.env, GCORE_API_BASE: base }, encoding: "utf8" },
+    );
+  const bad = run("https://attacker.example");
+  assert.equal(bad.status, 1);
+  assert.match(bad.stderr, /not an allowed Gcore API URL/);
+  assert.equal(run("https://api.gcore.com").status, 0);
 });
 
 test("checkAllowed: denies paths that manipulate the request authority", () => {

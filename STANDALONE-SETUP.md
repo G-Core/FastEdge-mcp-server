@@ -39,7 +39,7 @@ Create a file called `.vscode/mcp.json` in your workspace with the following con
 }
 ```
 
-This is the same configuration the VS Code extension generates:
+This shows the direct-Docker `args` shape. The VS Code extension generates the same `args`, but differs in how it stores the key (it prompts for it and writes the value into `env`; `${env:GCORE_API_KEY}` is only used for its Codespaces-secret flow) and it pins a versioned image tag instead of `latest`:
 
 - `docker` is called directly (no `bash -c` wrapper), so it works unchanged on Linux, macOS and Windows.
 - `-e GCORE_API_KEY` with no value makes Docker forward the variable from the environment the client starts it with. The `env` block reads it from your own environment, so the key is never written into a file you might commit.

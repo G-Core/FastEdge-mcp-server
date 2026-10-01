@@ -30,6 +30,8 @@ export const ALLOWED_API_ORIGINS: ReadonlySet<string> = new Set([
 export function allowedApiOrigin(base: string): string | null {
   try {
     const url = new URL(base);
+    // blob:https://host inherits that origin, so origin alone isn't enough.
+    if (url.protocol !== "https:") return null;
     // userinfo would ride along with every request, next to the key.
     if (url.username || url.password) return null;
     return ALLOWED_API_ORIGINS.has(url.origin) ? url.origin : null;
