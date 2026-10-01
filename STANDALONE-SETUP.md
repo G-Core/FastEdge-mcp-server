@@ -65,9 +65,9 @@ Create a key in the Gcore Customer Portal under **API tokens**.
 
 The `args` array is the same for every client. What differs is the surrounding shape and how variables are written:
 
-- **Claude Desktop, Cursor and most others** use `"mcpServers"` instead of `"servers"`, and have no `"type"` field.
+- **Claude Desktop, Cursor and most others** use `"mcpServers"` instead of `"servers"`. Cursor keeps `"type": "stdio"`; most others have no `"type"` field.
 - **The workspace path** uses the client's own variable syntax (Cursor: `${workspaceFolder}`; elsewhere an absolute path).
-- **The key** comes from the client's own variable syntax (Cursor: `${env:GCORE_API_KEY}`). For a client that has none, drop the `env` block: Docker then forwards `GCORE_API_KEY` from the environment the client was started in.
+- **The key**: drop the `env` block. Cursor passes its host environment through, so Docker's `-e GCORE_API_KEY` forwards it by name, as it does for any client that inherits the environment. A Cursor launched from the Dock/Finder doesn't see shell exports; on macOS set it at the GUI-session level with `launchctl setenv GCORE_API_KEY "your_api_key"` and restart Cursor. Add `-e GCORE_API_BASE` to `args` only if you override the API base.
 
 Claude Code and Codex users should install the [`gcore-fastedge` plugin](https://github.com/G-Core/fastedge-plugin) instead, which configures this server for you.
 
