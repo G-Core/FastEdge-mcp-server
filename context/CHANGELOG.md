@@ -14,6 +14,24 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-01] - docs: standalone config matches the VS Code extension
+
+`STANDALONE-SETUP.md` and `mcp-standalone.json` showed the old `bash -c "docker run … -e \"GCORE_API_KEY=$GCORE_API_KEY\" …"` form with an inline `your_api_key_here` placeholder (and `HOST_UID=$(id -u)` flags in the doc). They now show the same shape the VS Code extension's "FastEdge (Generate mcp.json)" writes and the portal's agent-onboarding "Other agents" tab shows: `docker` called directly with an argv array (works on Windows, no shell splicing), bare `-e GCORE_API_KEY` forwarded from the client, and `"GCORE_API_KEY": "${env:GCORE_API_KEY}"` so the key is read from the user's environment instead of being written into a file that is often committed. `HOST_UID`/`HOST_GID` moved to the Permissions section as an override only — the entrypoint detects the `/workspace` owner and falls back to 10001 (SA-004). Added an "Other MCP Clients" section (`mcpServers` shape, per-client variable syntax).
+
+---
+
+## [2026-10-01] - security: GCORE_API_BASE allowlist
+
+`GCORE_API_BASE` was read from the environment and only checked to be a valid URL, so any MCP config that sets it (e.g. a cloned repo's `.vscode/mcp.json` running our image) could point every authenticated request — and the operator's `GCORE_API_KEY` — at an arbitrary host. The existing origin guard in `callGcoreApi()` only stopped *paths* escaping the configured base; it trusted the base itself.
+
+**Fix** — `src/api-client.ts`: `ALLOWED_API_ORIGINS` (`https://api.gcore.com`, `https://api.preprod.world`) and `allowedApiOrigin()`. Exact origin match (scheme + host + port, no suffix matching), userinfo rejected. A non-allowlisted base exits at startup, before any request carries the key. The list is deliberately not runtime-configurable: adding a host is an image release. The baked-in base (from `SPEC_BASE_URL` at schema generation) is validated too rather than trusted — an earlier draft auto-allowed it; Codex (MoM) review flagged that a build with any other `SPEC_BASE_URL` would then send the key anywhere. `upload-binary` (`src/tools/api/binaries/api.ts`) uses `GCORE_API_BASE` directly and is covered by the same startup check.
+
+Tests: `allowedApiOrigin` case in `scripts/tests/test-api.ts`. Docs: DEVELOPMENT.md env table, README.
+
+Not covered: a workspace MCP config that swaps the image or command entirely already runs arbitrary code; this closes the "looks like ours" case only.
+
+---
+
 ## [2026-08-26] - security: OS command injection via shell:true build/scaffold sinks (ICM-50570)
 
 External report (two confirmed PoCs, commit 30f5967): `normalizePath()` (`src/utils/index.ts`) blocks `..` traversal and absolute/Windows-drive paths but never sanitized shell metacharacters (`;`, `"`, `&`, `|`, `$`, backticks). Its output reached shell-executing sinks unescaped — `scaffold-fastedge-project` (`src/tools/local/scaffolding/scaffolds.ts`) built an `npx` command string for `child_process.exec` (always shell-backed) by interpolating the normalized `outputDir`; `build-wasm`'s JS/TS path (`src/tools/local/workspace/compiler/jsBuild.ts`) called `child_process.spawn(..., { shell: true })`. Either let an attacker-controlled `outputDir`/`entryFile` (from a malicious repo an agent scaffolds/builds, or a direct HTTP/SSE tool call) run arbitrary commands with the operator's `GCORE_API_KEY` in the process env.

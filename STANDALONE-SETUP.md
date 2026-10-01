@@ -14,27 +14,62 @@ Create a file called `.vscode/mcp.json` in your workspace with the following con
 
 ```json
 {
-  "servers": {
-    "fastedge-assistant": {
-      "type": "stdio",
-      "command": "bash",
-      "args": [
-        "-c",
-        "docker run --rm -i --pull=always -v ${workspaceFolder}:/workspace -e WORKSPACE_ROOT=/workspace -e HOST_UID=$(id -u) -e HOST_GID=$(id -g) -e \"GCORE_API_KEY=$GCORE_API_KEY\" ghcr.io/g-core/fastedge-mcp-server:latest"
-      ],
-      "env": {
-        "GCORE_API_KEY": "your_api_key_here"
-      }
+    "servers": {
+        "fastedge-assistant": {
+            "type": "stdio",
+            "command": "docker",
+            "args": [
+                "run",
+                "--rm",
+                "-i",
+                "--pull=always",
+                "-v",
+                "${workspaceFolder}:/workspace",
+                "-e",
+                "WORKSPACE_ROOT=/workspace",
+                "-e",
+                "GCORE_API_KEY",
+                "ghcr.io/g-core/fastedge-mcp-server:latest"
+            ],
+            "env": {
+                "GCORE_API_KEY": "${env:GCORE_API_KEY}"
+            }
+        }
     }
-  }
 }
 ```
 
-### Step 2: Start VS Code
+This shows the direct-Docker `args` shape. The VS Code extension generates the same `args`, but differs in how it stores the key (it prompts for it and writes the value into `env`; `${env:GCORE_API_KEY}` is only used for its Codespaces-secret flow) and it pins a versioned image tag instead of `latest`:
+
+- `docker` is called directly (no `bash -c` wrapper), so it works unchanged on Linux, macOS and Windows.
+- `-e GCORE_API_KEY` with no value makes Docker forward the variable from the environment the client starts it with. The `env` block reads it from your own environment, so the key is never written into a file you might commit.
+
+### Step 2: Provide your API key
+
+Set `GCORE_API_KEY` in the environment you start VS Code from, then start VS Code from that shell:
+
+```bash
+export GCORE_API_KEY="your_api_key"
+code .
+```
+
+Create a key in the Gcore Customer Portal under **API tokens**.
+
+### Step 3: Start VS Code
 
 1. Open VS Code in your workspace
 2. The MCP server will automatically pull the Docker image and start
 3. No repository cloning required!
+
+## Other MCP Clients
+
+The `args` array is the same for every client. What differs is the surrounding shape and how variables are written:
+
+- **Claude Desktop, Cursor and most others** use `"mcpServers"` instead of `"servers"`. Cursor keeps `"type": "stdio"`; most others have no `"type"` field.
+- **The workspace path** uses the client's own variable syntax (Cursor: `${workspaceFolder}`; elsewhere an absolute path).
+- **The key**: drop the `env` block. Cursor passes its host environment through, so Docker's `-e GCORE_API_KEY` forwards it by name, as it does for any client that inherits the environment. A Cursor launched from the Dock/Finder doesn't see shell exports; on macOS set it at the GUI-session level with `launchctl setenv GCORE_API_KEY "your_api_key"` and restart Cursor. Add `-e GCORE_API_BASE` to `args` only if you override the API base.
+
+Claude Code and Codex users should install the [`gcore-fastedge` plugin](https://github.com/G-Core/fastedge-plugin) instead, which configures this server for you.
 
 ## What This Does
 
@@ -50,15 +85,16 @@ You can test the Docker image manually:
 ```bash
 docker run --rm -i --pull=always \
   -v "$(pwd):/workspace" \
-  -e "WORKSPACE_ROOT=/workspace" \
-  -e HOST_UID=$(id -u) -e HOST_GID=$(id -g) \
-  -e "GCORE_API_KEY=your_api_key" \
+  -e WORKSPACE_ROOT=/workspace \
+  -e GCORE_API_KEY \
   ghcr.io/g-core/fastedge-mcp-server:latest
 ```
 
 ## Permissions
 
-The container entrypoint automatically detects the owner of the `/workspace` mount and drops privileges to that UID/GID so generated files are not root-owned. If builds fail with "Permission denied", pass `-e HOST_UID=$(id -u) -e HOST_GID=$(id -g)` to `docker run` (both `docker run` examples above already include these flags).
+The container entrypoint automatically detects the owner of the `/workspace` mount and drops privileges to that UID/GID, so generated files are not root-owned. When the mount appears as root-owned (for example on Docker Desktop, where mounts are virtualized), it falls back to UID/GID 10001 rather than running as root.
+
+If builds fail with "Permission denied", or generated files end up with the wrong owner, add `"-e", "HOST_UID=<uid>", "-e", "HOST_GID=<gid>"` to `args` (on Linux/macOS, `id -u` and `id -g` print them). In a shell, that is `-e HOST_UID=$(id -u) -e HOST_GID=$(id -g)`.
 
 ## Requirements
 

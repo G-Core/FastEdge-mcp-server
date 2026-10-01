@@ -142,7 +142,7 @@ Up-to-date SDK, platform, and example documentation is served through the `faste
 Make sure to set the following environment variables:
 
 - `GCORE_API_KEY` (required) - Your Gcore API key for authentication (legacy `FASTEDGE_API_KEY` also accepted).
-- `GCORE_API_BASE` (optional) - Runtime override for the Gcore API base URL. Defaults to `https://api.gcore.com` (baked at build time). In-house devs can set this to `https://api.preprod.world` to test against preprod endpoints using prod schemas.
+- `GCORE_API_BASE` (optional) - Runtime override for the Gcore API base URL. Defaults to `https://api.gcore.com` (baked at build time). In-house devs can set this to `https://api.preprod.world` to test against preprod endpoints using prod schemas. Only `https://api.gcore.com` and `https://api.preprod.world` are accepted; any other value stops the server at startup so the API key can't be sent elsewhere.
 - `BATCH_MAX_CALLS` (optional) - Override the default max calls per `batch_execute` (default: 5).
 
 See [DEVELOPMENT.md](./DEVELOPMENT.md) for the full env var table and the preprod build recipe.

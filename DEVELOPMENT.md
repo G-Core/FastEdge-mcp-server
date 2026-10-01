@@ -47,7 +47,7 @@ docker pull ghcr.io/g-core/fastedge-mcp-server:latest
 | Variable                | Required | Default                                      | Purpose                                                                                                                              |
 | ----------------------- | -------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `GCORE_API_KEY`         | Yes      | —                                            | API authentication (legacy `FASTEDGE_API_KEY` also accepted)                                                                         |
-| `GCORE_API_BASE`        | No       | Baked at build time (prod: `api.gcore.com`)  | Runtime override for the Gcore API base URL. In-house devs set this to `https://api.preprod.world` to hit preprod with prod schemas. |
+| `GCORE_API_BASE`        | No       | Baked at build time (prod: `api.gcore.com`)  | Runtime override for the Gcore API base URL. In-house devs set this to `https://api.preprod.world` to hit preprod with prod schemas. Must be an allowlisted origin (`ALLOWED_API_ORIGINS` in `src/api-client.ts`), otherwise the server exits at startup. |
 | `BATCH_MAX_CALLS`       | No       | `5`                                          | Max calls per `batch_execute` invocation. Bump for batches that exceed 5 steps (total runtime still capped at 3 min).                |
 | `WORKSPACE_ROOT`        | No       | `/workspace` (Docker) / cwd (local)          | Where the server looks for user files for build/upload operations. Usually left at the Docker default.                               |
 
