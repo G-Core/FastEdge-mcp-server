@@ -23,6 +23,7 @@ export const ALLOWED_API_ORIGINS: ReadonlySet<string> = new Set([
   "https://api.gcore.com",
   "https://api.preprod.world",
   "https://api.cdb-staging.cdn.orange.com",
+  "https://api.controlcenter.internationalcarriers.orange.com",
 ]);
 
 /** Origin of `base` if it parses and is on the allowlist, otherwise null. */
