@@ -11,6 +11,7 @@ import { AddressInfo } from "node:net";
 
 import {
   DEFAULT_TIMEOUT_MS,
+  allowedApiOrigin,
   callGcoreApi,
   resolveTimeoutMs,
   serializeBody,
@@ -316,6 +317,30 @@ test("callGcoreApi: refuses to send the API key off the configured origin", asyn
     /attacker\.example/,
     "expected an origin-escape refusal",
   );
+});
+
+test("allowedApiOrigin: only exact Gcore API origins may receive the key", () => {
+  for (const base of [
+    "https://api.gcore.com",
+    "https://api.gcore.com/",
+    "https://API.gcore.com",                      // hosts are case-insensitive
+    "https://api.preprod.world",
+  ]) {
+    assert.ok(allowedApiOrigin(base), `expected ${base} to be allowed`);
+  }
+  for (const base of [
+    "http://api.gcore.com",                       // plaintext
+    "https://api.gcore.com:8443",                 // other port
+    "https://api.gcore.com.attacker.example",     // look-alike suffix
+    "https://attacker.example/api.gcore.com",
+    "https://user:pass@api.gcore.com",            // userinfo
+    "https://attacker.example",
+    "http://localhost:8080",
+    "not a url",
+    "",
+  ]) {
+    assert.equal(allowedApiOrigin(base), null, `expected ${JSON.stringify(base)} to be rejected`);
+  }
 });
 
 test("checkAllowed: denies paths that manipulate the request authority", () => {

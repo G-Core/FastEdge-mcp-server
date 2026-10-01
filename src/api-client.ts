@@ -9,15 +9,44 @@ import { GCORE_API_BASE as BAKED_GCORE_API_BASE } from "./generated/config.js";
 export const GCORE_API_BASE =
   process.env.GCORE_API_BASE || BAKED_GCORE_API_BASE;
 
-// Validate the base URL at startup so a misconfigured GCORE_API_BASE fails
-// fast with a readable message rather than throwing inside a request handler.
-let GCORE_API_ORIGIN: string;
-try {
-  GCORE_API_ORIGIN = new URL(GCORE_API_BASE).origin;
-} catch {
-  console.error(`Fatal: GCORE_API_BASE "${GCORE_API_BASE}" is not a valid URL. Set a correct URL (e.g. https://api.gcore.com) and restart.`);
+/**
+ * Origins the API key may be sent to. GCORE_API_BASE comes from the
+ * environment, which any MCP config can set (e.g. a cloned repo's
+ * `.vscode/mcp.json`) — without this list, a config that looks like ours
+ * could point the key at any host. Exact origins only (scheme + host + port),
+ * no suffix matching, so `http://`, look-alike hosts and odd ports are all
+ * rejected. The baked-in base is checked too, not trusted: a build with any
+ * other SPEC_BASE_URL fails at startup. Adding a host is a code change and an
+ * image release by design — never make this list configurable at runtime.
+ */
+export const ALLOWED_API_ORIGINS: ReadonlySet<string> = new Set([
+  "https://api.gcore.com",
+  "https://api.preprod.world",
+  "https://api.cdb-staging.cdn.orange.com",
+]);
+
+/** Origin of `base` if it parses and is on the allowlist, otherwise null. */
+export function allowedApiOrigin(base: string): string | null {
+  try {
+    const url = new URL(base);
+    // userinfo would ride along with every request, next to the key.
+    if (url.username || url.password) return null;
+    return ALLOWED_API_ORIGINS.has(url.origin) ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+// Validate the base URL at startup so a misconfigured or hostile
+// GCORE_API_BASE fails fast, before any request can carry the key.
+const resolvedOrigin = allowedApiOrigin(GCORE_API_BASE);
+if (!resolvedOrigin) {
+  console.error(
+    `Fatal: GCORE_API_BASE "${GCORE_API_BASE}" is not an allowed Gcore API URL (allowed: ${[...ALLOWED_API_ORIGINS].join(", ")}). Unset it to use the default.`,
+  );
   process.exit(1);
 }
+const GCORE_API_ORIGIN: string = resolvedOrigin;
 
 export const DEFAULT_TIMEOUT_MS = 60_000;
 
