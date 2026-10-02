@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: proxy-wasm-sdk-as
-      ref: master
-      commit: ddb8d2e76e8f4fab30de6bce8dd0150231cd7d31
-      updated: 2026-09-22
+      ref: v1.2.4
+      commit: 073f583217448aaf25cb98f5d336a0fda26273ba
+      updated: 2026-09-29
 -->
 
 # A/B Testing — AssemblyScript (CDN)
@@ -224,3 +224,233 @@ Build scripts use `asc assembly/index.ts --target debug` and `--target release`.
 - FastEdge CDN application platform overview
 - FastEdge environment variable configuration
 - fastedge-test local WASM test runner (for unit-testing cookie parsing and variant assignment logic)
+
+## Source Material
+
+### FILE: examples/abTesting/assembly/index.ts
+
+```ts
+export * from "@gcoredev/proxy-wasm-sdk-as/assembly/proxy";
+import {
+  Context,
+  FilterHeadersStatusValues,
+  get_property,
+  log,
+  LogLevelValues,
+  registerRootContext,
+  RootContext,
+  send_http_response,
+  set_property,
+  stream_context,
+} from "@gcoredev/proxy-wasm-sdk-as/assembly";
+import {
+  getEnv,
+  setLogLevel,
+} from "@gcoredev/proxy-wasm-sdk-as/assembly/fastedge";
+import { getCurrentTime } from "@gcoredev/proxy-wasm-sdk-as/assembly/fastedge/utils/runtime";
+
+class AbTestingRoot extends RootContext {
+  createContext(context_id: u32): Context {
+    setLogLevel(LogLevelValues.info);
+    return new AbTestingContext(context_id, this);
+  }
+}
+
+class AbTestingContext extends Context {
+  constructor(context_id: u32, root_context: AbTestingRoot) {
+    super(context_id, root_context);
+  }
+
+  onRequestHeaders(a: u32, end_of_stream: bool): FilterHeadersStatusValues {
+    const experimentName = getEnv("EXPERIMENT_NAME");
+    if (experimentName === "") {
+      send_http_response(
+        500,
+        "internal server error",
+        String.UTF8.encode("App misconfigured - EXPERIMENT_NAME must be set"),
+        [],
+      );
+      return FilterHeadersStatusValues.StopIteration;
+    }
+
+    const variantAPath = getEnv("VARIANT_A_PATH");
+    const variantBPath = getEnv("VARIANT_B_PATH");
+    if (variantAPath === "" || variantBPath === "") {
+      send_http_response(
+        500,
+        "internal server error",
+        String.UTF8.encode(
+          "App misconfigured - VARIANT_A_PATH and VARIANT_B_PATH must be set",
+        ),
+        [],
+      );
+      return FilterHeadersStatusValues.StopIteration;
+    }
+
+    // Check for existing experiment cookie
+    const cookieName = "fe_exp_" + experimentName;
+    const cookieHeader = stream_context.headers.request.get("Cookie");
+    let assignedVariant = this.getCookieValue(cookieHeader, cookieName);
+
+    // Assign variant if not already set
+    if (assignedVariant !== "A" && assignedVariant !== "B") {
+      // Use current time as a simple entropy source for 50/50 split
+      const now = getCurrentTime();
+      assignedVariant = now % 2 == 0 ? "A" : "B";
+    }
+
+    // Rewrite the request path to the variant path
+    const pathArrBuf = get_property("request.path");
+    if (pathArrBuf.byteLength === 0) {
+      return FilterHeadersStatusValues.Continue;
+    }
+    const originalPath = String.UTF8.decode(pathArrBuf);
+    const variantPath = assignedVariant === "A" ? variantAPath : variantBPath;
+    const newPath = variantPath + originalPath;
+
+    // Reconstruct request.url from its decomposed parts rather than splicing
+    // the path out of the full URL — splicing breaks when the path happens to
+    // appear inside the host, and it can silently lose the query string.
+    const schemeBuf = get_property("request.scheme");
+    const hostBuf = get_property("request.host");
+    if (schemeBuf.byteLength > 0 && hostBuf.byteLength > 0) {
+      const scheme = String.UTF8.decode(schemeBuf);
+      const host = String.UTF8.decode(hostBuf);
+      const queryBuf = get_property("request.query");
+      const query = queryBuf.byteLength > 0 ? String.UTF8.decode(queryBuf) : "";
+      const newUrl =
+        scheme + "://" + host + newPath + (query.length > 0 ? "?" + query : "");
+      log(LogLevelValues.info, `A/B routing: ${newUrl}`);
+      set_property("request.url", String.UTF8.encode(newUrl));
+    }
+
+    // Add variant header for upstream visibility
+    stream_context.headers.request.add("X-Experiment", experimentName);
+    stream_context.headers.request.add("X-Variant", assignedVariant);
+
+    log(
+      LogLevelValues.info,
+      `A/B test "${experimentName}": variant ${assignedVariant}, path ${newPath}`,
+    );
+
+    return FilterHeadersStatusValues.Continue;
+  }
+
+  onResponseHeaders(a: u32, end_of_stream: bool): FilterHeadersStatusValues {
+    // Recover the assigned variant from the request header set in onRequestHeaders.
+    // Instance state (this.variant) does not survive the nginx -> core-proxy hop.
+    const variant = stream_context.headers.request.get("X-Variant");
+    if (variant === "") {
+      return FilterHeadersStatusValues.Continue;
+    }
+
+    const experimentName = getEnv("EXPERIMENT_NAME");
+    const cookieName = "fe_exp_" + experimentName;
+
+    // Set the experiment cookie so subsequent requests stick to the same variant
+    stream_context.headers.response.add(
+      "Set-Cookie",
+      cookieName + "=" + variant + "; Path=/; Max-Age=86400; SameSite=Lax",
+    );
+
+    // Add variant as response header for observability
+    stream_context.headers.response.add("X-Variant", variant);
+
+    return FilterHeadersStatusValues.Continue;
+  }
+
+  private getCookieValue(cookieHeader: string, name: string): string {
+    if (cookieHeader === "") return "";
+    const pairs = cookieHeader.split(";");
+    const prefix = name + "=";
+    for (let i = 0; i < pairs.length; i++) {
+      const pair = pairs[i].trim();
+      if (pair.startsWith(prefix)) {
+        return pair.substring(prefix.length);
+      }
+    }
+    return "";
+  }
+}
+
+registerRootContext((context_id: u32) => {
+  return new AbTestingRoot(context_id);
+}, "abTesting");
+```
+
+
+### FILE: examples/abTesting/package.json
+
+```json
+{
+  "name": "fastedge-as-example-ab-testing",
+  "version": "1.0.0",
+  "description": "FastEdge AssemblyScript example: A/B Testing — cookie-based traffic splitting at the CDN layer",
+  "scripts": {
+    "asbuild:debug": "asc assembly/index.ts --target debug",
+    "asbuild:release": "asc assembly/index.ts --target release",
+    "asbuild": "npm run asbuild:debug && npm run asbuild:release"
+  },
+  "dependencies": {
+    "@gcoredev/proxy-wasm-sdk-as": "^1.2.3"
+  },
+  "devDependencies": {
+    "@assemblyscript/wasi-shim": "^0.1.0",
+    "assemblyscript": "^0.28.9"
+  }
+}
+```
+
+
+### FILE: examples/abTesting/README.md
+
+```
+[← Back to examples](../README.md)
+
+# A/B Testing
+
+This application performs cookie-based A/B traffic splitting at the CDN layer, routing requests to different origin paths based on variant assignment.
+
+## What it does
+
+In `onRequestHeaders`, the app:
+
+1. Checks for an existing experiment cookie (`fe_exp_<EXPERIMENT_NAME>`).
+2. If no cookie is found, assigns the user to variant **A** or **B** (50/50 split).
+3. Rewrites the request path by prepending the variant-specific path prefix (e.g. `/variant-a/original/path`).
+4. Adds `X-Experiment` and `X-Variant` request headers for upstream visibility.
+
+In `onResponseHeaders`, the app sets a `Set-Cookie` header to persist the variant assignment for subsequent requests (24-hour TTL).
+
+> **Note on variant assignment entropy:** New-visitor assignment uses `getCurrentTime() % 2` as a simple 50/50 source. This is illustrative — it is not sticky across two requests that arrive in the same millisecond and is not reproducible in tests. Production A/B implementations typically hash a stable visitor identifier (e.g. client IP or session token) for deterministic, sticky pre-cookie assignment.
+
+## Configuration
+
+Set the following environment variables on your FastEdge application:
+
+| Variable | Example | Description |
+|----------|---------|-------------|
+| `EXPERIMENT_NAME` | `homepage-redesign` | Name of the experiment (required) |
+| `VARIANT_A_PATH` | `/variant-a` | Path prefix for variant A (required) |
+| `VARIANT_B_PATH` | `/variant-b` | Path prefix for variant B (required) |
+
+Your origin server should serve different content at each variant path prefix.
+
+## Build
+
+```sh
+pnpm install
+pnpm run asbuild
+```
+
+Build output:
+
+| File | Description |
+|------|-------------|
+| `build/abTesting.wasm` | Optimised release binary — upload this to FastEdge |
+| `build/abTesting-debug.wasm` | Debug binary with source maps |
+
+## Deploy
+
+Upload `build/abTesting.wasm` to the FastEdge portal and attach it to your CDN application. Configure the experiment environment variables in the application settings.
+```
