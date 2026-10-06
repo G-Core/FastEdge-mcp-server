@@ -156,8 +156,11 @@ The **FastEdge MCP Server** is a Model Context Protocol (MCP) server that provid
 ```
 FastEdge-mcp-server/
 ├── src/
-│   ├── server.ts                  # MCP server entry (stdio transport, env vars)
-│   ├── api-client.ts              # Gcore API HTTP client: GCORE_API_BASE override, AbortController timeout, auth
+│   ├── server.ts                  # MCP server entry (stdio transport, env vars; explicit key or connectBroker)
+│   ├── api-client.ts              # Gcore API HTTP client: GCORE_API_BASE override, AbortController timeout, TransportLimits
+│   ├── broker.ts                  # Token broker process (session mode, uid 10002); see architecture/SESSION-AUTH.md
+│   ├── login.ts                   # `login` subcommand (portal approval, --use, --logout, --code)
+│   ├── auth/                      # credentials (Auth.call), broker protocol/client, session store, login server
 │   │
 │   ├── config/
 │   │   └── products.ts            # Product registry (specPath, pagination, timeout_ms) — 5 products
@@ -284,8 +287,9 @@ FastEdge-mcp-server/
 ### FastEdge API
 
 **Authentication**:
-- Requires `GCORE_API_KEY` environment variable (legacy `FASTEDGE_API_KEY` also accepted)
-- API key obtained from FastEdge dashboard
+- Either `GCORE_API_KEY` (legacy `FASTEDGE_API_KEY` also accepted), or, on `feat/token-gen` (unreleased),
+  a portal-approved session held by an in-container token broker. See `architecture/SESSION-AUTH.md`.
+- Tools never handle credentials: they call `Auth.call()` (`src/auth/credentials.ts`).
 
 **Endpoints used**:
 - `POST /binaries` - Upload WASM binary
@@ -388,7 +392,7 @@ npx asc <input> -o <output> --optimize
 ## Environment Variables
 
 **Server configuration**:
-- `GCORE_API_KEY` - API authentication (required; legacy `FASTEDGE_API_KEY` also accepted)
+- `GCORE_API_KEY` - API authentication (optional on `feat/token-gen`: without it, session mode; legacy `FASTEDGE_API_KEY` also accepted)
 - `GCORE_API_BASE` - Runtime override for baked-in Gcore API base URL (optional; useful for in-house devs running prod schemas against preprod endpoints)
 - `BATCH_MAX_CALLS` - Max calls per `batch_execute` (optional, default: 5)
 - `WORKSPACE_ROOT` - Workspace root path (optional, default: `/workspace` in Docker)

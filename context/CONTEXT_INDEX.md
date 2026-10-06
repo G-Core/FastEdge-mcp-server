@@ -55,6 +55,11 @@ Use this tree to find relevant documentation for your task:
 → Read source: `src/api-client.ts` (HTTP client + timeout layer)
 → Grep: `CHANGELOG.md` for "deploy" or "api"
 
+**Task: Auth, session login, token broker, `login` subcommand, docker-entrypoint.sh**
+→ Read: `architecture/SESSION-AUTH.md` (modes, processes, invariants, tests, release gate)
+→ Grep: `CHANGELOG.md` for "broker" or "session"
+→ Run: `pnpm run test:session-auth`, `pnpm run test:broker`; container gate `pnpm run test:broker-isolation`
+
 **Task: Modify scaffolding (createFastEdgeApp)**
 → Read: `architecture/SCAFFOLDING-ARCHITECTURE.md` (complete architecture)
 → Read: `architecture/MIXED-LANGUAGE-EXAMPLES.md` (usage examples)
@@ -134,7 +139,10 @@ Use this tree to find relevant documentation for your task:
 **Key files to explore**:
 ```
 src/
-├── server.ts                  # Entry point, env vars (GCORE_API_KEY only)
+├── server.ts                  # Entry point: explicit key, or connect to the token broker
+├── broker.ts                  # Token broker process (session mode); see architecture/SESSION-AUTH.md
+├── login.ts                   # `login` subcommand
+├── auth/                      # credentials (Auth.call), broker protocol/client, store, login server
 ├── api-client.ts              # HTTP client: GCORE_API_BASE override, AbortController timeout
 ├── config/
 │   └── products.ts            # Product registry (specPath, pagination, timeout_ms)
@@ -252,7 +260,7 @@ See `SEARCH_GUIDE.md` for more patterns.
 
 **FastEdge API**:
 - All API calls go direct from `src/api-client.ts` — no proxy, no embedded MCP client
-- Requires `GCORE_API_KEY` environment variable
+- `GCORE_API_KEY`, or (on `feat/token-gen`) a portal session through the token broker; see `architecture/SESSION-AUTH.md`
 - `GCORE_API_BASE` (optional) runtime overrides the build-time baked API base URL (useful for in-house preprod testing with prod schemas)
 - Per-call timeout: 60s default, per-product override via `src/config/products.ts`
 - `batch_execute` total budget capped at 3 min (sum of per-step product timeouts)
