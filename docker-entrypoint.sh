@@ -18,10 +18,35 @@
 # /proc/<pid>/environ of child processes.
 set -e
 
-# `docker run <image> login` is the session login, not the system /bin/login.
-if [ "$1" = "login" ]; then
+# `docker run <image> login …` is the session login, not the system /bin/login.
+# The session cache is broker-only (uid 10002; dirs 0700, files 0600): build code running as the
+# MCP server's uid must never be able to read it (fastedge-coordinator PROTOCOL.md §2/§2a).
+if [ "${1:-}" = "login" ]; then
   shift
-  set -- node build/login.js "$@"
+  BROKER_ID=10002
+  CACHE=/run/fastedge
+  login_fail() { echo "login: $*" >&2; exit 2; }
+  [ "$(id -u)" = "0" ] || login_fail "must start as root (don't pass --user)"
+  command -v setpriv >/dev/null 2>&1 || login_fail "setpriv is missing from the image"
+
+  # Migrate as root: refuse links and odd file types, then make everything broker-only.
+  # This also upgrades POC volumes (0644, owned by 10001) in place.
+  if [ -e "$CACHE" ]; then
+    [ -d "$CACHE" ] && [ ! -L "$CACHE" ] || login_fail "$CACHE is not a directory"
+    odd="$(find "$CACHE" -mindepth 1 \( -type l -o ! \( -type f -o -type d \) \) -print | head -1)"
+    [ -z "$odd" ] || login_fail "unexpected entry in the session cache: $odd"
+    chown -R "$BROKER_ID:$BROKER_ID" "$CACHE"
+    find "$CACHE" -type d -exec chmod 0700 {} +
+    find "$CACHE" -type f -exec chmod 0600 {} +
+  fi
+
+  # Run login as the broker uid, with no capabilities, no privilege gain and a clean environment.
+  unset GCORE_API_KEY FASTEDGE_API_KEY
+  exec env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp TERM="${TERM:-dumb}" \
+    GCORE_API_BASE="${GCORE_API_BASE:-}" \
+    setpriv --reuid="$BROKER_ID" --regid="$BROKER_ID" --clear-groups --no-new-privs \
+      --inh-caps=-all --ambient-caps=-all --bounding-set=-all \
+    /usr/local/bin/node /app/build/login.js "$@"
 fi
 
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-/workspace}"

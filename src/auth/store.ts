@@ -114,20 +114,30 @@ export function listAccounts(dir: string, origin: string): Session[] {
 
 // --- Writing (login container only) ----------------------------------------------
 
-/** A fully written, fsynced `0644` temp file in `dir`, ready to be renamed or linked into place. */
+// The cache is broker-only: build code running as the MCP server's uid must not be able to read
+// it (PROTOCOL.md §2, SECURITY.md R1/S15). Directories 0700, files 0600, everywhere.
+const DIR_MODE = 0o700;
+const FILE_MODE = 0o600;
+
+/** Creates `dir` (and parents) owner-only; tightens it if it already exists. */
+function ensurePrivateDir(dir: string): void {
+  fs.mkdirSync(dir, { recursive: true, mode: DIR_MODE });
+  fs.chmodSync(dir, DIR_MODE);
+}
+
+/** A fully written, fsynced `0600` temp file in `dir`, ready to be renamed or linked into place. */
 function writeTemp(dir: string, content: string): string {
-  fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
+  ensurePrivateDir(dir);
   const tmp = join(dir, `.tmp-${randomBytes(8).toString("hex")}`);
   try {
-    const fd = fs.openSync(tmp, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o644);
+    const fd = fs.openSync(tmp, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, FILE_MODE);
     try {
       fs.writeSync(fd, content);
       fs.fsyncSync(fd);
     } finally {
       fs.closeSync(fd);
     }
-    // 0644, not 0600: the MCP server runs as a different, per-workspace UID (PROTOCOL.md §2).
-    fs.chmodSync(tmp, 0o644);
+    fs.chmodSync(tmp, FILE_MODE); // independent of the umask
     return tmp;
   } catch (err) {
     fs.rmSync(tmp, { force: true });
@@ -235,14 +245,21 @@ export class LockedError extends Error {}
 
 /** `O_EXCL` lock holding the PID; older than 10 minutes counts as stale. Returns a release function. */
 export function acquireLock(dir: string): () => void {
-  fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
+  ensurePrivateDir(dir);
   const path = join(dir, ".lock");
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const fd = fs.openSync(path, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o644);
+      const fd = fs.openSync(path, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, FILE_MODE);
       fs.writeSync(fd, String(process.pid));
       fs.closeSync(fd);
-      return () => fs.rmSync(path, { force: true });
+      // Also release on process exit (incl. Ctrl-C/`docker stop`, which login.ts turns into an
+      // exit), so an interrupted login doesn't block the next one for 10 minutes.
+      const release = () => {
+        process.off("exit", release);
+        fs.rmSync(path, { force: true });
+      };
+      process.on("exit", release);
+      return release;
     } catch (err: any) {
       if (err?.code !== "EEXIST") throw err;
       let age = 0;

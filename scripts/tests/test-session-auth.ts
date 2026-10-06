@@ -368,8 +368,8 @@ test("callback rejects bad requests and then accepts Origin: null with a valid s
   assert.equal(await l.result, "ok");
 
   const file = accountFile(l.sessionDir);
-  assert.equal(statSync(file).mode & 0o777, 0o644);
-  assert.equal(statSync(activeFile(l.sessionDir)).mode & 0o777, 0o644);
+  assert.equal(statSync(file).mode & 0o777, 0o600);
+  assert.equal(statSync(activeFile(l.sessionDir)).mode & 0o777, 0o600);
   assert.equal(JSON.parse(readFileSync(file, "utf8")).client_id, 123);
   assert.equal(JSON.parse(readFileSync(activeFile(l.sessionDir), "utf8")).client_id, 123);
   assert.deepEqual(resolverFor(l.sessionDir)(), sessionHeader());
@@ -428,7 +428,7 @@ test("login creates the installation id once (0644) and puts it in the URL", asy
   assert.match(id, ID);
   const file = join(sessionDir, "installation_id");
   assert.equal(readFileSync(file, "utf8"), id);
-  assert.equal(statSync(file).mode & 0o777, 0o644);
+  assert.equal(statSync(file).mode & 0o777, 0o600);
   await post(first.port, { body: form({ state: stateOf(first.url), denied: "1" }) });
 
   const second = await startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir });
@@ -456,15 +456,16 @@ test("a symlinked installation id is not followed; it is replaced by a real file
 });
 
 test("login refuses with exit 2 when the volume isn't writable (it could never save a session)", async () => {
-  const sessionDir = tmp();
-  chmodSync(sessionDir, 0o555);
+  // A cache dir that can't be created (read-only parent), as with a volume owned by someone else.
+  const parent = tmp();
+  chmodSync(parent, 0o555);
   try {
     await assert.rejects(
-      startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir }),
+      startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir: join(parent, "cache") }),
       (err: unknown) => err instanceof LoginError && err.exitCode === 2,
     );
   } finally {
-    chmodSync(sessionDir, 0o755);
+    chmodSync(parent, 0o755);
   }
 });
 
@@ -626,7 +627,7 @@ test("a valid connect code saves a session exactly like a browser login", () => 
   const dir = tmp();
   const saved = connectWithCode(`  ${encode(codePayload())}\n`, { apiOrigin: API, sessionDir: dir });
   assert.equal(saved.client_id, 123);
-  assert.equal(statSync(accountFile(dir)).mode & 0o777, 0o644);
+  assert.equal(statSync(accountFile(dir)).mode & 0o777, 0o600);
   assert.deepEqual(resolverFor(dir)(), sessionHeader());
   assert.ok(!existsSync(join(dir, ".lock")), "lock released");
 });
@@ -672,4 +673,46 @@ test("auth_required and status offer the manual fallback, and warn against pasti
   assert.match(text, /Never ask them to paste the connect code into this chat/);
   const status = authFor(tmp()).status();
   assert.match(String(status.code_command), / -it .* login --code$/);
+});
+
+// --- Broker-only storage modes (task 09 phase 2) ------------------------------------
+
+test("every cache writer is owner-only: 0700 directories, 0600 files (lock and installation id too)", async () => {
+  const sessionDir = tmp();
+  chmodSync(sessionDir, 0o755); // a loose root dir gets tightened
+  const l = await startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir });
+  assert.equal(statSync(join(sessionDir, ".lock")).mode & 0o777, 0o600, "lock held during login");
+  assert.equal(statSync(join(sessionDir, "installation_id")).mode & 0o777, 0o600);
+  assert.equal(await post(l.port, { body: form(goodFields(stateOf(l.url))) }), 200);
+  assert.equal(await l.result, "ok");
+  assert.equal(statSync(sessionDir).mode & 0o777, 0o700);
+  assert.equal(statSync(join(sessionDir, "accounts")).mode & 0o777, 0o700);
+  assert.equal(statSync(accountFile(sessionDir)).mode & 0o777, 0o600);
+  assert.equal(statSync(activeFile(sessionDir)).mode & 0o777, 0o600);
+
+  const dir = tmp();
+  connectWithCode(encode(codePayload({ client_id: 777 })), { apiOrigin: API, sessionDir: dir });
+  for (const p of [dir, join(dir, "accounts")]) assert.equal(statSync(p).mode & 0o777, 0o700, p);
+  assert.equal(statSync(accountFile(dir, 777)).mode & 0o777, 0o600);
+});
+
+test("an interrupted login (SIGINT/SIGTERM) releases the lock", () => {
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    const dir = tmp();
+    const script = `
+      import { startLogin } from "./src/auth/login-server.ts";
+      process.on("SIGINT", () => process.exit(130));
+      process.on("SIGTERM", () => process.exit(143));
+      await startLogin({ apiOrigin: "${API}", port: 0, host: "127.0.0.1", sessionDir: ${JSON.stringify(dir)} });
+      process.kill(process.pid, "${signal}");
+      setTimeout(() => {}, 10_000);
+    `;
+    const r = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], {
+      encoding: "utf8",
+      timeout: 30_000,
+      env: { ...process.env, GCORE_API_BASE: API },
+    });
+    assert.equal(r.status, signal === "SIGINT" ? 130 : 143, r.stderr);
+    assert.ok(!existsSync(join(dir, ".lock")), `lock left behind after ${signal}`);
+  }
 });

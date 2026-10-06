@@ -115,4 +115,9 @@ async function main() {
   }
 }
 
+// Ctrl-C, or `docker stop` (node runs as PID 1, which ignores SIGTERM by default): exit normally
+// so the login lock is released.
+process.on("SIGINT", () => process.exit(130));
+process.on("SIGTERM", () => process.exit(143));
+
 main();

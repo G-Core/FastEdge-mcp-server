@@ -14,6 +14,27 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-06] - security: broker-only session cache (session-approval task 09, phase 2 of 8)
+
+**Not releasable on its own**: session mode can't work in a container again until the token broker lands (phases 3–5). Explicit-key mode is unaffected. Release gate: coordinator `context/session-approval/` README and SECURITY R1.
+
+Why: `build-wasm` runs third-party build code (`build.rs`, npm scripts) as the MCP server's uid, and the `0644` cache let it read every cached token (R1).
+- **`src/auth/store.ts`**: every writer is owner-only. Directories are `0700` (created *and* tightened if they already exist); files, temp files, `.lock` and `installation_id` are `0600`, regardless of the umask. The lock is also released on process exit.
+- **`docker-entrypoint.sh` `login …`**: refuses `--user` and a missing `setpriv` (exit 2). As root, it migrates the cache: it refuses symlinks or odd file types (exit 2), then `chown`s everything to `10002:10002` with `0700`/`0600`, which upgrades POC volumes in place. It then execs `login` as **10002** with `--clear-groups --no-new-privs --inh-caps=-all --ambient-caps=-all --bounding-set=-all`, a clean `env -i` (only `PATH`, `HOME`, `TERM`, `GCORE_API_BASE`), and absolute paths.
+- **`Dockerfile`**: `/run/fastedge` is now `10002:10002 0700`.
+- **`src/login.ts`**: SIGINT and SIGTERM exit normally (node is PID 1 in Docker and would ignore SIGTERM), so an interrupted login no longer leaves `.lock` blocking the next login for 10 minutes.
+
+Verified in containers:
+- a legacy `0644`/10001 volume migrated to `10002 0700/0600`;
+- a uid-1000 process gets "Permission denied" listing the cache;
+- a symlink in the cache and `--user 1000` each exit 2;
+- the login process is uid/gid 10002 everywhere, with no groups, zero capability sets and `NoNewPrivs=1`;
+- `docker stop` on a waiting login removes `.lock`.
+
+Tests: 65 session tests (mode assertions updated to `0600`; new tests for writer modes and for a signal releasing the lock).
+
+---
+
 ## [2026-10-06] - feat: `login --code` for setups where the browser can't reach this machine (session-approval task 08)
 
 In a browser-based Codespace, an SSH session or with a remote Docker host, the portal page can't POST to `127.0.0.1` on the agent's machine. The page's manual mode now shows a **connect code** (`fe1.` + base64url JSON of the callback fields), and the user pastes it here:
