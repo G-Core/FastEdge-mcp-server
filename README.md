@@ -118,6 +118,7 @@ For more information on how Environment Variables work in `dotenv` files read [h
 - **gcore_api** - Execute any Gcore API call. Use `describe_api` first to understand available endpoints.
 - **describe_api** - Get endpoint documentation and TypeScript type definitions for a Gcore API resource group (e.g. `fastedge-apps`, `cdn-resources`). Covers FastEdge, CDN, DNS, WAAP, and Storage.
 - **workflows_list** - Discover pre-built multi-step API workflows (e.g. `create-app`, `update-app-binary`). Returns templates for `batch_execute`.
+- **fastedge-auth-status** - Show which Gcore account the server uses (API key or portal session, account id, expiry) and the commands to sign in or switch accounts. Never returns the token.
 - **batch_execute** - Execute multiple sequential API calls in one invocation with `$name.path` reference resolution between steps. Max 5 calls per batch (configurable via `BATCH_MAX_CALLS`); total runtime capped at 3 minutes.
 
 # Available Resources
@@ -141,7 +142,7 @@ Up-to-date SDK, platform, and example documentation is served through the `faste
 
 Make sure to set the following environment variables:
 
-- `GCORE_API_KEY` (required) - Your Gcore API key for authentication (legacy `FASTEDGE_API_KEY` also accepted).
+- `GCORE_API_KEY` (optional) - Your Gcore API key for authentication (legacy `FASTEDGE_API_KEY` also accepted). Without it, sign in through the Gcore portal for a time-limited session instead. See [STANDALONE-SETUP.md → Sign In Without an API Key](./STANDALONE-SETUP.md#sign-in-without-an-api-key-portal-session), including what that protects and what it doesn't.
 - `GCORE_API_BASE` (optional) - Runtime override for the Gcore API base URL. Defaults to `https://api.gcore.com` (baked at build time). In-house devs can set this to `https://api.preprod.world` to test against preprod endpoints using prod schemas. Only `https://api.gcore.com` and `https://api.preprod.world` are accepted; any other value stops the server at startup so the API key can't be sent elsewhere.
 - `BATCH_MAX_CALLS` (optional) - Override the default max calls per `batch_execute` (default: 5).
 

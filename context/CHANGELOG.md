@@ -14,6 +14,24 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-06] - docs: portal session login and what it protects (session-approval task 09, phase 8)
+
+- **`STANDALONE-SETUP.md`**: a new "Sign In Without an API Key" section. It covers:
+  - the keyless config (`-v fastedge-session:/run/fastedge:ro`), the login flow and lifetimes;
+  - `--use`, `--logout`, and `--code` (never paste the code into chat);
+  - restarting after an account switch; no `--user`; uid 10002 reserved;
+  - **What's protected, and what isn't**: build dependencies are protected. Not protected: anything that can run Docker or is root, `ptrace_scope=0` hosts (the server's connection can be used, but the token can't be read), MCP configs you didn't write, and unencrypted disks.
+- **`README.md`**: `GCORE_API_KEY` is optional; new `fastedge-auth-status` tool entry.
+- **`DEVELOPMENT.md`**:
+  - The env table is updated, and the test commands now include `test:session-auth` and `test:broker`.
+  - A new section covers the container gate, with a **platform sign-off runbook** (macOS, Windows via WSL 2 including a C: drive workspace, rootless Docker, arm64) and what to send back.
+- **`scripts/tests/test-broker-isolation.sh`**: portable to the sign-off platforms.
+  - It reads the server's uid/gid from the container, since Docker Desktop uses the 10001 fallback.
+  - It uses `gtimeout`, or no timeout, where `timeout` is missing (macOS).
+  - `GATE_WS_PARENT` chooses where the workspace goes.
+
+Release gate: only the platform sign-off (phase 7) remains.
+
 ## [2026-10-06] - security: token broker (session-approval task 09, phases 3–6 of 8)
 
 **Still not releasable**: the release gate stays closed until the container gate test passes on Docker Desktop (macOS, Windows), rootless Docker and arm64 (phase 7), and the user docs are written (phase 8). Coordinator: `context/session-approval/` PROTOCOL §2a, SECURITY "Release gate".

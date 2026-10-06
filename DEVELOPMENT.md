@@ -46,7 +46,7 @@ docker pull ghcr.io/g-core/fastedge-mcp-server:latest
 
 | Variable                | Required | Default                                      | Purpose                                                                                                                              |
 | ----------------------- | -------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `GCORE_API_KEY`         | Yes      | —                                            | API authentication (legacy `FASTEDGE_API_KEY` also accepted)                                                                         |
+| `GCORE_API_KEY`         | No       | —                                            | API authentication (legacy `FASTEDGE_API_KEY` also accepted). Without it, the container runs in session mode: portal login plus the token broker (see STANDALONE-SETUP.md). |
 | `GCORE_API_BASE`        | No       | Baked at build time (prod: `api.gcore.com`)  | Runtime override for the Gcore API base URL. In-house devs set this to `https://api.preprod.world` to hit preprod with prod schemas. Must be an allowlisted origin (`ALLOWED_API_ORIGINS` in `src/api-client.ts`), otherwise the server exits at startup. |
 | `BATCH_MAX_CALLS`       | No       | `5`                                          | Max calls per `batch_execute` invocation. Bump for batches that exceed 5 steps (total runtime still capped at 3 min).                |
 | `WORKSPACE_ROOT`        | No       | `/workspace` (Docker) / cwd (local)          | Where the server looks for user files for build/upload operations. Usually left at the Docker default.                               |
@@ -82,6 +82,61 @@ pnpm run build:preprod      # = generate:schemas:preprod + build:server
 ## Tests
 
 ```sh
-pnpm run test           # runs test:api + test:reference-index
+pnpm run test           # every node:test suite + test:reference-index
 pnpm run test:api       # node:test suite (API handlers, timeouts, batch budget)
+pnpm run test:session-auth   # session cache, login callback, connect codes
+pnpm run test:broker         # token broker: frames, request policy, client/broker pair
 ```
+
+### Token broker container gate (needs Docker; not part of `test`)
+
+```sh
+docker build -t fastedge-mcp-server:session-poc .
+pnpm run test:broker-isolation          # or: bash scripts/tests/test-broker-isolation.sh <image>
+```
+
+This runs the real image in session mode with a canary token, then attacks it as build code would (as the server's uid, with its privileges). It checks:
+- startup refusals;
+- the identities of both processes;
+- that the broker's environment is clean;
+- the cache, `/proc` and socket isolation;
+- a filesystem-wide search for a readable copy of the canary token;
+- tool calls through the broker (one call goes to `api.preprod.world`).
+
+It must pass before session login is released, and after any change to `docker-entrypoint.sh`, `src/broker.ts`, `src/auth/broker.ts`, `src/auth/store.ts` or the `Dockerfile`.
+
+#### Platform sign-off (before session login is released)
+
+The gate has passed on rootful Docker on Linux amd64. It also has to pass on each platform below, because uid isolation, `/proc` access and bind-mount ownership differ between them:
+
+| Platform | Who | Result |
+|---|---|---|
+| Docker Desktop, macOS, Apple Silicon (also covers **arm64**) | | ⬜ |
+| Docker Desktop, macOS, Intel (if available) | | ⬜ |
+| Docker Desktop, Windows (WSL 2 backend) | | ⬜ |
+| Rootless Docker, Linux | | ⬜ |
+
+**Steps (macOS and Linux):**
+
+```sh
+git clone -b feat/token-gen https://github.com/G-Core/FastEdge-mcp-server.git && cd FastEdge-mcp-server
+docker build -t fastedge-mcp-server:session-poc .
+bash scripts/tests/test-broker-isolation.sh 2>&1 | tee broker-gate-$(uname -s)-$(uname -m).log
+```
+
+On macOS, Docker Desktop must be running and sharing `/var/folders` (the default). If `docker build` fails on Apple Silicon because the base image has no arm64 variant, that's a finding too: report it.
+
+**Steps (Windows):** run the same commands in a **WSL 2** shell (for example Ubuntu) with Docker Desktop's WSL integration turned on, not in PowerShell or Git Bash. Then run the gate once more with the workspace on the Windows drive, which is how most Windows users mount their projects:
+
+```sh
+# <you> is your Windows user name (the folder under C:\Users)
+GATE_WS_PARENT=/mnt/c/Users/<you> bash scripts/tests/test-broker-isolation.sh 2>&1 | tee broker-gate-windows-cdrive.log
+```
+
+**Steps (rootless Docker, Linux):** use the macOS/Linux steps with `DOCKER_HOST` pointing at the rootless daemon. Run `docker info | grep -i rootless` to confirm.
+
+**Send back** the log file, plus:
+- `docker version` and `docker info` (the OS, kernel and security options lines);
+- on Linux, also `cat /proc/sys/kernel/yama/ptrace_scope`.
+
+Every row must say `ok`. A `FAIL` on a `build code can't: …` row, or a missing `All broker isolation checks passed.`, blocks the release. The `gcore_api reaches the API…` row needs internet access to `api.preprod.world`; report it separately if only that row fails.

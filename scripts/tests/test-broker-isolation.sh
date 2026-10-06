@@ -4,6 +4,7 @@
 # build code would: as the MCP server's uid, with the server's privileges. Every row must pass.
 #
 # Usage: scripts/tests/test-broker-isolation.sh [image]   (default: fastedge-mcp-server:session-poc)
+# Platform sign-off runbook (macOS, Windows, rootless, arm64): DEVELOPMENT.md.
 # Needs Docker. The gcore_api row calls api.preprod.world with the fake token (expects a 401).
 set -u
 IMAGE="${1:-fastedge-mcp-server:session-poc}"
@@ -13,10 +14,17 @@ DROP="--clear-groups --no-new-privs --inh-caps=-all --ambient-caps=-all --boundi
 VOL_GOOD="fe-gate-good-$$"
 VOL_LEGACY="fe-gate-legacy-$$"
 VOL_LINK="fe-gate-link-$$"
-WS="$(mktemp -d)"
+# GATE_WS_PARENT: where the test workspace goes (e.g. /mnt/c/Users/me on Windows, to test a Windows-drive mount).
+WS="$(mktemp -d "${GATE_WS_PARENT:-${TMPDIR:-/tmp}}/fe-gate-XXXXXX")"
 chmod 0755 "$WS"
 CONTAINER=""
 failures=0
+
+# macOS has no `timeout` (coreutils installs it as gtimeout); without either, run unbounded.
+if command -v timeout >/dev/null 2>&1; then t_out() { timeout "$@"; }
+elif command -v gtimeout >/dev/null 2>&1; then t_out() { gtimeout "$@"; }
+else t_out() { shift; "$@"; }
+fi
 
 pass() { printf '  ok    %s\n' "$1"; }
 fail() { printf '  FAIL  %s\n' "$1"; failures=$((failures + 1)); }
@@ -51,7 +59,7 @@ echo "Startup refusals"
 expect_refusal() { # label pattern docker-args...
   local label=$1 pattern=$2; shift 2
   local out code
-  out="$(timeout 60 "${RUN[@]}" "$@" "$IMAGE" </dev/null 2>&1)"; code=$?
+  out="$(t_out 60 "${RUN[@]}" "$@" "$IMAGE" </dev/null 2>&1)"; code=$?
   if [ "$code" = 2 ] && grep -q "$pattern" <<<"$out"; then pass "$label"; else fail "$label (exit $code: $(tail -1 <<<"$out"))"; fi
 }
 expect_refusal "HOST_UID=10002 is refused" "reserved for the token broker" -v "$VOL_GOOD:/run/fastedge:ro" -e HOST_UID=10002
@@ -87,7 +95,10 @@ dropped() { # pid uid
   grep -q "^Uid: $2 $2 $2 $2" <<<"$s" && grep -q '^Groups: *$' <<<"$s" && grep -q '^NoNewPrivs: 1' <<<"$s" &&
     [ "$(grep -c '^Cap[A-Za-z]*: 0000000000000000' <<<"$s")" = 5 ]
 }
-SERVER_UID="$(id -u)"
+# The server's ids as the entrypoint chose them: the workspace owner on Linux, the 10001 fallback
+# where mounts look root-owned (Docker Desktop).
+SERVER_UID="$(in_c "awk '/^Uid:/{print \$2}' /proc/1/status")"
+SERVER_GID="$(in_c "awk '/^Gid:/{print \$2}' /proc/1/status")"
 dropped "$BROKER" 10002 && pass "broker: uid 10002, no groups, no capabilities, no_new_privs" || fail "broker identity: $(status_of "$BROKER")"
 dropped 1 "$SERVER_UID" && pass "server: uid $SERVER_UID, no groups, no capabilities, no_new_privs" || fail "server identity: $(status_of 1)"
 # Even container root needs CAP_SYS_PTRACE to read the broker's environ (it isn't dumpable).
@@ -125,7 +136,7 @@ while read -r verdict label; do
     LEAK | OPEN) fail "build code: $verdict $label" ;;
     *) ;; # e.g. ld.so warnings from the hostile LD_PRELOAD in the container environment
   esac
-done < <(docker exec "$CONTAINER" setpriv --reuid="$SERVER_UID" --regid="$(id -g)" $DROP sh /workspace/evil.sh "$BROKER" "$CANARY" 2>&1)
+done < <(docker exec "$CONTAINER" setpriv --reuid="$SERVER_UID" --regid="$SERVER_GID" $DROP sh /workspace/evil.sh "$BROKER" "$CANARY" 2>&1)
 
 check "the canary is not in the container logs" "$(docker logs "$CONTAINER" 2>&1 | grep -c "$CANARY")" "0"
 docker rm -f "$CONTAINER" >/dev/null; CONTAINER=""
@@ -141,7 +152,7 @@ rpc() {
     '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"gcore_api","arguments":{"method":"GET","path":"/iam/users"}}}'
   sleep 8
 }
-OUT="$(rpc | timeout 60 "${RUN[@]}" -v "$VOL_GOOD:/run/fastedge:ro" "$IMAGE" 2>/dev/null)"
+OUT="$(rpc | t_out 60 "${RUN[@]}" -v "$VOL_GOOD:/run/fastedge:ro" "$IMAGE" 2>/dev/null)"
 line() { grep "\"id\":$1}" <<<"$OUT"; }
 grep -q '\\"client_id\\": 123' <<<"$(line 2)" && pass "fastedge-auth-status reads the account through the broker" || fail "auth status: $(line 2 | head -c 200)"
 grep -q '(rejected)' <<<"$(line 3)" && pass "gcore_api reaches the API through the broker (fake token → rejected)" || fail "gcore_api: $(line 3 | head -c 200)"
