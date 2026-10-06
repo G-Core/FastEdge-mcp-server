@@ -720,3 +720,13 @@ test("an interrupted login (SIGINT/SIGTERM) releases the lock", () => {
     assert.ok(!existsSync(join(dir, ".lock")), `lock left behind after ${signal}`);
   }
 });
+
+test("auth_required offers three choices: browser here, remote with a code, not now", () => {
+  const text = authRequiredResult("no_session", { apiOrigin: API }).content[0].text;
+  assert.match(text, /multiple-choice question/);
+  assert.match(text, /1\. Browser on this computer \(recommended\)/);
+  assert.match(text, /2\. Remote .*\n.*agent-connect.*\n.*login --code/);
+  assert.match(text, /3\. Not now/);
+  assert.match(text, /Never ask them to paste the connect code/);
+  assert.match(text, /After 1 or 2, retry this request/);
+});

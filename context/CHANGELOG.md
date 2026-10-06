@@ -14,6 +14,10 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-06] - auth_required: sign-in as three choices
+
+After the preprod test, the agent showed two command blocks and then asked a separate question. `auth_required` now asks the agent to offer **1. Browser on this computer (recommended) / 2. Remote (SSH, Codespaces) / 3. Not now**, as a multiple-choice question where the client supports one (Claude Code shows a menu), or as a list otherwise. This folds the permission ask and the method choice into one. It also says that the listener is a one-time local handoff, not OAuth. The manual-fallback text (`session.ts`) now reads as choice 2, and it's also the status tool's `manual_login`. There's a new wording test, and the coordinator's PROTOCOL §4 is updated.
+
 ## [2026-10-06] - security: broker confirms the account behind a session token
 
 A cache file only *claims* an account. Anyone who can write the volume could plant a token from another account labelled with yours, and pinning trusted the label.

@@ -240,13 +240,20 @@ export function authRequiredResult(
       );
     }
     lines.push(
-      "Either set GCORE_API_KEY, or sign in through the Gcore portal for a time-limited session:",
-      "ask the user for permission, then run this command and give them the URL it prints:",
-      `  ${command}`,
-      manualFallback(apiOrigin) ?? "",
+      "Sign in through the Gcore portal for a time-limited session (or set GCORE_API_KEY instead).",
+      "Ask the user how to sign in. If you can ask a multiple-choice question, offer these three",
+      "choices; otherwise list them:",
+      "1. Browser on this computer (recommended): with their OK, run this command yourself and give",
+      "   them the URL it prints. It waits up to 5 minutes on a local port for their approval in the",
+      "   portal (a one-time handoff, not OAuth):",
+      `   ${command}`,
+      // Same portal mapping as the login command, so it is never null here.
+      "2. Remote (SSH, a Codespace, or a browser that can't reach this computer):",
+      manualFallback(apiOrigin)!,
+      "3. Not now: stop, and don't retry the request.",
       opts.detail
-        ? "Then retry only what did not complete; no restart is needed."
-        : "Then retry this request; no restart is needed.",
+        ? "After 1 or 2, retry only what did not complete; no restart is needed."
+        : "After 1 or 2, retry this request; no restart is needed.",
     );
   }
   if (opts.detail) lines.push("", opts.detail);
