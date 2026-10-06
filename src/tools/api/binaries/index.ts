@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import { UploadError, uploadBinary } from "./api.js";
+import { uploadBinary } from "./api.js";
+import type { UploadBinaryResponse } from "./types.js";
 import { authRequiredResult, type Auth } from "../../../auth/credentials.js";
 
 /**
@@ -33,12 +34,17 @@ export function registerUploadBinaryTool(
       },
     },
     async (params) => {
-      const credential = auth.resolve();
-      if ("authRequired" in credential) return authRequiredResult(credential.authRequired);
       try {
-        const binary = await uploadBinary(credential.header, workspaceRoot, params.wasmFile);
+        const result = await uploadBinary(auth, workspaceRoot, params.wasmFile);
+        if ("authRequired" in result) return authRequiredResult(result.authRequired);
 
-        if (!binary.id) {
+        const { status, data } = result;
+        if (status < 200 || status >= 300) {
+          const detail = typeof data === "string" ? data : JSON.stringify(data);
+          throw new Error(`Failed to upload binary: ${status}${detail ? ` — ${detail}` : ""}`);
+        }
+        const binary = data as Partial<UploadBinaryResponse> | null;
+        if (!binary?.id) {
           throw new Error("Failed to upload binary: No ID returned");
         }
 
@@ -51,9 +57,6 @@ export function registerUploadBinaryTool(
           ],
         };
       } catch (error: any) {
-        if (credential.source === "session" && error instanceof UploadError && error.status === 401) {
-          return authRequiredResult("rejected");
-        }
         return {
           content: [
             {

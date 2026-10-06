@@ -7,7 +7,7 @@ import {
   type ApiCallResult,
 } from "../../api-client.js";
 import { checkAllowed } from "../../policy/enforce.js";
-import { authRequiredResult, type Auth } from "../../auth/credentials.js";
+import { authRequiredResult, type Auth, type AuthRequiredReason } from "../../auth/credentials.js";
 
 export interface GcoreApiInput {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -85,17 +85,16 @@ export function registerGcoreApiTool(server: McpServer, auth: Auth) {
       },
     },
     async (input) => {
-      const credential = auth.resolve();
-      if ("authRequired" in credential) return authRequiredResult(credential.authRequired);
-      let status = 0;
+      let authRequired: AuthRequiredReason | undefined;
       const result = await gcoreApiHandler(input as GcoreApiInput, async (opts: ApiCallOptions) => {
-        const response = await callGcoreApi({ ...opts, authHeader: credential.header });
-        status = response.status;
+        const response = await auth.call(opts);
+        if ("authRequired" in response) {
+          authRequired = response.authRequired;
+          return { status: 0, data: null };
+        }
         return response;
       });
-      // Judged by the credential this request used, never a later read of the cache. Explicit keys keep the raw 401 (S1).
-      if (credential.source === "session" && status === 401) return authRequiredResult("rejected");
-      return result;
+      return authRequired ? authRequiredResult(authRequired) : result;
     },
   );
 }

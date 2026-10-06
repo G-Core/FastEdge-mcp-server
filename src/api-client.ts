@@ -100,6 +100,8 @@ export function serializeBody(
   contentType: string,
 ): string | Uint8Array | undefined {
   if (body === undefined || body === null) return undefined;
+  // Raw bytes are already the wire body (upload-binary, and every body relayed by the token broker).
+  if (body instanceof Uint8Array) return body;
   if (contentType === "application/json") {
     if (typeof body === "string") {
       try {
@@ -118,8 +120,40 @@ export function serializeBody(
   return String(body);
 }
 
+/**
+ * Extra limits the token broker applies to session-token requests (fastedge-coordinator
+ * PROTOCOL.md §2a). Explicit-key calls don't use them.
+ */
+export interface TransportLimits {
+  /** Return 3xx as an error instead of following it (a same-origin redirect would keep the token). */
+  manualRedirect?: boolean;
+  /** Cap on the response body; larger responses become an error. */
+  maxResponseBytes?: number;
+}
+
+/** Reads the body, failing once it exceeds `max` bytes rather than buffering it all. */
+async function readCapped(response: Response, max: number): Promise<Buffer | null> {
+  const declared = Number(response.headers.get("content-length"));
+  if (declared > max) {
+    await response.body?.cancel();
+    return null;
+  }
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for await (const chunk of response.body ?? []) {
+    total += chunk.byteLength;
+    if (total > max) {
+      await response.body?.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
 export async function callGcoreApi(
   opts: ApiCallOptions,
+  limits: TransportLimits = {},
 ): Promise<ApiCallResult> {
   const authorization = opts.authHeader ?? null;
   if (!authorization) {
@@ -180,11 +214,24 @@ export async function callGcoreApi(
       // Uint8Array is valid BodyInit in Node 18+ but missing from @types/node fetch overloads
       body: body as BodyInit | undefined,
       signal: controller.signal,
+      ...(limits.manualRedirect ? { redirect: "manual" as const } : {}),
     });
+
+    if (limits.manualRedirect && response.status >= 300 && response.status < 400) {
+      await response.body?.cancel();
+      return { status: 0, data: { error: `The API answered ${response.status} (a redirect), which is not followed.` } };
+    }
 
     let data: unknown;
     const contentType = response.headers.get("content-type") ?? "";
-    if (contentType.includes("application/json")) {
+    if (limits.maxResponseBytes !== undefined) {
+      const bytes = await readCapped(response, limits.maxResponseBytes);
+      if (!bytes) {
+        return { status: 0, data: { error: `The API response is larger than ${limits.maxResponseBytes} bytes.` } };
+      }
+      const text = bytes.toString("utf8");
+      data = contentType.includes("application/json") ? JSON.parse(text) : text.length > 0 ? text : null;
+    } else if (contentType.includes("application/json")) {
       data = await response.json();
     } else {
       const text = await response.text();

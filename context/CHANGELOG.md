@@ -14,6 +14,50 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-06] - security: token broker (session-approval task 09, phases 3–6 of 8)
+
+**Still not releasable**: the release gate stays closed until the container gate test passes on Docker Desktop (macOS, Windows), rootless Docker and arm64 (phase 7), and the user docs are written (phase 8). Coordinator: `context/session-approval/` PROTOCOL §2a, SECURITY "Release gate".
+
+Session mode now works in a container again, with the session cache readable only by a broker process under its own uid.
+- **`docker-entrypoint.sh`**:
+  - **Every mode:** `HOST_UID`/`HOST_GID` must be numbers and must not be 10002 (exit 2).
+  - **Without a key (session mode):**
+    - It must start as root, and `/run/fastedge` must be a real directory that's entirely `10002`, `0700`/`0600`, with no links. Otherwise it exits 2 and says to run login once, and never fixes anything.
+    - It starts `build/broker.js` as 10002 with the full `setpriv` drop, `env -i` (`PATH`, `HOME`, `GCORE_API_BASE`) and core dumps off, then waits up to 5 s for a ready FIFO.
+    - It then execs the server with the full drop.
+  - **The explicit-key path** is otherwise unchanged and starts no broker.
+- **`src/broker.ts`**:
+  - It checks its own identity (all uids and gids 10002, no capabilities or groups, `no_new_privs`) and listens on `/run/fastedge-broker/sock`.
+  - It accepts **one** connection, then closes the listener and unlinks the socket. It exits when that connection ends, and exits if nothing connects within 30 s.
+- **`src/auth/broker.ts`**:
+  - **Frames:** length-prefixed JSON frames with raw bodies.
+  - **`checkRequest`:**
+    - fields: a strict field set;
+    - methods: a method enum;
+    - paths: the path grammar (no dot segments, `%`, `//`, `?`, `#`, `\`), and the URL must keep the fixed origin and the exact pathname;
+    - policy: `ALLOWED_OPS` plus `GET /iam/clients/me`;
+    - limits on query and body; JSON and octet-stream content types only.
+  - **`serveBroker`:** a handshake first, 8 requests in flight, and fixed error strings.
+  - **`connectBroker` (server side):**
+    - It refuses unless this process is unprivileged and not 10002, and the socket is a socket owned by 10002.
+    - It completes the handshake at startup. If anything fails, it never falls back to reading the cache: every API tool returns `auth_required` `broker_unavailable`.
+- **`src/auth/credentials.ts`**:
+  - `Auth.call()` replaces handing tools a header.
+  - Session mode (broker only) uses manual redirects and a 16 MiB response cap.
+  - A 401 maps to `rejected`, and any response containing the token is withheld.
+  - New reason `broker_unavailable`: restart the MCP server, logging in won't help.
+- **`src/server.ts`**: connects to the broker before registering tools.
+- **API tools**:
+  - `gcore_api`, `batch_execute`, `upload-binary` and `fastedge-auth-status` go through `Auth`.
+  - `upload-binary` now uses `callGcoreApi`, so it gets the same origin check and 60 s timeout as the batch upload workflows. It previously had no timeout.
+- **`src/api-client.ts`**:
+  - `serializeBody` passes `Uint8Array` bodies through.
+  - New optional `TransportLimits` (manual redirects, capped responses), used only for session tokens.
+- **Tests**:
+  - `test:broker`: 34 unit tests (frames, policy, the `Authorization` canary, redirects, size cap, broker loss, socket owner).
+  - `test:broker-isolation`: the container gate, 37 checks. It covers startup refusals, the explicit-key path having no broker, the identities of both processes, the broker environment and core limits, a hostile build as the server uid (cache, `/proc`, socket, `su`/`mount`, writing broker code, a filesystem-wide canary search), and tools working through the broker against preprod.
+  - Passes on rootful Linux amd64.
+
 ## [2026-10-06] - security: broker-only session cache (session-approval task 09, phase 2 of 8)
 
 **Not releasable on its own**: session mode can't work in a container again until the token broker lands (phases 3–5). Explicit-key mode is unaffected. Release gate: coordinator `context/session-approval/` README and SECURITY R1.

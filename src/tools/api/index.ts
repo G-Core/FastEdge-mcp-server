@@ -6,14 +6,13 @@ import { registerWorkflowsListTool } from "./workflows-list.js";
 import { registerBatchExecuteTool } from "./batch-execute.js";
 import { registerUploadBinaryTool } from "./binaries/index.js";
 import { registerAuthStatusTool } from "./auth-status.js";
-import { createAuth, type Auth } from "../../auth/credentials.js";
+import type { Auth } from "../../auth/credentials.js";
 
 export function registerApiTools(
   server: McpServer,
-  // `auth` is a test hook; the server always builds it from the key.
-  options: { workspaceRoot: string; gcoreApiKey: string; auth?: Auth },
+  options: { workspaceRoot: string; auth: Auth },
 ) {
-  const auth = options.auth ?? createAuth(options.gcoreApiKey);
+  const { auth } = options;
   registerGcoreApiTool(server, auth);
   registerDescribeApiTool(server);
   registerWorkflowsListTool(server);

@@ -189,7 +189,7 @@ type ToolText = { isError?: boolean; content: Array<{ type: string; text: string
 
 async function toolsWith(auth: Auth, workspaceRoot = tmp()) {
   const server = new McpServer({ name: "test", version: "0" });
-  registerApiTools(server, { workspaceRoot, gcoreApiKey: "", auth });
+  registerApiTools(server, { workspaceRoot, auth });
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await server.connect(serverSide);
   const client = new Client({ name: "t", version: "0" });

@@ -12,6 +12,6 @@ export function registerAuthStatusTool(server: McpServer, auth: Auth) {
       inputSchema: {},
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async () => ({ content: [{ type: "text", text: JSON.stringify(auth.status(), null, 2) }] }),
+    async () => ({ content: [{ type: "text", text: JSON.stringify(await auth.status(), null, 2) }] }),
   );
 }

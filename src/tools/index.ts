@@ -2,6 +2,8 @@ import { join } from "path";
 import { fileURLToPath } from "url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
+import type { Auth } from "../auth/credentials.js";
+
 import { registerApiTools } from "./api/index.js";
 import { registerScaffoldTools } from "./local/scaffolding/index.js";
 import { registerWorkspaceTools } from "./local/workspace/index.js";
@@ -9,7 +11,8 @@ import { registerReferenceTools } from "./local/reference/index.js";
 
 export interface ToolOptions {
   workspaceRoot: string;
-  gcoreApiKey: string;
+  /** The API credential: an explicit key, or the token broker in session mode. */
+  auth: Auth;
 }
 
 export function registerAllTools(server: McpServer, options: ToolOptions) {

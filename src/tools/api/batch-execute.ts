@@ -8,7 +8,7 @@ import {
   type ApiCallResult,
 } from "../../api-client.js";
 import { checkAllowed } from "../../policy/enforce.js";
-import { authRequiredResult, type Auth } from "../../auth/credentials.js";
+import { authRequiredResult, type Auth, type AuthRequiredReason } from "../../auth/credentials.js";
 
 export const BATCH_TOTAL_CAP_MS = 180_000;
 export const BATCH_MAX_CALLS_DEFAULT = 5;
@@ -337,22 +337,22 @@ export function registerBatchExecuteTool(server: McpServer, auth: Auth) {
       },
     },
     async ({ calls }) => {
-      const credential = auth.resolve();
-      if ("authRequired" in credential) return authRequiredResult(credential.authRequired);
-      let lastStatus = 0;
+      let authRequired: AuthRequiredReason | undefined;
+      let step = 0;
       const result = await batchExecuteHandler({ calls: calls as BatchCall[] }, async (opts: ApiCallOptions) => {
-        const response = await callGcoreApi({ ...opts, authHeader: credential.header });
-        lastStatus = response.status;
-        return response;
+        step++;
+        const response = await auth.call(opts);
+        if (!("authRequired" in response)) return response;
+        // Stops the batch here (it stops at the first 4xx).
+        authRequired = response.authRequired;
+        return { status: 401, data: { error: "auth_required", reason: authRequired } };
       });
-      // The batch stops at the first 4xx, so a 401 is the failing step. Keep the progress:
-      // earlier steps may have written, and must not be replayed.
-      if (credential.source === "session" && lastStatus === 401) {
-        return authRequiredResult("rejected", {
-          detail: `Batch progress (steps in "completed" already ran; do not repeat them):\n${result.content[0].text}`,
-        });
-      }
-      return result;
+      if (!authRequired) return result;
+      if (step === 1) return authRequiredResult(authRequired);
+      // Keep the progress: earlier steps may have written, and must not be replayed.
+      return authRequiredResult(authRequired, {
+        detail: `Batch progress (steps in "completed" already ran; do not repeat them):\n${result.content[0].text}`,
+      });
     },
   );
 }
