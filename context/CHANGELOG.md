@@ -14,6 +14,16 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-06] - feat: installation id in the login link (session-approval task 05)
+
+`login` reads or creates `/run/fastedge/installation_id` (32 lowercase hex characters, `0644`) and adds `&install=<id>` to the approval link. The portal uses it to replace this installation's earlier tokens after creating the new one, so repeated logins on one machine don't pile up tokens.
+- `ensureInstallationId()` in `src/auth/login-server.ts` writes a temp file and links it into place, so the first writer wins a race. A symlinked or malformed file is replaced.
+- If the volume can't be written, login carries on without `install`.
+- The temp-file writer is now shared with `writeSession`.
+- Tests: 4 new (37 total). Container check: two logins share one id, and the file is `10001:10001 0644`.
+
+---
+
 ## [2026-10-06] - feat (POC): recover from a revoked session token, `fastedge-auth-status`, safer login command
 
 Found in the preprod demo: a token deleted in the portal before expiry kept being sent, and the raw `401 Invalid API token` came back as a normal result, so the agent never got a login prompt. Reviewed with Codex (MoM) for Codex CLI support and security.

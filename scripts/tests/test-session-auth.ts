@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import net from "node:net";
-import { mkdtempSync, writeFileSync, symlinkSync, statSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, symlinkSync, statSync, existsSync, readFileSync, lstatSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -15,7 +15,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import { authRequiredResult, createAuth, type Auth, type AuthRequiredReason } from "../../src/auth/credentials.js";
-import { LoginError, startLogin } from "../../src/auth/login-server.js";
+import { LoginError, ensureInstallationId, startLogin } from "../../src/auth/login-server.js";
 import { registerApiTools } from "../../src/tools/api/index.js";
 
 const API = "https://api.preprod.world";
@@ -394,4 +394,54 @@ test("origins with no portal mapping refuse session login with exit code 2", asy
     startLogin({ apiOrigin: "https://api.cdb-staging.cdn.orange.com", port: 0, host: "127.0.0.1" }),
     (err: unknown) => err instanceof LoginError && err.exitCode === 2,
   );
+});
+
+// --- Installation id (task 05) ----------------------------------------------------
+
+const ID = /^[0-9a-f]{32}$/;
+
+test("login creates the installation id once (0644) and puts it in the URL", async () => {
+  const sessionDir = tmp();
+  const first = await startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir });
+  const id = new URL(first.url).searchParams.get("install") ?? "";
+  assert.match(id, ID);
+  const file = join(sessionDir, "installation_id");
+  assert.equal(readFileSync(file, "utf8"), id);
+  assert.equal(statSync(file).mode & 0o777, 0o644);
+  await post(first.port, { body: form({ state: stateOf(first.url), denied: "1" }) });
+
+  const second = await startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir });
+  assert.equal(new URL(second.url).searchParams.get("install"), id, "reused, never rotated");
+  await post(second.port, { body: form({ state: stateOf(second.url), denied: "1" }) });
+});
+
+test("a malformed installation id is replaced", () => {
+  const dir = tmp();
+  writeFileSync(join(dir, "installation_id"), "not-an-id");
+  const id = ensureInstallationId(dir);
+  assert.match(id, ID);
+  assert.equal(ensureInstallationId(dir), id);
+});
+
+test("a symlinked installation id is not followed; it is replaced by a real file", () => {
+  const dir = tmp();
+  const target = join(tmp(), "elsewhere");
+  writeFileSync(target, "0".repeat(32));
+  symlinkSync(target, join(dir, "installation_id"));
+  const id = ensureInstallationId(dir);
+  assert.match(id, ID);
+  assert.ok(!lstatSync(join(dir, "installation_id")).isSymbolicLink());
+  assert.equal(readFileSync(target, "utf8"), "0".repeat(32), "the link target is untouched");
+});
+
+test("login still works without an installation id when the volume isn't writable", async () => {
+  const sessionDir = tmp();
+  chmodSync(sessionDir, 0o555);
+  try {
+    const l = await startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir });
+    assert.equal(new URL(l.url).searchParams.get("install"), null);
+    await post(l.port, { body: form({ state: stateOf(l.url), denied: "1" }) });
+  } finally {
+    chmodSync(sessionDir, 0o755);
+  }
 });

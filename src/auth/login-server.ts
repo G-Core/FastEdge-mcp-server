@@ -51,24 +51,79 @@ const OK_PAGE = page("FastEdge connected", "FastEdge is connected. You can close
 const DENIED_PAGE = page("FastEdge not connected", "Access was denied. You can close this tab.");
 const BAD_PAGE = page("Bad request", "This request was not accepted.");
 
-/** Temp file + fsync + rename, so a reader never sees a half-written session (S15). */
-function writeSession(dir: string, session: object): void {
+/** A fully written, fsynced `0644` temp file in `dir`, ready to be renamed or linked into place. */
+function writeTemp(dir: string, content: string): string {
   fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
-  const tmp = join(dir, `.session-${randomBytes(8).toString("hex")}.tmp`);
+  const tmp = join(dir, `.tmp-${randomBytes(8).toString("hex")}`);
   try {
     const fd = fs.openSync(tmp, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o644);
     try {
-      fs.writeSync(fd, JSON.stringify(session));
+      fs.writeSync(fd, content);
       fs.fsyncSync(fd);
     } finally {
       fs.closeSync(fd);
     }
     // 0644, not 0600: the MCP server runs as a different, per-workspace UID (PROTOCOL.md §2).
     fs.chmodSync(tmp, 0o644);
+    return tmp;
+  } catch (err) {
+    fs.rmSync(tmp, { force: true });
+    throw err;
+  }
+}
+
+/** Temp file + fsync + rename, so a reader never sees a half-written session (S15). */
+function writeSession(dir: string, session: object): void {
+  const tmp = writeTemp(dir, JSON.stringify(session));
+  try {
     fs.renameSync(tmp, join(dir, "session.json"));
   } catch (err) {
     fs.rmSync(tmp, { force: true });
     throw err;
+  }
+}
+
+const INSTALL_ID_PATTERN = /^[0-9a-f]{32}$/;
+
+function readInstallationId(file: string): string | null {
+  try {
+    const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      const buf = Buffer.alloc(64);
+      const id = buf.subarray(0, fs.readSync(fd, buf, 0, buf.length, 0)).toString("utf8").trim();
+      return INSTALL_ID_PATTERN.test(id) ? id : null;
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * This volume's installation id (PROTOCOL.md §2), created on first use. `link()` makes the first
+ * writer win if two logins race; an unreadable or malformed file is replaced.
+ */
+export function ensureInstallationId(dir: string): string {
+  const file = join(dir, "installation_id");
+  const existing = readInstallationId(file);
+  if (existing) return existing;
+
+  const tmp = writeTemp(dir, randomBytes(16).toString("hex"));
+  try {
+    try {
+      fs.linkSync(tmp, file);
+    } catch (err: any) {
+      if (err?.code !== "EEXIST") throw err;
+      const raced = readInstallationId(file);
+      if (raced) return raced;
+      fs.renameSync(tmp, file);
+    }
+    const id = readInstallationId(file);
+    if (!id) throw new Error("installation id unreadable");
+    return id;
+  } finally {
+    fs.rmSync(tmp, { force: true });
   }
 }
 
@@ -193,8 +248,15 @@ export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
   const port = (server.address() as AddressInfo).port;
   expectedHost = `127.0.0.1:${port}`;
   const api = new URL(opts.apiOrigin).host;
+  let install = "";
+  try {
+    install = `&install=${ensureInstallationId(sessionDir)}`;
+  } catch (err: any) {
+    // Login still works; the portal just can't replace this machine's earlier tokens.
+    console.error(`Could not read or create the installation id: ${err?.code ?? "error"}`);
+  }
   return {
-    url: `${portalOrigin}/fastedge/agent-connect?port=${port}&state=${state}&api=${api}`,
+    url: `${portalOrigin}/fastedge/agent-connect?port=${port}&state=${state}&api=${api}${install}`,
     port,
     result,
   };
