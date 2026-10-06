@@ -18,6 +18,7 @@ export type AuthRequiredReason =
   | "account_changed"
   | "origin_mismatch"
   | "rejected"
+  | "account_mismatch"
   | "broker_unavailable";
 export type CredentialSource = "explicit" | "session";
 export type AuthResolution = { header: string; source: CredentialSource } | { authRequired: AuthRequiredReason };
@@ -97,26 +98,77 @@ export function createAuth(
   const sessionDir = opts.sessionDir ?? SESSION_DIR;
   const now = opts.now ?? Date.now;
   let pinnedClientId: number | undefined;
+  // The token whose account the API confirmed, and a check in progress (shared by concurrent calls).
+  let verifiedToken: string | undefined;
+  let verifying: { token: string; result: Promise<ApiResult | null> } | undefined;
 
-  const resolve = (): AuthResolution => {
+  /** The usable session, checked against the pin without setting it. */
+  const current = (): { session: Session } | { authRequired: AuthRequiredReason } => {
     const check = checkSession(sessionDir, apiOrigin, now());
     if ("reason" in check) return { authRequired: check.reason };
-    pinnedClientId ??= check.session.client_id;
-    if (check.session.client_id !== pinnedClientId) return { authRequired: "account_changed" };
-    return { header: `APIKey ${check.session.token}`, source: "session" };
+    if (pinnedClientId !== undefined && check.session.client_id !== pinnedClientId) {
+      return { authRequired: "account_changed" };
+    }
+    return { session: check.session };
+  };
+
+  const resolve = (): AuthResolution => {
+    const c = current();
+    if ("authRequired" in c) return c;
+    pinnedClientId ??= c.session.client_id;
+    return { header: `APIKey ${c.session.token}`, source: "session" };
+  };
+
+  /**
+   * The cache file only *claims* an account. Before a token's first use, ask the API whose it is
+   * (GET /iam/clients/me → `id`), so a planted or mislabelled token can't pass as the pinned
+   * account. Null when it matches; otherwise the result to return instead. An IAM outage is an
+   * error, never a login prompt or a fallback.
+   */
+  const verify = (session: Session): Promise<ApiResult | null> => {
+    if (verifying?.token === session.token) return verifying.result;
+    const result = (async (): Promise<ApiResult | null> => {
+      const me = await callGcoreApi(
+        { method: "GET", path: "/iam/clients/me", authHeader: `APIKey ${session.token}` },
+        SESSION_LIMITS,
+      );
+      if (me.status === 401) return { authRequired: "rejected" };
+      if (me.status !== 200) {
+        return {
+          status: me.status >= 400 ? me.status : 502,
+          data: { error: `Couldn't confirm which account the session token belongs to (GET /iam/clients/me answered ${me.status}). Try again shortly.` },
+        };
+      }
+      if ((me.data as { id?: unknown } | null)?.id !== session.client_id) return { authRequired: "account_mismatch" };
+      verifiedToken = session.token;
+      return null;
+    })().finally(() => {
+      if (verifying?.token === session.token) verifying = undefined;
+    });
+    verifying = { token: session.token, result };
+    return result;
   };
 
   return {
     resolve,
 
     async call(call) {
-      const credential = resolve();
-      if ("authRequired" in credential) return credential;
-      const result = await callGcoreApi({ ...call, authHeader: credential.header }, SESSION_LIMITS);
+      const c = current();
+      if ("authRequired" in c) return c;
+      const { session } = c;
+      if (session.token !== verifiedToken) {
+        const problem = await verify(session);
+        if (problem) return problem;
+      }
+      // Pin only a verified account; a concurrent call may have pinned another meanwhile.
+      pinnedClientId ??= session.client_id;
+      if (session.client_id !== pinnedClientId) return { authRequired: "account_changed" };
+
+      const result = await callGcoreApi({ ...call, authHeader: `APIKey ${session.token}` }, SESSION_LIMITS);
       // A 403 is a permission problem, not a login problem: pass it through.
       if (result.status === 401) return { authRequired: "rejected" };
       // Never hand the token across the broker boundary, even if an upstream echoes it.
-      const token = credential.header.slice("APIKey ".length);
+      const token = session.token;
       if (JSON.stringify(result.data ?? null).includes(token)) {
         return { status: 0, data: { error: "The API response was withheld because it contained the session token." } };
       }
@@ -132,13 +184,15 @@ export function createAuth(
         credential: "session",
         state,
         active_session: "session" in check ? describeSession(check.session) : null,
+        // Whether the API confirmed the active session's token belongs to its account (checked on first use).
+        account_verified: "session" in check && check.session.token === verifiedToken,
         // The account this server process is locked to; null until the first API call.
         pinned_client_id: pinnedClientId ?? null,
         cached_accounts: listAccounts(sessionDir, apiOrigin).map((s) => ({
           ...describeSession(s),
           usable: isUsable(s, at),
         })),
-        note: "Local state only: tokens were not checked with the API, and can still have been revoked in the portal.",
+        note: "Accounts and expiry come from the local cache; account_verified says whether the API confirmed the active token's account. Tokens can still have been revoked in the portal.",
         ...(changed ? { next_step: RESTART_HINT } : {}),
         login_command: command,
         use_command: use,
@@ -173,6 +227,12 @@ export function authRequiredResult(
   } else if (!command) {
     lines.push("Session login is not available for this API origin. Set GCORE_API_KEY instead.");
   } else {
+    if (reason === "account_mismatch") {
+      lines.push(
+        "The API says the cached session token belongs to a different Gcore account than the session claims, so it was not used.",
+        "The session cache may have been tampered with. Log in again; if this happens again, stop and tell the user.",
+      );
+    }
     if (reason === "rejected") {
       lines.push(
         "The API rejected the session token (it may have been revoked in the portal).",

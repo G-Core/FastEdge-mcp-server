@@ -202,7 +202,11 @@ async function toolsWith(auth: Auth, workspaceRoot = tmp()) {
 function stubFetch(statuses: number[]) {
   const original = globalThis.fetch;
   let i = 0;
-  globalThis.fetch = (async () => {
+  globalThis.fetch = (async (url: string) => {
+    // The broker's one-time account check (GET /iam/clients/me) answers for account 123.
+    if (String(url).endsWith("/iam/clients/me")) {
+      return new Response(JSON.stringify({ id: 123 }), { status: 200, headers: { "content-type": "application/json" } });
+    }
     const status = statuses[Math.min(i++, statuses.length - 1)];
     const body = status === 401 ? { message: "Invalid API token" } : { id: 7, apps: [] };
     return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });

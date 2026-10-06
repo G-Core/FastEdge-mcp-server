@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import net from "node:net";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -133,6 +133,10 @@ function cacheWithSession(token = TOKEN) {
 
 /** Starts a broker on a temp socket; returns the connected client and a way to stop it. */
 async function brokerPair(sessionDir = cacheWithSession()) {
+  return brokerPairIn(sessionDir);
+}
+
+async function brokerPairIn(sessionDir: string) {
   const socketPath = join(tmp(), "sock");
   const conns: net.Socket[] = [];
   const listener = net.createServer((conn) => {
@@ -150,11 +154,22 @@ async function brokerPair(sessionDir = cacheWithSession()) {
 
 type Seen = { url: string; method?: string; headers: Record<string, string>; body?: Buffer };
 
-/** Stub fetch: records each request, answers with `respond`. */
-function stubFetch(respond: (seen: Seen) => Response | Promise<Response>) {
+/**
+ * Stub fetch: records each request, answers with `respond`. The broker's account check
+ * (GET /iam/clients/me) answers `me` (account 123 by default) and is counted in `meCalls`, not `seen`.
+ */
+function stubFetch(
+  respond: (seen: Seen) => Response | Promise<Response>,
+  me: (authorization: string) => Response | Promise<Response> = () => json({ id: 123 }),
+) {
   const original = globalThis.fetch;
   const seen: Seen[] = [];
+  const counts = { meCalls: 0 };
   globalThis.fetch = (async (url: string, init: RequestInit = {}) => {
+    if (String(url).endsWith("/iam/clients/me")) {
+      counts.meCalls++;
+      return me((init.headers as Record<string, string>).Authorization);
+    }
     const s: Seen = {
       url: String(url),
       method: init.method,
@@ -164,7 +179,7 @@ function stubFetch(respond: (seen: Seen) => Response | Promise<Response>) {
     seen.push(s);
     return respond(s);
   }) as typeof fetch;
-  return { seen, restore: () => (globalThis.fetch = original) };
+  return { seen, counts, restore: () => (globalThis.fetch = original) };
 }
 
 const json = (data: unknown, status = 200) =>
@@ -347,5 +362,95 @@ test("the broker drops a connection that skips the handshake", async () => {
     assert.equal(closed, true);
   } finally {
     listener.close();
+  }
+});
+
+// --- Account check before a token's first use -----------------------------------------
+
+async function withMe(me: (authorization: string) => Response | Promise<Response>, fn: (client: Auth, seen: Seen[], counts: { meCalls: number }) => Promise<void>) {
+  const stub = stubFetch(() => json({ apps: [] }), me);
+  const { client, stop } = await brokerPair();
+  try {
+    await fn(client, stub.seen, stub.counts);
+  } finally {
+    stop();
+    stub.restore();
+  }
+}
+
+test("a token is checked once with /iam/clients/me, then used; concurrent first calls share the check", async () => {
+  await withMe(
+    () => json({ id: 123, users: [] }),
+    async (client, seen, counts) => {
+      const calls = await Promise.all([1, 2, 3].map(() => client.call({ method: "GET", path: "/fastedge/v1/apps" })));
+      calls.forEach((r) => assert.deepEqual(r, { status: 200, data: { apps: [] } }));
+      await client.call({ method: "GET", path: "/fastedge/v1/apps" });
+      assert.equal(counts.meCalls, 1);
+      assert.equal(seen.length, 4);
+      assert.equal(((await client.status()) as Record<string, unknown>).account_verified, true);
+    },
+  );
+});
+
+test("a token that belongs to another account is never used (account_mismatch), and nothing is pinned", async () => {
+  await withMe(
+    () => json({ id: 999 }),
+    async (client, seen) => {
+      assert.deepEqual(await client.call({ method: "GET", path: "/fastedge/v1/apps" }), { authRequired: "account_mismatch" });
+      assert.equal(seen.length, 0);
+      const status = (await client.status()) as Record<string, unknown>;
+      assert.equal(status.pinned_client_id, null);
+      assert.equal(status.account_verified, false);
+    },
+  );
+});
+
+test("the account check: a 401 is rejected; an IAM outage or 403 is an error, not a login or a fallback", async () => {
+  await withMe(
+    () => json({ message: "Invalid API token" }, 401),
+    async (client) => {
+      assert.deepEqual(await client.call({ method: "GET", path: "/fastedge/v1/apps" }), { authRequired: "rejected" });
+    },
+  );
+  for (const status of [403, 429, 503]) {
+    await withMe(
+      () => json({ message: "nope" }, status),
+      async (client, seen) => {
+        const r = (await client.call({ method: "GET", path: "/fastedge/v1/apps" })) as { status: number; data: { error: string } };
+        assert.equal(r.status, status);
+        assert.match(r.data.error, /Couldn't confirm which account/);
+        assert.equal(seen.length, 0);
+      },
+    );
+  }
+});
+
+test("a missing or non-numeric id in the account check counts as a mismatch", async () => {
+  await withMe(
+    () => json({ id: "123" }),
+    async (client) => {
+      assert.deepEqual(await client.call({ method: "GET", path: "/fastedge/v1/apps" }), { authRequired: "account_mismatch" });
+    },
+  );
+});
+
+test("after pinning, a replacement token claiming the same account but belonging to another is refused", async () => {
+  const dir = cacheWithSession();
+  const stub = stubFetch(
+    () => json({ apps: [] }),
+    (authorization) => json({ id: authorization.includes("PLANTED") ? 999 : 123 }),
+  );
+  const { client, stop } = await brokerPairIn(dir);
+  try {
+    assert.equal(((await client.call({ method: "GET", path: "/fastedge/v1/apps" })) as { status: number }).status, 200);
+    // Same claimed account (123), different real owner.
+    const planted = cacheWithSession("4242_PLANTED-token");
+    const file = "accounts/api.preprod.world_123.json";
+    writeFileSync(join(dir, file), readFileSync(join(planted, file)));
+    assert.deepEqual(await client.call({ method: "GET", path: "/fastedge/v1/apps" }), { authRequired: "account_mismatch" });
+    assert.equal(stub.seen.length, 1);
+  } finally {
+    stop();
+    stub.restore();
   }
 });

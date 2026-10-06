@@ -14,6 +14,20 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-06] - security: broker confirms the account behind a session token
+
+A cache file only *claims* an account. Anyone who can write the volume could plant a token from another account labelled with yours, and pinning trusted the label.
+- **`src/auth/credentials.ts` (session mode, runs in the broker):**
+  - **The check:** before a token's first use, the broker calls `GET /iam/clients/me` (`id` is the account ID, per the IAM OpenAPI spec) and requires it to equal the file's `client_id`. Only then does it pin the account.
+  - **Repeat checks:** concurrent first calls share one check; renewed or replaced tokens are checked again.
+  - **Outcomes:**
+    - A mismatch gives the new reason `account_mismatch` (log in again; if it repeats, stop and tell the user), and the token is never used.
+    - A 401 gives `rejected`.
+    - Anything else (403, 429, 5xx) is an error result, with no login prompt and no fallback.
+  - **Status:** gains `account_verified`.
+- **Explicit keys** are not checked (S1).
+- **Tests:** test:broker now has 39 tests, covering one check per token, shared concurrent checks, mismatch with nothing sent or pinned, 401/403/429/503, a non-numeric id, and a planted replacement after pinning. The fetch stubs answer `/iam/clients/me`. The container gate still passes.
+
 ## [2026-10-06] - docs: portal session login and what it protects (session-approval task 09, phase 8)
 
 - **`STANDALONE-SETUP.md`**: a new "Sign In Without an API Key" section. It covers:
