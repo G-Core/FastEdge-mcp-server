@@ -39,5 +39,24 @@ export function useCommand(apiOrigin: string): string | null {
   return `docker run --rm -i -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login --use <client_id>`;
 }
 
+/** `login --code` (PROTOCOL.md §3.8): needs the user's own terminal (`-it`), so an agent can't run it. */
+export function codeCommand(apiOrigin: string): string | null {
+  if (!PORTAL_ORIGINS[apiOrigin]) return null;
+  return `docker run --rm -it -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login --code`;
+}
+
+/** Manual fallback text for `auth_required` and the status tool (PROTOCOL.md §4). */
+export function manualFallback(apiOrigin: string): string | null {
+  const portal = PORTAL_ORIGINS[apiOrigin];
+  const command = codeCommand(apiOrigin);
+  if (!portal || !command) return null;
+  return [
+    "If the link can't be opened on this machine (for example a browser-based Codespace or SSH),",
+    `ask the user to open ${portal}/fastedge/agent-connect themselves, approve, and run this in`,
+    `their own terminal: ${command}`,
+    "Never ask them to paste the connect code into this chat.",
+  ].join("\n");
+}
+
 export const RESTART_HINT =
   "Restart this MCP server to use the new account (Claude Code: /mcp, then reconnect; Codex CLI: exit, then `codex resume --last`).";

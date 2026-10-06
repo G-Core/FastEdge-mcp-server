@@ -1,5 +1,13 @@
 import { GCORE_API_ORIGIN } from "../api-client.js";
-import { PORTAL_ORIGINS, RESTART_HINT, SESSION_DIR, loginCommand, useCommand } from "./session.js";
+import {
+  PORTAL_ORIGINS,
+  RESTART_HINT,
+  SESSION_DIR,
+  codeCommand,
+  loginCommand,
+  manualFallback,
+  useCommand,
+} from "./session.js";
 import { isUsable, listAccounts, readActiveSession, type Session } from "./store.js";
 
 export { TOKEN_PATTERN } from "./store.js";
@@ -95,6 +103,9 @@ export function createAuth(
         ...(changed ? { next_step: RESTART_HINT } : {}),
         login_command: command,
         use_command: use,
+        // For when the browser can't reach this machine (Codespaces, SSH). The user runs it, never the agent.
+        code_command: codeCommand(apiOrigin),
+        manual_login: manualFallback(apiOrigin),
         switch_account: command
           ? `If the account is in cached_accounts and usable, run use_command with its client_id; otherwise run login_command and approve while signed in to that account. Then: ${RESTART_HINT}`
           : "Session login is not available for this API origin; set GCORE_API_KEY instead.",
@@ -108,7 +119,8 @@ export function authRequiredResult(
   reason: AuthRequiredReason,
   opts: { apiOrigin?: string; detail?: string } = {},
 ) {
-  const command = loginCommand(opts.apiOrigin ?? GCORE_API_ORIGIN);
+  const apiOrigin = opts.apiOrigin ?? GCORE_API_ORIGIN;
+  const command = loginCommand(apiOrigin);
   const lines = [`FastEdge is not connected to a Gcore account (${reason}).`];
 
   if (reason === "account_changed") {
@@ -126,6 +138,7 @@ export function authRequiredResult(
       "Either set GCORE_API_KEY, or sign in through the Gcore portal for a time-limited session:",
       "ask the user for permission, then run this command and give them the URL it prints:",
       `  ${command}`,
+      manualFallback(apiOrigin) ?? "",
       opts.detail
         ? "Then retry only what did not complete; no restart is needed."
         : "Then retry this request; no restart is needed.",

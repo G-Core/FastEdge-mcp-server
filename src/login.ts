@@ -1,7 +1,7 @@
-// `docker run … <image> login [--use <client_id> | --logout]` (PROTOCOL.md §3).
+// `docker run … <image> login [--use <client_id> | --logout | --code]` (PROTOCOL.md §3).
 // No workspace mount, no GCORE_API_KEY (S16). Never prints the token (S3).
 import { GCORE_API_ORIGIN } from "./api-client.js";
-import { LoginError, logoutActive, startLogin, useCachedAccount } from "./auth/login-server.js";
+import { LoginError, connectWithCode, logoutActive, startLogin, useCachedAccount } from "./auth/login-server.js";
 import { LOGIN_PORT, RESTART_HINT } from "./auth/session.js";
 
 const EXIT_CODES = { ok: 0, timeout: 5, denied: 6 } as const;
@@ -10,10 +10,46 @@ const MESSAGES = {
   timeout: "Timed out waiting for approval in the portal.",
   denied: "Access was denied in the portal.",
 } as const;
+const MAX_CODE_CHARS = 8192;
 
 function usage(): never {
-  console.error("Usage: login | login --use <client_id> | login --logout");
+  console.error("Usage: login | login --use <client_id> | login --logout | login --code");
   process.exit(2);
+}
+
+/** Reads one line from the terminal without echoing it (S18: never from args, env or a pipe). */
+function readHidden(prompt: string): Promise<string> {
+  const stdin = process.stdin;
+  return new Promise((resolve, reject) => {
+    let value = "";
+    const finish = (err?: Error) => {
+      stdin.off("data", onData);
+      stdin.setRawMode(false);
+      stdin.pause();
+      process.stderr.write("\n");
+      // Bracketed-paste markers (ESC[200~ … ESC[201~): the ESC is dropped below, the rest here.
+      if (err) reject(err);
+      else resolve(value.replace(/\[20[01]~/g, ""));
+    };
+    const onData = (chunk: string) => {
+      for (const ch of chunk) {
+        if (ch === "\r" || ch === "\n") return finish();
+        if (ch === "\u0003" || ch === "\u0004") return finish(new Error("Cancelled."));
+        if (ch === "\u007f" || ch === "\b") {
+          value = value.slice(0, -1);
+          continue;
+        }
+        if (ch < " ") continue; // ignore other control characters, e.g. paste brackets
+        if (value.length >= MAX_CODE_CHARS) return finish(new Error("That code is too long."));
+        value += ch;
+      }
+    };
+    process.stderr.write(prompt);
+    stdin.setEncoding("utf8");
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.on("data", onData);
+  });
 }
 
 async function main() {
@@ -40,6 +76,25 @@ async function main() {
           `The token stays valid until ${session.expires_at}; delete it on the portal's API tokens page to revoke it now.`,
         );
       }
+      process.exit(0);
+    }
+
+    if (option === "--code") {
+      if (value) usage();
+      if (!process.stdin.isTTY) {
+        console.error("login --code must be run in your own terminal (docker run -it …), not piped or run by an agent.");
+        process.exit(2);
+      }
+      let code: string;
+      try {
+        code = await readHidden("Paste the connect code from the portal (it won't be shown), then press Enter: ");
+      } catch (err: any) {
+        console.error(err?.message ?? "Cancelled.");
+        process.exit(2);
+      }
+      const session = connectWithCode(code, { apiOrigin: GCORE_API_ORIGIN });
+      console.error(`FastEdge is connected to account ${session.client_id} until ${session.expires_at}.`);
+      console.error(`If an MCP server is already running with another account: ${RESTART_HINT}`);
       process.exit(0);
     }
 

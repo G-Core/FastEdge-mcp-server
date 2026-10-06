@@ -14,6 +14,22 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-06] - feat: `login --code` for setups where the browser can't reach this machine (session-approval task 08)
+
+In a browser-based Codespace, an SSH session or with a remote Docker host, the portal page can't POST to `127.0.0.1` on the agent's machine. The page's manual mode now shows a **connect code** (`fe1.` + base64url JSON of the callback fields), and the user pastes it here:
+
+`docker run --rm -it -v fastedge-session:/run/fastedge -e GCORE_API_BASE=<origin> <image> login --code`
+
+- **Terminal only:** `-it` makes Docker itself refuse without a terminal, and `login.ts` also exits 2 if stdin isn't a TTY. An agent's shell can't feed it a code.
+- **Hidden prompt:** raw mode, no echo, at most 8 KiB. Ctrl-C or Ctrl-D cancels, Backspace works, and bracketed-paste markers are stripped. The code is never read from arguments, environment or a pipe (S18).
+- **Same checks as the browser callback:** `validateDelivery()` in `src/auth/login-server.ts` is now shared. That covers origin, token and id formats, and expiry in the future and at most 7 days + 5 minutes ahead.
+- **Saved like a browser login:** `connectWithCode()` saves under the lock (account file plus active pointer). It exits 0, or 8 for a bad or expired code; the message never echoes the code.
+- **Agent guidance:** `auth_required` now ends with a manual fallback: open `<portal>/fastedge/agent-connect` yourself, approve, and run the `--code` command in your own terminal, and never paste the code into the chat. `fastedge-auth-status` adds `code_command` and `manual_login`.
+
+Tests: 13 new (63 total): a valid code; ten bad codes, each exit 8 with nothing written; a piped stdin exits 2; the fallback text and status fields.
+
+---
+
 ## [2026-10-06] - feat: 7-day lifetime cap on session tokens (session-approval task 06)
 
 The Approve page now offers a lifetime: 4 h, 8 h (default), 2 days or 7 days. That's built in `fastedge-frontend`. This server side:

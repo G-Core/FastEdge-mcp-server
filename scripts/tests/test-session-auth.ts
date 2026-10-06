@@ -6,6 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import net from "node:net";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, symlinkSync, statSync, existsSync, readFileSync, lstatSync, chmodSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -15,7 +16,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import { authRequiredResult, createAuth, type Auth, type AuthRequiredReason } from "../../src/auth/credentials.js";
-import { LoginError, ensureInstallationId, logoutActive, startLogin, useCachedAccount } from "../../src/auth/login-server.js";
+import { LoginError, connectWithCode, ensureInstallationId, logoutActive, startLogin, useCachedAccount } from "../../src/auth/login-server.js";
 import { registerApiTools } from "../../src/tools/api/index.js";
 
 const API = "https://api.preprod.world";
@@ -605,4 +606,70 @@ test("auth_required no longer promises a fixed 8-hour session", () => {
   const text = authRequiredResult("no_session", { apiOrigin: API }).content[0].text;
   assert.match(text, /time-limited session/);
   assert.doesNotMatch(text, /8-hour/);
+});
+
+// --- Manual connect code (task 08) --------------------------------------------------
+
+const encode = (payload: Record<string, unknown>) =>
+  `fe1.${Buffer.from(JSON.stringify(payload)).toString("base64url")}`;
+const codePayload = (overrides: Record<string, unknown> = {}) => ({
+  v: 1,
+  token: TOKEN,
+  token_id: 4242,
+  client_id: 123,
+  expires_at: new Date(Date.now() + 8 * HOUR).toISOString(),
+  api_origin: API,
+  ...overrides,
+});
+
+test("a valid connect code saves a session exactly like a browser login", () => {
+  const dir = tmp();
+  const saved = connectWithCode(`  ${encode(codePayload())}\n`, { apiOrigin: API, sessionDir: dir });
+  assert.equal(saved.client_id, 123);
+  assert.equal(statSync(accountFile(dir)).mode & 0o777, 0o644);
+  assert.deepEqual(resolverFor(dir)(), sessionHeader());
+  assert.ok(!existsSync(join(dir, ".lock")), "lock released");
+});
+
+const badCodes: Array<[string, string]> = [
+  ["a raw token", TOKEN],
+  ["the wrong prefix", encode(codePayload()).replace("fe1.", "fe2.")],
+  ["not base64url", "fe1.@@@"],
+  ["not JSON", `fe1.${Buffer.from("nope").toString("base64url")}`],
+  ["the wrong version", encode(codePayload({ v: 2 }))],
+  ["another origin", encode(codePayload({ api_origin: "https://api.gcore.com" }))],
+  ["an expired session", encode(codePayload({ expires_at: new Date(Date.now() - 1000).toISOString() }))],
+  ["a lifetime past the 7-day cap", encode(codePayload({ expires_at: new Date(Date.now() + 8 * 24 * HOUR).toISOString() }))],
+  ["a bad token", encode(codePayload({ token: "a b" }))],
+  ["a missing client_id", encode(codePayload({ client_id: undefined }))],
+];
+for (const [label, code] of badCodes) {
+  test(`login --code rejects ${label} (exit 8, nothing written)`, () => {
+    const dir = tmp();
+    assert.throws(
+      () => connectWithCode(code, { apiOrigin: API, sessionDir: dir }),
+      (err: unknown) => err instanceof LoginError && err.exitCode === 8 && !String(err.message).includes(TOKEN),
+    );
+    assert.ok(!existsSync(join(dir, "accounts")));
+  });
+}
+
+test("login --code refuses to read from a pipe (exit 2)", () => {
+  const r = spawnSync(process.execPath, ["--import", "tsx", "src/login.ts", "--code"], {
+    input: `${encode(codePayload())}\n`,
+    env: { ...process.env, GCORE_API_BASE: API },
+    encoding: "utf8",
+    timeout: 30_000,
+  });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /own terminal/);
+});
+
+test("auth_required and status offer the manual fallback, and warn against pasting into chat", () => {
+  const text = authRequiredResult("no_session", { apiOrigin: API }).content[0].text;
+  assert.match(text, /https:\/\/portal\.preprod\.world\/fastedge\/agent-connect/);
+  assert.match(text, /docker run --rm -it .* login --code/);
+  assert.match(text, /Never ask them to paste the connect code into this chat/);
+  const status = authFor(tmp()).status();
+  assert.match(String(status.code_command), / -it .* login --code$/);
 });

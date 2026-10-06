@@ -24,7 +24,7 @@ export type LoginOutcome = "ok" | "denied" | "timeout";
 export class LoginError extends Error {
   constructor(
     message: string,
-    public readonly exitCode: 2 | 3 | 4 | 7,
+    public readonly exitCode: 2 | 3 | 4 | 7 | 8,
   ) {
     super(message);
   }
@@ -68,6 +68,74 @@ function sameSecret(a: string, b: string): boolean {
   const x = Buffer.from(a);
   const y = Buffer.from(b);
   return x.length === y.length && timingSafeEqual(x, y);
+}
+
+type Delivery = Parameters<typeof saveSession>[1];
+
+/**
+ * PROTOCOL.md §6 checks 5–6 plus the task 06 cap, shared by the browser callback and
+ * `login --code`. Returns what to save, or null.
+ */
+function validateDelivery(f: Record<string, string>, apiOrigin: string, now: number): Delivery | null {
+  const expiresAt = Date.parse(f.expires_at);
+  if (
+    f.api_origin !== apiOrigin ||
+    !TOKEN_PATTERN.test(f.token) ||
+    !ID_PATTERN.test(f.token_id) ||
+    !ID_PATTERN.test(f.client_id) ||
+    Number.isNaN(expiresAt) ||
+    expiresAt <= now ||
+    // Task 06 cap: a tampered delivery can't plant a longer session than the page allows.
+    expiresAt > now + MAX_LIFETIME_MS
+  ) {
+    return null;
+  }
+  return {
+    token: f.token,
+    token_id: Number(f.token_id),
+    client_id: Number(f.client_id),
+    api_origin: apiOrigin,
+    expires_at: new Date(expiresAt).toISOString(),
+  };
+}
+
+const CODE_PREFIX = "fe1.";
+const MAX_CODE_BYTES = 8192;
+
+/** `fe1.<base64url JSON>` (PROTOCOL.md §3, "Connect code format") → the delivery fields, or null. */
+function decodeConnectCode(code: string): Record<string, string> | null {
+  const trimmed = code.trim();
+  if (!trimmed.startsWith(CODE_PREFIX) || trimmed.length > MAX_CODE_BYTES) return null;
+  const body = trimmed.slice(CODE_PREFIX.length);
+  if (!/^[A-Za-z0-9_-]+$/.test(body)) return null;
+  try {
+    const raw = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
+    if (typeof raw !== "object" || raw === null || raw.v !== 1) return null;
+    return Object.fromEntries(FIELDS.filter((n) => n !== "state").map((n) => [n, raw[n] == null ? "" : String(raw[n])]));
+  } catch {
+    return null;
+  }
+}
+
+/** `login --code` (PROTOCOL.md §3.8): validate a pasted connect code and save it like a browser login. */
+export function connectWithCode(code: string, opts: { apiOrigin: string; sessionDir?: string }): Delivery {
+  requirePortal(opts.apiOrigin);
+  const fields = decodeConnectCode(code);
+  const delivered = fields && validateDelivery(fields, opts.apiOrigin, Date.now());
+  if (!delivered) {
+    throw new LoginError(
+      `This connect code isn't valid for ${opts.apiOrigin}, or has expired. Approve again on the portal's agent-connect page and copy the new code.`,
+      8,
+    );
+  }
+  const sessionDir = opts.sessionDir ?? SESSION_DIR;
+  const release = prepare(sessionDir);
+  try {
+    saveSession(sessionDir, delivered);
+    return delivered;
+  } finally {
+    release();
+  }
 }
 
 function requirePortal(apiOrigin: string): string {
@@ -179,29 +247,15 @@ export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
         return;
       }
 
-      const f = Object.fromEntries(FIELDS.map((name) => [name, form.get(name) ?? ""]));
-      const expiresAt = Date.parse(f.expires_at);
-      if (
-        f.api_origin !== opts.apiOrigin ||
-        !TOKEN_PATTERN.test(f.token) ||
-        !ID_PATTERN.test(f.token_id) ||
-        !ID_PATTERN.test(f.client_id) ||
-        Number.isNaN(expiresAt) ||
-        expiresAt <= Date.now() ||
-        // Task 06 cap: a tampered callback can't plant a longer session than the page allows.
-        expiresAt > Date.now() + MAX_LIFETIME_MS
-      ) {
-        return reject();
-      }
+      const delivered = validateDelivery(
+        Object.fromEntries(FIELDS.map((name) => [name, form.get(name) ?? ""])),
+        opts.apiOrigin,
+        Date.now(),
+      );
+      if (!delivered) return reject();
 
       try {
-        saveSession(sessionDir, {
-          token: f.token,
-          token_id: Number(f.token_id),
-          client_id: Number(f.client_id),
-          api_origin: opts.apiOrigin,
-          expires_at: new Date(expiresAt).toISOString(),
-        });
+        saveSession(sessionDir, delivered);
       } catch (err: any) {
         console.error(`Could not save the session: ${err?.code ?? "write failed"}`);
         res.writeHead(500, PAGE_HEADERS).end(BAD_PAGE);
