@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import net from "node:net";
-import { mkdtempSync, writeFileSync, symlinkSync, statSync, existsSync, readFileSync, lstatSync, chmodSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, symlinkSync, statSync, existsSync, readFileSync, lstatSync, chmodSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -15,7 +15,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import { authRequiredResult, createAuth, type Auth, type AuthRequiredReason } from "../../src/auth/credentials.js";
-import { LoginError, ensureInstallationId, startLogin } from "../../src/auth/login-server.js";
+import { LoginError, ensureInstallationId, logoutActive, startLogin, useCachedAccount } from "../../src/auth/login-server.js";
 import { registerApiTools } from "../../src/tools/api/index.js";
 
 const API = "https://api.preprod.world";
@@ -35,14 +35,20 @@ const session = (overrides: Record<string, unknown> = {}) => ({
   created_at: new Date().toISOString(),
   ...overrides,
 });
-const writeSession = (dir: string, data: unknown) => {
-  const file = join(dir, "session.json");
-  writeFileSync(file, typeof data === "string" ? data : JSON.stringify(data));
-  return file;
+const HOST = "api.preprod.world";
+const accountFile = (dir: string, clientId = 123) => join(dir, "accounts", `${HOST}_${clientId}.json`);
+const activeFile = (dir: string) => join(dir, `active-${HOST}.json`);
+const pointer = (clientId: number) => ({ version: 1, api_origin: API, client_id: clientId, generation: `p${clientId}` });
+/** Writes an account file (object or raw text) and points this origin at it. Returns the volume dir. */
+const writeSession = (dir: string, data: unknown, clientId = (data as { client_id?: number })?.client_id ?? 123) => {
+  mkdirSync(join(dir, "accounts"), { recursive: true });
+  writeFileSync(accountFile(dir, clientId), typeof data === "string" ? data : JSON.stringify(data));
+  writeFileSync(activeFile(dir), JSON.stringify(pointer(clientId)));
+  return dir;
 };
-const authFor = (file: string, key = "") => createAuth(key, { sessionFile: file, apiOrigin: API });
-const resolverFor = (file: string) => {
-  const auth = authFor(file);
+const authFor = (dir: string, key = "") => createAuth(key, { sessionDir: dir, apiOrigin: API });
+const resolverFor = (dir: string) => {
+  const auth = authFor(dir);
   return () => auth.resolve();
 };
 const sessionHeader = (token = TOKEN) => ({ header: `APIKey ${token}`, source: "session" });
@@ -50,8 +56,8 @@ const sessionHeader = (token = TOKEN) => ({ header: `APIKey ${token}`, source: "
 // --- Resolver -----------------------------------------------------------------
 
 test("S1: an explicit key wins, even a wrong one, with a valid session present", () => {
-  const file = writeSession(tmp(), session());
-  assert.deepEqual(authFor(file, "wrong-key").resolve(), { header: "APIKey wrong-key", source: "explicit" });
+  const dir = writeSession(tmp(), session());
+  assert.deepEqual(authFor(dir, "wrong-key").resolve(), { header: "APIKey wrong-key", source: "explicit" });
 });
 
 test("a valid session yields the session token", () => {
@@ -59,7 +65,13 @@ test("a valid session yields the session token", () => {
 });
 
 const rejected: Array<[string, (dir: string) => string, AuthRequiredReason]> = [
-  ["missing", (dir) => join(dir, "session.json"), "no_session"],
+  ["missing", (dir) => dir, "no_session"],
+  ["pointing at a missing account", (dir) => (writeFileSync(activeFile(dir), JSON.stringify(pointer(5))), dir), "no_session"],
+  [
+    "the account file's client_id differs from the pointer's",
+    (dir) => writeSession(dir, session({ client_id: 999 }), 123),
+    "no_session",
+  ],
   ["malformed", (dir) => writeSession(dir, "{not json"), "no_session"],
   ["wrong version", (dir) => writeSession(dir, session({ version: 2 })), "no_session"],
   ["oversized", (dir) => writeSession(dir, session({ pad: "x".repeat(5000) })), "no_session"],
@@ -70,10 +82,12 @@ const rejected: Array<[string, (dir: string) => string, AuthRequiredReason]> = [
   [
     "a symlink",
     (dir) => {
-      const real = writeSession(dir, session());
-      const link = join(dir, "link.json");
-      symlinkSync(real, link);
-      return link;
+      const elsewhere = join(tmp(), "real.json");
+      writeFileSync(elsewhere, JSON.stringify(session()));
+      writeSession(dir, session());
+      rmSync(accountFile(dir));
+      symlinkSync(elsewhere, accountFile(dir));
+      return dir;
     },
     "no_session",
   ],
@@ -86,8 +100,8 @@ for (const [label, setup, reason] of rejected) {
 
 test("S5: renewal within the account carries on; a different client_id gives account_changed", () => {
   const dir = tmp();
-  const file = writeSession(dir, session());
-  const resolve = resolverFor(file);
+  writeSession(dir, session());
+  const resolve = resolverFor(dir);
   assert.ok("header" in resolve());
   writeSession(dir, session({ token: "4243_renewed" }));
   assert.deepEqual(resolve(), sessionHeader("4243_renewed"));
@@ -97,9 +111,9 @@ test("S5: renewal within the account carries on; a different client_id gives acc
 
 test("S15: a stray temp file from a crashed write leaves the old session in use", () => {
   const dir = tmp();
-  const file = writeSession(dir, session());
-  writeFileSync(join(dir, ".session-deadbeef.tmp"), '{"version":1,"token":"half');
-  assert.deepEqual(resolverFor(file)(), sessionHeader());
+  writeSession(dir, session());
+  writeFileSync(join(dir, "accounts", ".tmp-deadbeef"), '{"version":1,"token":"half');
+  assert.deepEqual(resolverFor(dir)(), sessionHeader());
 });
 
 test("S3: auth_required results never contain the token", () => {
@@ -132,8 +146,8 @@ test("origins without a portal get no login command", () => {
 
 test("status never pins, and shows pinned vs cached account after a switch", () => {
   const dir = tmp();
-  const file = writeSession(dir, session());
-  const auth = authFor(file);
+  writeSession(dir, session());
+  const auth = authFor(dir);
 
   const before = auth.status();
   assert.equal(before.state, "available");
@@ -146,7 +160,9 @@ test("status never pins, and shows pinned vs cached account after a switch", () 
   const after = auth.status();
   assert.equal(after.state, "account_changed");
   assert.equal(after.pinned_client_id, 999);
-  assert.equal((after.cached_session as { client_id: number }).client_id, 123);
+  assert.equal((after.active_session as { client_id: number }).client_id, 123);
+  const cached = (after.cached_accounts as Array<{ client_id: number; usable: boolean }>).map((a) => a.client_id).sort();
+  assert.deepEqual(cached, [123, 999]);
   assert.match(String(after.next_step), /Restart this MCP server/);
   assert.ok(!JSON.stringify(after).includes(TOKEN));
 });
@@ -158,10 +174,12 @@ test("status with an explicit key ignores the cache", () => {
 });
 
 test("status reports a missing session with the login command", () => {
-  const status = authFor(join(tmp(), "session.json")).status();
+  const status = authFor(tmp()).status();
   assert.equal(status.state, "no_session");
-  assert.equal(status.cached_session, null);
+  assert.equal(status.active_session, null);
+  assert.deepEqual(status.cached_accounts, []);
   assert.match(String(status.login_command), / login$/);
+  assert.match(String(status.use_command), / login --use <client_id>$/);
 });
 
 // --- Tools: a session token rejected by the API (Fix 1) ---------------------------
@@ -270,7 +288,7 @@ test("fastedge-auth-status tool returns metadata and never the token", async () 
   const result = await call("fastedge-auth-status", {});
   const status = JSON.parse(result.content[0].text);
   assert.equal(status.state, "available");
-  assert.equal(status.cached_session.client_id, 123);
+  assert.equal(status.active_session.client_id, 123);
   assert.ok(!result.content[0].text.includes(TOKEN));
 });
 
@@ -343,15 +361,17 @@ test("callback rejects bad requests and then accepts Origin: null with a valid s
   for (const [label, req] of bad) {
     assert.equal(await post(l.port, req), 400, label);
   }
-  assert.ok(!existsSync(join(l.sessionDir, "session.json")), "nothing written before a valid callback");
+  assert.ok(!existsSync(accountFile(l.sessionDir)), "nothing written before a valid callback");
 
   assert.equal(await post(l.port, { body: good }), 200);
   assert.equal(await l.result, "ok");
 
-  const file = join(l.sessionDir, "session.json");
+  const file = accountFile(l.sessionDir);
   assert.equal(statSync(file).mode & 0o777, 0o644);
+  assert.equal(statSync(activeFile(l.sessionDir)).mode & 0o777, 0o644);
   assert.equal(JSON.parse(readFileSync(file, "utf8")).client_id, 123);
-  assert.deepEqual(resolverFor(file)(), sessionHeader());
+  assert.equal(JSON.parse(readFileSync(activeFile(l.sessionDir), "utf8")).client_id, 123);
+  assert.deepEqual(resolverFor(l.sessionDir)(), sessionHeader());
 
   // Replay after success: refused (400 on a kept-alive socket, or connection refused).
   assert.notEqual(await post(l.port, { body: good }).catch(() => 0), 200);
@@ -367,7 +387,7 @@ test("Deny ends the login with no session written", async () => {
   const l = await login();
   assert.equal(await post(l.port, { body: form({ state: l.state, denied: "1" }) }), 200);
   assert.equal(await l.result, "denied");
-  assert.ok(!existsSync(join(l.sessionDir, "session.json")));
+  assert.ok(!existsSync(accountFile(l.sessionDir)));
 });
 
 test("login times out", async () => {
@@ -434,14 +454,132 @@ test("a symlinked installation id is not followed; it is replaced by a real file
   assert.equal(readFileSync(target, "utf8"), "0".repeat(32), "the link target is untouched");
 });
 
-test("login still works without an installation id when the volume isn't writable", async () => {
+test("login refuses with exit 2 when the volume isn't writable (it could never save a session)", async () => {
   const sessionDir = tmp();
   chmodSync(sessionDir, 0o555);
   try {
-    const l = await startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir });
-    assert.equal(new URL(l.url).searchParams.get("install"), null);
-    await post(l.port, { body: form({ state: stateOf(l.url), denied: "1" }) });
+    await assert.rejects(
+      startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir }),
+      (err: unknown) => err instanceof LoginError && err.exitCode === 2,
+    );
   } finally {
     chmodSync(sessionDir, 0o755);
   }
+});
+
+// --- Per-account cache (task 07) ---------------------------------------------------
+
+const PROD = "https://api.gcore.com";
+const usable = (overrides: Record<string, unknown> = {}) => session(overrides);
+const expiredSession = (overrides: Record<string, unknown> = {}) =>
+  session({ expires_at: new Date(Date.now() - HOUR).toISOString(), ...overrides });
+
+test("legacy session.json is read until the first login migrates it", () => {
+  const dir = tmp();
+  writeFileSync(join(dir, "session.json"), JSON.stringify(session()));
+  assert.deepEqual(resolverFor(dir)(), sessionHeader(), "reader falls back while there's no pointer");
+
+  useCachedAccount({ apiOrigin: API, clientId: 123, sessionDir: dir }); // takes the lock → migrates
+  assert.ok(!existsSync(join(dir, "session.json")));
+  assert.ok(existsSync(accountFile(dir)));
+  assert.equal(JSON.parse(readFileSync(activeFile(dir), "utf8")).client_id, 123);
+  assert.deepEqual(resolverFor(dir)(), sessionHeader());
+});
+
+test("--use switches to a cached account without a new token, and refuses unusable ones (exit 7)", () => {
+  const dir = tmp();
+  writeSession(dir, usable({ client_id: 111, token: "111_a" }));
+  writeSession(dir, usable({ client_id: 222, token: "222_b" }));
+  assert.deepEqual(resolverFor(dir)(), sessionHeader("222_b"));
+
+  const switched = useCachedAccount({ apiOrigin: API, clientId: 111, sessionDir: dir });
+  assert.equal(switched.client_id, 111);
+  assert.deepEqual(resolverFor(dir)(), sessionHeader("111_a"), "a fresh process uses the switched account");
+
+  const isExit7 = (err: unknown) => err instanceof LoginError && err.exitCode === 7;
+  assert.throws(() => useCachedAccount({ apiOrigin: API, clientId: 999, sessionDir: dir }), isExit7);
+  writeSession(dir, expiredSession({ client_id: 333 }));
+  writeSession(dir, usable({ client_id: 111, token: "111_a" }));
+  assert.throws(() => useCachedAccount({ apiOrigin: API, clientId: 333, sessionDir: dir }), isExit7);
+});
+
+test("a running server stays pinned when the active account switches (S5)", () => {
+  const dir = tmp();
+  writeSession(dir, usable({ client_id: 111 }));
+  writeSession(dir, usable({ client_id: 222 }));
+  const resolve = resolverFor(dir);
+  assert.ok("header" in resolve());
+  useCachedAccount({ apiOrigin: API, clientId: 111, sessionDir: dir });
+  assert.deepEqual(resolve(), { authRequired: "account_changed" });
+});
+
+test("expired accounts and dangling pointers are removed under the lock", () => {
+  const dir = tmp();
+  writeSession(dir, expiredSession({ client_id: 333 }));
+  writeSession(dir, usable({ client_id: 111 }));
+  writeFileSync(join(dir, "active-api.gcore.com.json"), JSON.stringify({ ...pointer(5), api_origin: PROD }));
+  useCachedAccount({ apiOrigin: API, clientId: 111, sessionDir: dir });
+  assert.ok(!existsSync(accountFile(dir, 333)));
+  assert.ok(existsSync(accountFile(dir, 111)));
+  assert.ok(!existsSync(join(dir, "active-api.gcore.com.json")), "pointer to a missing account removed");
+});
+
+test("prod and preprod sessions don't affect each other", () => {
+  const dir = tmp();
+  writeSession(dir, usable({ client_id: 111, token: "111_pre" }));
+  mkdirSync(join(dir, "accounts"), { recursive: true });
+  writeFileSync(join(dir, "accounts", "api.gcore.com_777.json"), JSON.stringify(session({ client_id: 777, api_origin: PROD, token: "777_prod" })));
+  writeFileSync(join(dir, "active-api.gcore.com.json"), JSON.stringify({ ...pointer(777), api_origin: PROD }));
+
+  assert.deepEqual(resolverFor(dir)(), sessionHeader("111_pre"));
+  const prod = createAuth("", { sessionDir: dir, apiOrigin: PROD });
+  assert.deepEqual(prod.resolve(), sessionHeader("777_prod"));
+  const listed = (authFor(dir).status().cached_accounts as Array<{ client_id: number }>).map((a) => a.client_id);
+  assert.deepEqual(listed, [111], "status lists only this origin's accounts");
+});
+
+test("--logout removes only the active account (local only) and is a no-op when signed out", () => {
+  const dir = tmp();
+  writeSession(dir, usable({ client_id: 111 }));
+  writeSession(dir, usable({ client_id: 222 }));
+  const out = logoutActive({ apiOrigin: API, sessionDir: dir });
+  assert.equal(out?.client_id, 222);
+  assert.ok(!existsSync(accountFile(dir, 222)));
+  assert.ok(!existsSync(activeFile(dir)));
+  assert.ok(existsSync(accountFile(dir, 111)), "other cached accounts stay");
+  assert.equal(logoutActive({ apiOrigin: API, sessionDir: dir }), null);
+});
+
+test("a second login while one is running fails with exit 3; the lock is released afterwards", async () => {
+  const sessionDir = tmp();
+  const first = await startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir });
+  const isExit3 = (err: unknown) => err instanceof LoginError && err.exitCode === 3;
+  await assert.rejects(startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir }), isExit3);
+  assert.throws(() => useCachedAccount({ apiOrigin: API, clientId: 1, sessionDir }), isExit3);
+
+  await post(first.port, { body: form({ state: stateOf(first.url), denied: "1" }) });
+  assert.equal(await first.result, "denied");
+  assert.ok(!existsSync(join(sessionDir, ".lock")));
+  const again = await startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir });
+  await post(again.port, { body: form({ state: stateOf(again.url), denied: "1" }) });
+});
+
+test("a stale lock (older than 10 minutes) is taken over", async () => {
+  const sessionDir = tmp();
+  writeFileSync(join(sessionDir, ".lock"), "99999");
+  const old = new Date(Date.now() - 11 * 60_000);
+  utimesSync(join(sessionDir, ".lock"), old, old);
+  const l = await startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir });
+  await post(l.port, { body: form({ state: stateOf(l.url), denied: "1" }) });
+});
+
+test("cached accounts in status never include tokens", () => {
+  const dir = tmp();
+  writeSession(dir, usable({ client_id: 111 }));
+  writeSession(dir, expiredSession({ client_id: 333 }));
+  writeSession(dir, usable({ client_id: 111 }));
+  const status = authFor(dir).status();
+  const accounts = status.cached_accounts as Array<{ client_id: number; usable: boolean }>;
+  assert.deepEqual(accounts.map((a) => [a.client_id, a.usable]).sort(), [[111, true], [333, false]]);
+  assert.ok(!JSON.stringify(status).includes(TOKEN));
 });

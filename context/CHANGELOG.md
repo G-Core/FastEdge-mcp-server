@@ -14,6 +14,24 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-06] - feat: one cached session per account, `login --use`, `--logout`, login lock (session-approval task 07)
+
+Switching A → B → A used to create a new token each time, because the volume held one `session.json`.
+
+- **Layout** (`src/auth/store.ts`, new): `accounts/<api host>_<client_id>.json` (same shape as the old `session.json`) plus one `active-<api host>.json` pointer **per API origin**, so prod and preprod sessions don't affect each other.
+  - Readers build the account file name themselves from their own origin and the pointer's `client_id`, and refuse a mismatch.
+  - All writes are temp + fsync + rename.
+  - `store.ts` now holds every volume helper (reads, atomic writes, lock, migration, cleanup, installation id), shared by `credentials.ts` and `login-server.ts`.
+- **Migration**: a POC `session.json` is still read while no pointer exists. The first login, `--use` or `--logout` moves it into `accounts/` and removes it.
+- **`login --use <client_id>`**: no port, no browser. It points the origin at a cached, unexpired account, or exits 7. A running MCP server stays pinned until restart (S5).
+- **`login --logout`**: removes the active account and its pointer (only if the pointer's `generation` is unchanged). It's local only, and prints when the token expires. `login --status` is dropped; `fastedge-auth-status` covers it.
+- **Lock**: an `O_EXCL` `.lock` held by login, `--use` and `--logout` (exit 3 if held; stale after 10 minutes). Expired accounts and dangling pointers are removed under it. An unwritable volume now fails with exit 2 at the lock (login could never save a session anyway).
+- **`fastedge-auth-status`**: `cached_session` is renamed `active_session`. It adds `cached_accounts` (`client_id`, `expires_at`, `usable`; never tokens) and `use_command`, and `switch_account` prefers `--use`.
+
+Tests: 48 in `test-session-auth.ts` (11 new for task 07, existing ones moved to the new layout).
+
+---
+
 ## [2026-10-06] - feat: installation id in the login link (session-approval task 05)
 
 `login` reads or creates `/run/fastedge/installation_id` (32 lowercase hex characters, `0644`) and adds `&install=<id>` to the approval link. The portal uses it to replace this installation's earlier tokens after creating the new one, so repeated logins on one machine don't pile up tokens.

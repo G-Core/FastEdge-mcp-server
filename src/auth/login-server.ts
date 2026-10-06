@@ -1,11 +1,22 @@
-import fs from "node:fs";
 import http from "node:http";
-import { join } from "node:path";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import type { AddressInfo } from "node:net";
 
-import { TOKEN_PATTERN } from "./credentials.js";
 import { PORTAL_ORIGINS, SESSION_DIR } from "./session.js";
+import {
+  LockedError,
+  TOKEN_PATTERN,
+  acquireLock,
+  ensureInstallationId,
+  logout,
+  migrateLegacy,
+  removeExpired,
+  saveSession,
+  useAccount,
+  type Session,
+} from "./store.js";
+
+export { ensureInstallationId } from "./store.js";
 
 export type LoginOutcome = "ok" | "denied" | "timeout";
 
@@ -13,7 +24,7 @@ export type LoginOutcome = "ok" | "denied" | "timeout";
 export class LoginError extends Error {
   constructor(
     message: string,
-    public readonly exitCode: 2 | 4,
+    public readonly exitCode: 2 | 3 | 4 | 7,
   ) {
     super(message);
   }
@@ -51,104 +62,81 @@ const OK_PAGE = page("FastEdge connected", "FastEdge is connected. You can close
 const DENIED_PAGE = page("FastEdge not connected", "Access was denied. You can close this tab.");
 const BAD_PAGE = page("Bad request", "This request was not accepted.");
 
-/** A fully written, fsynced `0644` temp file in `dir`, ready to be renamed or linked into place. */
-function writeTemp(dir: string, content: string): string {
-  fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
-  const tmp = join(dir, `.tmp-${randomBytes(8).toString("hex")}`);
-  try {
-    const fd = fs.openSync(tmp, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o644);
-    try {
-      fs.writeSync(fd, content);
-      fs.fsyncSync(fd);
-    } finally {
-      fs.closeSync(fd);
-    }
-    // 0644, not 0600: the MCP server runs as a different, per-workspace UID (PROTOCOL.md §2).
-    fs.chmodSync(tmp, 0o644);
-    return tmp;
-  } catch (err) {
-    fs.rmSync(tmp, { force: true });
-    throw err;
-  }
-}
-
-/** Temp file + fsync + rename, so a reader never sees a half-written session (S15). */
-function writeSession(dir: string, session: object): void {
-  const tmp = writeTemp(dir, JSON.stringify(session));
-  try {
-    fs.renameSync(tmp, join(dir, "session.json"));
-  } catch (err) {
-    fs.rmSync(tmp, { force: true });
-    throw err;
-  }
-}
-
-const INSTALL_ID_PATTERN = /^[0-9a-f]{32}$/;
-
-function readInstallationId(file: string): string | null {
-  try {
-    const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-    try {
-      const buf = Buffer.alloc(64);
-      const id = buf.subarray(0, fs.readSync(fd, buf, 0, buf.length, 0)).toString("utf8").trim();
-      return INSTALL_ID_PATTERN.test(id) ? id : null;
-    } finally {
-      fs.closeSync(fd);
-    }
-  } catch {
-    return null;
-  }
-}
-
-/**
- * This volume's installation id (PROTOCOL.md §2), created on first use. `link()` makes the first
- * writer win if two logins race; an unreadable or malformed file is replaced.
- */
-export function ensureInstallationId(dir: string): string {
-  const file = join(dir, "installation_id");
-  const existing = readInstallationId(file);
-  if (existing) return existing;
-
-  const tmp = writeTemp(dir, randomBytes(16).toString("hex"));
-  try {
-    try {
-      fs.linkSync(tmp, file);
-    } catch (err: any) {
-      if (err?.code !== "EEXIST") throw err;
-      const raced = readInstallationId(file);
-      if (raced) return raced;
-      fs.renameSync(tmp, file);
-    }
-    const id = readInstallationId(file);
-    if (!id) throw new Error("installation id unreadable");
-    return id;
-  } finally {
-    fs.rmSync(tmp, { force: true });
-  }
-}
-
 function sameSecret(a: string, b: string): boolean {
   const x = Buffer.from(a);
   const y = Buffer.from(b);
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
+function requirePortal(apiOrigin: string): string {
+  const portalOrigin = PORTAL_ORIGINS[apiOrigin];
+  if (!portalOrigin) {
+    throw new LoginError(`Session login is not available for ${apiOrigin}. Use GCORE_API_KEY instead.`, 2);
+  }
+  return portalOrigin;
+}
+
+/** Takes the lock (exit 3 if held), migrates the POC layout and drops expired accounts. */
+function prepare(sessionDir: string): () => void {
+  let release: () => void;
+  try {
+    release = acquireLock(sessionDir);
+  } catch (err: any) {
+    if (err instanceof LockedError) throw new LoginError(err.message, 3);
+    throw new LoginError(`Cannot write to the session volume (${sessionDir}): ${err?.code ?? "error"}`, 2);
+  }
+  try {
+    migrateLegacy(sessionDir);
+    removeExpired(sessionDir, Date.now());
+  } catch (err) {
+    release();
+    throw err;
+  }
+  return release;
+}
+
+/** `login --use <client_id>` (PROTOCOL.md §3.6). */
+export function useCachedAccount(opts: { apiOrigin: string; clientId: number; sessionDir?: string }): Session {
+  requirePortal(opts.apiOrigin);
+  const sessionDir = opts.sessionDir ?? SESSION_DIR;
+  const release = prepare(sessionDir);
+  try {
+    const session = useAccount(sessionDir, opts.apiOrigin, opts.clientId, Date.now());
+    if (!session) {
+      throw new LoginError(
+        `No usable cached session for account ${opts.clientId}. Run the login command and approve while signed in to that account.`,
+        7,
+      );
+    }
+    return session;
+  } finally {
+    release();
+  }
+}
+
+/** `login --logout` (PROTOCOL.md §3.7). Local only: the token stays valid until it expires. */
+export function logoutActive(opts: { apiOrigin: string; sessionDir?: string }): Session | null {
+  requirePortal(opts.apiOrigin);
+  const sessionDir = opts.sessionDir ?? SESSION_DIR;
+  const release = prepare(sessionDir);
+  try {
+    return logout(sessionDir, opts.apiOrigin);
+  } finally {
+    release();
+  }
+}
+
 /**
  * Binds the loopback listener, then returns the approval URL to print (S12: bind first).
  * Accepts exactly one valid callback, writes the session cache, and resolves.
- * Never logs request bodies or headers (PROTOCOL.md §6).
+ * Holds the login lock until it resolves. Never logs request bodies or headers (PROTOCOL.md §6).
  */
 export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
-  const portalOrigin = PORTAL_ORIGINS[opts.apiOrigin];
-  if (!portalOrigin) {
-    throw new LoginError(
-      `Session login is not available for ${opts.apiOrigin}. Use GCORE_API_KEY instead.`,
-      2,
-    );
-  }
+  const portalOrigin = requirePortal(opts.apiOrigin);
+  const sessionDir = opts.sessionDir ?? SESSION_DIR;
+  const release = prepare(sessionDir);
 
   const state = randomBytes(32).toString("base64url");
-  const sessionDir = opts.sessionDir ?? SESSION_DIR;
   let settle!: (outcome: LoginOutcome) => void;
   const result = new Promise<LoginOutcome>((resolve) => (settle = resolve));
   let done = false;
@@ -203,15 +191,12 @@ export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
       }
 
       try {
-        writeSession(sessionDir, {
-          version: 1,
-          generation: randomBytes(16).toString("hex"),
+        saveSession(sessionDir, {
           token: f.token,
           token_id: Number(f.token_id),
           client_id: Number(f.client_id),
           api_origin: opts.apiOrigin,
           expires_at: new Date(expiresAt).toISOString(),
-          created_at: new Date().toISOString(),
         });
       } catch (err: any) {
         console.error(`Could not save the session: ${err?.code ?? "write failed"}`);
@@ -230,20 +215,26 @@ export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
     clearTimeout(timer);
     server.close();
     server.closeIdleConnections();
+    release();
     settle(outcome);
   }
 
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", (err: NodeJS.ErrnoException) => {
-      clearTimeout(timer);
-      reject(
-        err.code === "EADDRINUSE"
-          ? new LoginError(`Port ${opts.port} is in use. Close the other login and try again.`, 4)
-          : err,
-      );
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", (err: NodeJS.ErrnoException) => {
+        reject(
+          err.code === "EADDRINUSE"
+            ? new LoginError(`Port ${opts.port} is in use. Close the other login and try again.`, 4)
+            : err,
+        );
+      });
+      server.listen(opts.port, opts.host, () => resolve());
     });
-    server.listen(opts.port, opts.host, () => resolve());
-  });
+  } catch (err) {
+    clearTimeout(timer);
+    release();
+    throw err;
+  }
 
   const port = (server.address() as AddressInfo).port;
   expectedHost = `127.0.0.1:${port}`;

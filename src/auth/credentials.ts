@@ -1,7 +1,8 @@
-import fs from "node:fs";
-
 import { GCORE_API_ORIGIN } from "../api-client.js";
-import { PORTAL_ORIGINS, RESTART_HINT, SESSION_FILE, loginCommand } from "./session.js";
+import { PORTAL_ORIGINS, RESTART_HINT, SESSION_DIR, loginCommand, useCommand } from "./session.js";
+import { isUsable, listAccounts, readActiveSession, type Session } from "./store.js";
+
+export { TOKEN_PATTERN } from "./store.js";
 
 export type AuthRequiredReason = "no_session" | "expired" | "account_changed" | "origin_mismatch" | "rejected";
 export type CredentialSource = "explicit" | "session";
@@ -14,62 +15,18 @@ export interface Auth {
   status(): Record<string, unknown>;
 }
 
-const MAX_SESSION_BYTES = 4096;
-const EXPIRY_MARGIN_MS = 60_000;
-// Printable ASCII only, so a tampered file can't smuggle header syntax.
-export const TOKEN_PATTERN = /^[\x21-\x7e]{1,1024}$/;
-
-interface Session {
-  token: string;
-  client_id: number;
-  api_origin: string;
-  expires_at: string;
-}
-
 type SessionCheck =
   | { session: Session }
   | { reason: "no_session" }
   | { reason: "expired" | "origin_mismatch"; session: Session };
 
-function readSessionFile(path: string): unknown {
-  let fd: number;
-  try {
-    // O_NOFOLLOW: a symlinked session.json is refused, not followed.
-    fd = fs.openSync(path, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-  } catch {
-    return null;
-  }
-  try {
-    if (!fs.fstatSync(fd).isFile()) return null;
-    const buf = Buffer.alloc(MAX_SESSION_BYTES + 1);
-    const n = fs.readSync(fd, buf, 0, buf.length, 0);
-    if (n > MAX_SESSION_BYTES) return null;
-    return JSON.parse(buf.subarray(0, n).toString("utf8"));
-  } catch {
-    return null;
-  } finally {
-    fs.closeSync(fd);
-  }
-}
-
-function parseSession(raw: unknown): Session | null {
-  if (typeof raw !== "object" || raw === null) return null;
-  const s = raw as Record<string, unknown>;
-  if (s.version !== 1) return null;
-  if (typeof s.token !== "string" || !TOKEN_PATTERN.test(s.token)) return null;
-  if (!Number.isSafeInteger(s.client_id) || (s.client_id as number) <= 0) return null;
-  if (typeof s.api_origin !== "string" || typeof s.expires_at !== "string") return null;
-  if (Number.isNaN(Date.parse(s.expires_at))) return null;
-  return s as unknown as Session;
-}
-
 /** PROTOCOL.md §2 checks, without account pinning. */
-function checkSession(file: string, apiOrigin: string, now: number): SessionCheck {
-  const session = parseSession(readSessionFile(file));
+function checkSession(dir: string, apiOrigin: string, now: number): SessionCheck {
+  const session = readActiveSession(dir, apiOrigin);
   if (!session) return { reason: "no_session" };
   // S2: the request destination is never taken from the file, only checked against it.
   if (session.api_origin !== apiOrigin) return { reason: "origin_mismatch", session };
-  if (Date.parse(session.expires_at) - now <= EXPIRY_MARGIN_MS) return { reason: "expired", session };
+  if (!isUsable(session, now)) return { reason: "expired", session };
   return { session };
 }
 
@@ -84,18 +41,16 @@ function describeSession(session: Session) {
 
 /**
  * An explicit key always wins and the session cache is never read (S1). Without one, the
- * session file is re-read and validated on every call, and the first accepted account is
- * pinned for the life of the process (S5). `sessionFile`, `apiOrigin` and `now` are test hooks.
+ * active session is re-read and validated on every call, and the first accepted account is
+ * pinned for the life of the process (S5). `sessionDir`, `apiOrigin` and `now` are test hooks.
  */
 export function createAuth(
   explicitKey: string,
-  opts: { sessionFile?: string; apiOrigin?: string; now?: () => number } = {},
+  opts: { sessionDir?: string; apiOrigin?: string; now?: () => number } = {},
 ): Auth {
   const apiOrigin = opts.apiOrigin ?? GCORE_API_ORIGIN;
   const command = loginCommand(apiOrigin);
-  const switchHint = command
-    ? `To switch account: run the login command, approve while signed in to the other account, then: ${RESTART_HINT}`
-    : "Session login is not available for this API origin; set GCORE_API_KEY instead.";
+  const use = useCommand(apiOrigin);
 
   if (explicitKey) {
     const header = `APIKey ${explicitKey}`;
@@ -108,13 +63,13 @@ export function createAuth(
     };
   }
 
-  const sessionFile = opts.sessionFile ?? SESSION_FILE;
+  const sessionDir = opts.sessionDir ?? SESSION_DIR;
   const now = opts.now ?? Date.now;
   let pinnedClientId: number | undefined;
 
   return {
     resolve() {
-      const check = checkSession(sessionFile, apiOrigin, now());
+      const check = checkSession(sessionDir, apiOrigin, now());
       if ("reason" in check) return { authRequired: check.reason };
       pinnedClientId ??= check.session.client_id;
       if (check.session.client_id !== pinnedClientId) return { authRequired: "account_changed" };
@@ -122,20 +77,27 @@ export function createAuth(
     },
 
     status() {
-      const check = checkSession(sessionFile, apiOrigin, now());
-      const cached = "session" in check ? describeSession(check.session) : null;
+      const at = now();
+      const check = checkSession(sessionDir, apiOrigin, at);
       const changed = !("reason" in check) && pinnedClientId !== undefined && check.session.client_id !== pinnedClientId;
       const state = "reason" in check ? check.reason : changed ? "account_changed" : "available";
       return {
         credential: "session",
         state,
-        cached_session: cached,
+        active_session: "session" in check ? describeSession(check.session) : null,
         // The account this server process is locked to; null until the first API call.
         pinned_client_id: pinnedClientId ?? null,
-        note: "Local state only: the token was not checked with the API, and it can still have been revoked in the portal.",
+        cached_accounts: listAccounts(sessionDir, apiOrigin).map((s) => ({
+          ...describeSession(s),
+          usable: isUsable(s, at),
+        })),
+        note: "Local state only: tokens were not checked with the API, and can still have been revoked in the portal.",
         ...(changed ? { next_step: RESTART_HINT } : {}),
         login_command: command,
-        switch_account: switchHint,
+        use_command: use,
+        switch_account: command
+          ? `If the account is in cached_accounts and usable, run use_command with its client_id; otherwise run login_command and approve while signed in to that account. Then: ${RESTART_HINT}`
+          : "Session login is not available for this API origin; set GCORE_API_KEY instead.",
       };
     },
   };

@@ -33,5 +33,11 @@ export function loginCommand(apiOrigin: string): string | null {
   return `docker run --rm -i -p 127.0.0.1:${LOGIN_PORT}:${LOGIN_PORT} -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login`;
 }
 
+/** `login --use <client_id>` (PROTOCOL.md §3.6): switch to a cached account, no browser, no port. */
+export function useCommand(apiOrigin: string): string | null {
+  if (!PORTAL_ORIGINS[apiOrigin]) return null;
+  return `docker run --rm -i -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login --use <client_id>`;
+}
+
 export const RESTART_HINT =
   "Restart this MCP server to use the new account (Claude Code: /mcp, then reconnect; Codex CLI: exit, then `codex resume --last`).";
