@@ -40,9 +40,8 @@ registerAllResources(server);
 async function main() {
   if (!GCORE_API_KEY) {
     console.error(
-      "GCORE_API_KEY is required. Set it to your Gcore API key (or use FASTEDGE_API_KEY).",
+      "No GCORE_API_KEY set: local tools work, and API tools will ask you to sign in through the Gcore portal.",
     );
-    process.exit(1);
   }
 
   console.warn(`Workspace initialized at: ${WORKSPACE_ROOT}`);

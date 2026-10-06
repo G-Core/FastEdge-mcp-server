@@ -14,6 +14,33 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-06] - feat (POC): recover from a revoked session token, `fastedge-auth-status`, safer login command
+
+Found in the preprod demo: a token deleted in the portal before expiry kept being sent, and the raw `401 Invalid API token` came back as a normal result, so the agent never got a login prompt. Reviewed with Codex (MoM) for Codex CLI support and security.
+
+- **`rejected` reason** (`src/auth/credentials.ts`, `src/tools/api/*`): `Auth.resolve()` now returns `source: "explicit" | "session"` with the header. When a request that used the **session** token gets a **401**, `gcore_api`, `batch_execute` and `upload-binary` return `auth_required (rejected)`, judged by that request's credential and not by re-reading the cache. Explicit keys keep the raw 401 (S1); a 403 is never mapped. `batch_execute` keeps its `completed`/`failed` JSON after the text and says to retry only what did not complete. `upload-binary` throws `UploadError` with the HTTP status, so nothing parses "401" out of a message.
+- **`fastedge-auth-status` tool** (`src/tools/api/auth-status.ts`): read-only, no arguments. Returns explicit-key mode, or the session state, cached account, the account this process is pinned to, the login command and how to switch account. `Auth.status()` never pins and never includes the token.
+- **Login command** (`src/auth/session.ts`): writes the server's own origin (`-e GCORE_API_BASE=<origin>`). A bare `-e GCORE_API_BASE` copied the agent shell's value, which can differ from the server's. The `package.json` version must match the Docker tag grammar, or the server fails at start. Origins with no portal get no login command. `account_changed` now says to restart (Claude Code `/mcp` reconnect; Codex CLI: exit, then `codex resume --last`).
+- `createAuthResolver` → `createAuth` (`{ resolve, status }`). `registerApiTools` takes an optional `auth` for tests.
+
+Tests: `scripts/tests/test-session-auth.ts` now has 33 tests; the tool-level ones drive the real tools over the SDK's in-memory transport with a stubbed `fetch`.
+
+---
+
+## [2026-10-02] - feat (POC): keyless mode, session tokens and the `login` command
+
+Users without `GCORE_API_KEY` can sign in through the portal for an 8-hour session instead of exporting a long-lived key. The contract lives in fastedge-coordinator `context/session-approval/` (`PROTOCOL.md`, `SECURITY.md`); the portal side is `fastedge-frontend` `/fastedge/agent-connect`.
+
+- **Keyless startup** (`src/server.ts`): no key no longer exits; it logs one stderr line. Local tools work unchanged.
+- **Credential resolver** (`src/auth/credentials.ts`): `createAuthResolver(key)` is created once in `registerApiTools`. An explicit key always returns `APIKey <key>` and never reads the cache (S1), so the wire request for key users is unchanged. Without one, `/run/fastedge/session.json` is re-read on every API call: `O_NOFOLLOW`, 4 KiB cap, `version: 1`, `api_origin` must equal `GCORE_API_ORIGIN` (now exported from `api-client.ts`), expiry more than 60 s away, and the first accepted `client_id` is pinned per process (`account_changed` otherwise). `gcore_api`, `batch_execute` and `upload-binary` (now takes the header, not the key) return the `auth_required` result (`isError: true`, login command, no token) before any request.
+- **`login` subcommand** (`src/login.ts`, `src/auth/login-server.ts`): `docker run --rm -i -p 127.0.0.1:47215:47215 -v fastedge-session:/run/fastedge -e GCORE_API_BASE <image> login`. Binds before printing the portal URL, accepts one valid `POST /callback` (path, Host, `Origin` = `null` or the portal, `state` constant-time, `api_origin`, field formats, 8 KiB body), writes the cache atomically (temp + fsync + rename, `0644`), exits 0 / 5 (timeout) / 6 (denied) / 2 (origin with no portal, e.g. the Orange hosts). Browsers send `Origin: null` on this POST (Q3), so `state` is the real control. Node built-ins only.
+- **Image**: `docker-entrypoint.sh` maps `login` to `node build/login.js` (otherwise `exec "$@"` would run the system `/bin/login`). `Dockerfile` creates `/run/fastedge` as `10001:10001 0755`, so a new named volume inherits it and the login container (uid 10001) can write while any MCP UID reads.
+- **Not yet** (POC): login lock (exit 3), `login --logout`, `login --status`, README/DEVELOPMENT docs. A port clash fails in Docker itself (exit 125, "address already in use") before the code runs.
+
+Tests: `scripts/tests/test-session-auth.ts` (21, phase-1 gate rows). Verified in containers on Linux Docker: keyless `auth_required`, login → cache → the next `gcore_api` call sends the session token without a restart.
+
+---
+
 ## [2026-10-01] - docs: standalone config matches the VS Code extension
 
 `STANDALONE-SETUP.md` and `mcp-standalone.json` showed the old `bash -c "docker run … -e \"GCORE_API_KEY=$GCORE_API_KEY\" …"` form with an inline `your_api_key_here` placeholder (and `HOST_UID=$(id -u)` flags in the doc). They now show the same shape the VS Code extension's "FastEdge (Generate mcp.json)" writes and the portal's agent-onboarding "Other agents" tab shows: `docker` called directly with an argv array (works on Windows, no shell splicing), bare `-e GCORE_API_KEY` forwarded from the client, and `"GCORE_API_KEY": "${env:GCORE_API_KEY}"` so the key is read from the user's environment instead of being written into a file that is often committed. `HOST_UID`/`HOST_GID` moved to the Permissions section as an override only — the entrypoint detects the `/workspace` owner and falls back to 10001 (SA-004). Added an "Other MCP Clients" section (`mcpServers` shape, per-client variable syntax).

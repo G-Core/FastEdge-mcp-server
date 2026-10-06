@@ -49,7 +49,7 @@ if (!resolvedOrigin) {
   );
   process.exit(1);
 }
-const GCORE_API_ORIGIN: string = resolvedOrigin;
+export const GCORE_API_ORIGIN: string = resolvedOrigin;
 
 export const DEFAULT_TIMEOUT_MS = 60_000;
 

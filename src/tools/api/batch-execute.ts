@@ -8,6 +8,7 @@ import {
   type ApiCallResult,
 } from "../../api-client.js";
 import { checkAllowed } from "../../policy/enforce.js";
+import { authRequiredResult, type Auth } from "../../auth/credentials.js";
 
 export const BATCH_TOTAL_CAP_MS = 180_000;
 export const BATCH_MAX_CALLS_DEFAULT = 5;
@@ -324,9 +325,7 @@ export const batchCallSchema = z
     }
   });
 
-export function registerBatchExecuteTool(server: McpServer, gcoreApiKey: string) {
-  const authedCaller = (opts: ApiCallOptions) =>
-    callGcoreApi({ ...opts, ...(gcoreApiKey ? { authHeader: `APIKey ${gcoreApiKey}` } : {}) });
+export function registerBatchExecuteTool(server: McpServer, auth: Auth) {
   server.registerTool(
     "batch_execute",
     {
@@ -337,6 +336,23 @@ export function registerBatchExecuteTool(server: McpServer, gcoreApiKey: string)
         calls: z.array(batchCallSchema),
       },
     },
-    async ({ calls }) => batchExecuteHandler({ calls: calls as BatchCall[] }, authedCaller),
+    async ({ calls }) => {
+      const credential = auth.resolve();
+      if ("authRequired" in credential) return authRequiredResult(credential.authRequired);
+      let lastStatus = 0;
+      const result = await batchExecuteHandler({ calls: calls as BatchCall[] }, async (opts: ApiCallOptions) => {
+        const response = await callGcoreApi({ ...opts, authHeader: credential.header });
+        lastStatus = response.status;
+        return response;
+      });
+      // The batch stops at the first 4xx, so a 401 is the failing step. Keep the progress:
+      // earlier steps may have written, and must not be replayed.
+      if (credential.source === "session" && lastStatus === 401) {
+        return authRequiredResult("rejected", {
+          detail: `Batch progress (steps in "completed" already ran; do not repeat them):\n${result.content[0].text}`,
+        });
+      }
+      return result;
+    },
   );
 }

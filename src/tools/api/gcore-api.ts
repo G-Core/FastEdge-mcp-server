@@ -7,6 +7,7 @@ import {
   type ApiCallResult,
 } from "../../api-client.js";
 import { checkAllowed } from "../../policy/enforce.js";
+import { authRequiredResult, type Auth } from "../../auth/credentials.js";
 
 export interface GcoreApiInput {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -66,9 +67,7 @@ export const gcoreApiBodySchema = z
     "Request body. MUST be a JSON object or array (never a JSON-encoded string). Example: { name: 'foo', binary: 123 }. The MCP layer serializes it before sending; pre-stringifying causes the Gcore gateway to reject with 'value must be an object'.",
   );
 
-export function registerGcoreApiTool(server: McpServer, gcoreApiKey: string) {
-  const authedCaller = (opts: ApiCallOptions) =>
-    callGcoreApi({ ...opts, ...(gcoreApiKey ? { authHeader: `APIKey ${gcoreApiKey}` } : {}) });
+export function registerGcoreApiTool(server: McpServer, auth: Auth) {
   server.registerTool(
     "gcore_api",
     {
@@ -85,6 +84,18 @@ export function registerGcoreApiTool(server: McpServer, gcoreApiKey: string) {
         body: gcoreApiBodySchema,
       },
     },
-    async (input) => gcoreApiHandler(input as GcoreApiInput, authedCaller),
+    async (input) => {
+      const credential = auth.resolve();
+      if ("authRequired" in credential) return authRequiredResult(credential.authRequired);
+      let status = 0;
+      const result = await gcoreApiHandler(input as GcoreApiInput, async (opts: ApiCallOptions) => {
+        const response = await callGcoreApi({ ...opts, authHeader: credential.header });
+        status = response.status;
+        return response;
+      });
+      // Judged by the credential this request used, never a later read of the cache. Explicit keys keep the raw 401 (S1).
+      if (credential.source === "session" && status === 401) return authRequiredResult("rejected");
+      return result;
+    },
   );
 }

@@ -18,6 +18,12 @@
 # /proc/<pid>/environ of child processes.
 set -e
 
+# `docker run <image> login` is the session login, not the system /bin/login.
+if [ "$1" = "login" ]; then
+  shift
+  set -- node build/login.js "$@"
+fi
+
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-/workspace}"
 
 target_uid="${HOST_UID:-}"

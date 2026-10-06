@@ -31,6 +31,10 @@ RUN pnpm install --frozen-lockfile --prod
 COPY --from=builder /app/build ./build
 COPY --from=builder /app/reference-docs ./reference-docs
 
+# Session-login cache mount point. A new named volume copies this directory's owner
+# and mode, so the login container (uid 10001) can write and every MCP UID can read.
+RUN mkdir -p /run/fastedge && chown 10001:10001 /run/fastedge && chmod 0755 /run/fastedge
+
 # Default to workspace in volumey
 ENV WORKSPACE_ROOT=/workspace
 

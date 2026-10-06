@@ -1,17 +1,18 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import { uploadBinary } from "./api.js";
+import { UploadError, uploadBinary } from "./api.js";
+import { authRequiredResult, type Auth } from "../../../auth/credentials.js";
 
 /**
  * Register the upload-binary tool to the MCP server.
  * @param server MCP Server instance
- * @param apiKey Gcore API key
+ * @param auth Resolves the credential (explicit key or session token)
  * @param workspaceRoot Workspace root path
  */
 export function registerUploadBinaryTool(
   server: McpServer,
-  apiKey: string,
+  auth: Auth,
   workspaceRoot: string,
 ) {
   server.registerTool(
@@ -32,8 +33,10 @@ export function registerUploadBinaryTool(
       },
     },
     async (params) => {
+      const credential = auth.resolve();
+      if ("authRequired" in credential) return authRequiredResult(credential.authRequired);
       try {
-        const binary = await uploadBinary(apiKey, workspaceRoot, params.wasmFile);
+        const binary = await uploadBinary(credential.header, workspaceRoot, params.wasmFile);
 
         if (!binary.id) {
           throw new Error("Failed to upload binary: No ID returned");
@@ -48,6 +51,9 @@ export function registerUploadBinaryTool(
           ],
         };
       } catch (error: any) {
+        if (credential.source === "session" && error instanceof UploadError && error.status === 401) {
+          return authRequiredResult("rejected");
+        }
         return {
           content: [
             {
