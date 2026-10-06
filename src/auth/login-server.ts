@@ -47,6 +47,8 @@ export interface LoginHandle {
 
 const MAX_BODY_BYTES = 8192;
 const LOGIN_TIMEOUT_MS = 5 * 60_000;
+// 7 days (the longest option on the Approve page) plus 5 minutes of clock skew (PROTOCOL.md constants).
+export const MAX_LIFETIME_MS = 7 * 24 * 3_600_000 + 5 * 60_000;
 const ID_PATTERN = /^[1-9]\d{0,17}$/;
 const FIELDS = ["state", "token", "token_id", "client_id", "expires_at", "api_origin"] as const;
 
@@ -185,7 +187,9 @@ export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
         !ID_PATTERN.test(f.token_id) ||
         !ID_PATTERN.test(f.client_id) ||
         Number.isNaN(expiresAt) ||
-        expiresAt <= Date.now()
+        expiresAt <= Date.now() ||
+        // Task 06 cap: a tampered callback can't plant a longer session than the page allows.
+        expiresAt > Date.now() + MAX_LIFETIME_MS
       ) {
         return reject();
       }

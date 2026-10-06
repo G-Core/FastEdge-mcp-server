@@ -123,7 +123,7 @@ export function authRequiredResult(
       );
     }
     lines.push(
-      "Either set GCORE_API_KEY, or sign in through the Gcore portal for an 8-hour session:",
+      "Either set GCORE_API_KEY, or sign in through the Gcore portal for a time-limited session:",
       "ask the user for permission, then run this command and give them the URL it prints:",
       `  ${command}`,
       opts.detail

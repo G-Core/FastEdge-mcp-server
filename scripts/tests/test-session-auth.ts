@@ -583,3 +583,26 @@ test("cached accounts in status never include tokens", () => {
   assert.deepEqual(accounts.map((a) => [a.client_id, a.usable]).sort(), [[111, true], [333, false]]);
   assert.ok(!JSON.stringify(status).includes(TOKEN));
 });
+
+// --- Lifetime cap (task 06) ---------------------------------------------------------
+
+test("callback accepts a 7-day expiry and rejects anything past 7 days + 5 minutes", async () => {
+  const sevenDays = 7 * 24 * HOUR;
+
+  const ok = await login();
+  const atCap = form({ ...goodFields(ok.state), expires_at: new Date(Date.now() + sevenDays).toISOString() });
+  assert.equal(await post(ok.port, { body: atCap }), 200);
+  assert.equal(await ok.result, "ok");
+
+  const over = await login();
+  const tooLong = form({ ...goodFields(over.state), expires_at: new Date(Date.now() + sevenDays + 6 * 60_000).toISOString() });
+  assert.equal(await post(over.port, { body: tooLong }), 400);
+  assert.ok(!existsSync(accountFile(over.sessionDir)));
+  await post(over.port, { body: form({ state: over.state, denied: "1" }) });
+});
+
+test("auth_required no longer promises a fixed 8-hour session", () => {
+  const text = authRequiredResult("no_session", { apiOrigin: API }).content[0].text;
+  assert.match(text, /time-limited session/);
+  assert.doesNotMatch(text, /8-hour/);
+});

@@ -14,6 +14,16 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-06] - feat: 7-day lifetime cap on session tokens (session-approval task 06)
+
+The Approve page now offers a lifetime: 4 h, 8 h (default), 2 days or 7 days. That's built in `fastedge-frontend`. This server side:
+- The login callback rejects an `expires_at` more than 7 days + 5 minutes ahead (`MAX_LIFETIME_MS` in `src/auth/login-server.ts`), so a tampered callback can't plant a longer session than the page allows.
+- `auth_required` now says "a time-limited session" instead of "an 8-hour session".
+
+Tests: exactly 7 days is accepted; 7 days + 6 minutes is rejected with 400 and nothing written; the wording (50 total).
+
+---
+
 ## [2026-10-06] - feat: one cached session per account, `login --use`, `--logout`, login lock (session-approval task 07)
 
 Switching A → B → A used to create a new token each time, because the volume held one `session.json`.
