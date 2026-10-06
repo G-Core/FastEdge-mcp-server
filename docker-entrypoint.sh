@@ -48,6 +48,9 @@ if [ "${1:-}" = "login" ]; then
   fi
 
   # Run login as the broker uid, with no capabilities, no privilege gain and a clean environment.
+  # It holds a plaintext token in memory, so no core dumps either.
+  ulimit -Sc 0
+  ulimit -Hc 0
   unset GCORE_API_KEY FASTEDGE_API_KEY
   exec env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp TERM="${TERM:-dumb}" \
     GCORE_API_BASE="${GCORE_API_BASE:-}" \
