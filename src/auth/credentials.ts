@@ -62,6 +62,10 @@ function checkSession(dir: string, apiOrigin: string, now: number): SessionCheck
   return { session };
 }
 
+/** Status guidance, so an agent offers the same choices as `auth_required` (§4) instead of picking one. */
+const SIGN_IN_HINT =
+  "To sign in, ask the user which way: 1. Browser on this computer (recommended): with their OK, run login_command yourself and give them the URL it prints. 2. Remote (SSH, Codespaces): give them manual_login. 3. Not now. Never ask them to paste a token or code into this chat.";
+
 /** Metadata safe to show the agent: allowlisted fields, normalised values, never the token. */
 function describeSession(session: Session) {
   return {
@@ -213,6 +217,7 @@ export function createAuth(
           usable: isUsable(s, at),
         })),
         note: "Accounts and expiry come from the local cache; account_verified says whether the API confirmed the active token's account. Tokens can still have been revoked in the portal.",
+        ...(state === "available" ? {} : { sign_in: SIGN_IN_HINT }),
         ...(changed ? { next_step: RESTART_HINT } : {}),
         login_command: command,
         use_command: use,
@@ -283,16 +288,21 @@ export function createEphemeralAuth(opts: {
   };
 
   const status = () => {
-    const state = adopted ? (over() ? "restart_required" : "available") : "no_session";
+    // Before adoption, look at the sealed file without adopting it: adoption needs the account
+    // check, which only an API call makes (as in normal mode, where status doesn't verify either).
+    const pending = adopted ? undefined : candidate();
+    const session = adopted ?? (typeof pending === "object" ? pending : undefined);
+    const state = adopted ? (over() ? "restart_required" : "available") : session ? "available" : (pending as AuthRequiredReason);
     return {
       credential: "session",
       mode: "ephemeral",
       state,
-      active_session: adopted ? describeSession(adopted) : null,
+      active_session: session ? describeSession(session) : null,
+      // Whether the API confirmed the token's account; for a sealed token, on the first API call.
       account_verified: adopted !== undefined,
       pinned_client_id: adopted?.client_id ?? null,
       note: "Ephemeral session: the token is sealed to this server's in-memory key and is never stored in a usable form. It ends when the MCP server stops. One approval per server start; switching accounts or renewing means restarting the server.",
-      ...(adopted ? {} : { login_command: loginCommand(apiOrigin), code_command: codeCommand(apiOrigin), manual_login: manualFallback(apiOrigin) }),
+      ...(session ? {} : { sign_in: SIGN_IN_HINT, login_command: loginCommand(apiOrigin), code_command: codeCommand(apiOrigin), manual_login: manualFallback(apiOrigin) }),
       ...(state === "restart_required" ? { next_step: EPHEMERAL_RESTART_HINT } : {}),
     };
   };

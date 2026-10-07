@@ -81,6 +81,24 @@ test("no sealed file: no_session, and the plaintext cache is never read", async 
   }
 });
 
+test("status shows a sealed session before adoption, unverified, without adopting it", async () => {
+  const { auth, put } = setup();
+  assert.match(String((auth.status() as Record<string, unknown>).sign_in), /1\. Browser on this computer/);
+  put();
+  const stub = stubFetch();
+  try {
+    const status = auth.status() as Record<string, any>;
+    assert.equal(status.state, "available");
+    assert.equal(status.active_session.client_id, 123);
+    assert.equal(status.account_verified, false);
+    assert.equal(status.sign_in, undefined);
+    assert.ok(!JSON.stringify(status).includes(TOKEN));
+    assert.equal(stub.calls.me + stub.calls.api, 0, "status sends nothing");
+  } finally {
+    stub.restore();
+  }
+});
+
 test("a sealed token is checked with /iam/clients/me, adopted, then used", async () => {
   const { auth, put } = setup();
   put();
