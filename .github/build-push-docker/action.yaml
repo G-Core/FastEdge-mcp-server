@@ -52,7 +52,8 @@ runs:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         tags: |
           type=raw,value=${{ steps.extract_version.outputs.DOCKER_TAG_VERSION }}
-          type=raw,value=latest
+          # Pre-releases (vX.Y.Z-N) publish their own tag only; never move latest, which every plugin user pulls.
+          type=raw,value=latest,enable=${{ !contains(inputs.tag_version, '-') }}
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
