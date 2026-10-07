@@ -113,7 +113,7 @@ The gate has passed on rootful Docker on Linux amd64. It also has to pass on eac
 |---|---|---|
 | Docker Desktop, macOS, Apple Silicon (also covers **arm64**) | | ⬜ |
 | Docker Desktop, macOS, Intel (if available) | | ⬜ |
-| Docker Desktop, Windows (WSL 2 backend) | | ⬜ |
+| Docker Desktop, Windows (WSL 2 backend) | Gordon, 2026-10-07 | ✅ gate 37/37 with the workspace in WSL and on `C:`; real login from a Windows client |
 | Rootless Docker, Linux | | ⬜ |
 
 **Steps (macOS and Linux):**
