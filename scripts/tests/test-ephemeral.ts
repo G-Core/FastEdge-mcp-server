@@ -13,7 +13,7 @@ import { FrameReader, connectBroker, encodeFrame, serveBroker } from "../../src/
 import { authRequiredResult, createEphemeralAuth } from "../../src/auth/credentials.js";
 import { LoginError, connectWithCode, startLogin } from "../../src/auth/login-server.js";
 import { generateRecipient, seal } from "../../src/auth/seal.js";
-import { codeCommand, getSealTo, loginCommand, manualFallback, setSealTo, useCommand } from "../../src/auth/session.js";
+import { codeCommand, getSealTo, isForcedEphemeral, loginCommand, manualFallback, setSealTo, useCommand } from "../../src/auth/session.js";
 import { writeSealed } from "../../src/auth/store.js";
 
 const API = "https://api.preprod.world";
@@ -267,11 +267,11 @@ const filesIn = (dir: string): string[] =>
     e.isDirectory() ? filesIn(join(dir, e.name)).map((f) => `${e.name}/${f}`) : [e.name],
   );
 
-test("ephemeral login: ephemeral=1, no installation id, and only a sealed file is written", async () => {
+test("forced login: ephemeral=1, no installation id, and only a sealed file is written", async () => {
   const recipient = generateRecipient();
   const dir = tmp();
   writeFileSync(join(dir, "session.json"), "{}"); // a legacy file is left alone (no migration)
-  const l = await startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir: dir, sealTo: recipient.publicKey });
+  const l = await startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir: dir, sealTo: recipient.publicKey, forced: true });
   const url = new URL(l.url);
   assert.equal(url.searchParams.get("ephemeral"), "1");
   assert.equal(url.searchParams.get("install"), null);
@@ -298,30 +298,30 @@ test("ephemeral login: ephemeral=1, no installation id, and only a sealed file i
   }
 });
 
-test("ephemeral login refuses a missing or malformed key before listening", async () => {
+test("a login refuses a missing or malformed key before listening (forced, or a key given)", async () => {
   const lowOrder = Buffer.from("e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800", "hex").toString("base64url");
   for (const sealTo of ["", "short", "A".repeat(44), "A".repeat(42) + "+", "A".repeat(43) /* all-zero point */, lowOrder]) {
     await assert.rejects(
-      startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir: tmp(), sealTo }),
+      startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir: tmp(), sealTo, forced: sealTo === "" }),
       (e: unknown) => e instanceof LoginError && e.exitCode === 2,
       JSON.stringify(sealTo),
     );
   }
 });
 
-test("--code seals too, with the 8 h cap", () => {
+test("forced --code takes only fe2 codes, sealed, with the 8 h cap", () => {
   const recipient = generateRecipient();
-  const code = (lifetime: number) =>
-    "fe1." +
+  const code = (lifetime: number, v = 2) =>
+    `fe${v}.` +
     Buffer.from(
-      JSON.stringify({ v: 1, token: TOKEN, token_id: 4242, client_id: 123, api_origin: API, expires_at: new Date(Date.now() + lifetime).toISOString() }),
+      JSON.stringify({ v, token: TOKEN, token_id: 4242, client_id: 123, api_origin: API, expires_at: new Date(Date.now() + lifetime).toISOString() }),
     ).toString("base64url");
   const dir = tmp();
-  assert.throws(
-    () => connectWithCode(code(7 * 24 * HOUR), { apiOrigin: API, sessionDir: dir, sealTo: recipient.publicKey }),
-    (e: unknown) => e instanceof LoginError && e.exitCode === 8,
-  );
-  connectWithCode(code(4 * HOUR), { apiOrigin: API, sessionDir: dir, sealTo: recipient.publicKey });
+  const opts = { apiOrigin: API, sessionDir: dir, sealTo: recipient.publicKey, forced: true };
+  const isExit8 = (e: unknown) => e instanceof LoginError && e.exitCode === 8;
+  assert.throws(() => connectWithCode(code(7 * 24 * HOUR), opts), isExit8, "over 8 h");
+  assert.throws(() => connectWithCode(code(4 * HOUR, 1), opts), isExit8, "a keep (fe1) code");
+  connectWithCode(code(4 * HOUR), opts);
   const files = filesIn(dir);
   assert.equal(files.length, 1);
   assert.match(files[0], /^sealed\//);
@@ -332,7 +332,7 @@ test("--code seals too, with the 8 h cap", () => {
 
 test("the broker's handshake carries its key; the server's login commands then seal to it", async () => {
   const recipient = generateRecipient();
-  setSealTo(recipient.publicKey); // the broker side, in this process
+  setSealTo(recipient.publicKey, true); // the broker side, in this process (forced)
   const dir = tmp();
   const socketPath = join(tmp(), "sock");
   const conns: net.Socket[] = [];
@@ -344,6 +344,7 @@ test("the broker's handshake carries its key; the server's login commands then s
   try {
     await connectBroker({ socketPath, ownerUid: process.getuid!(), checkProcess: false });
     assert.equal(getSealTo(), recipient.publicKey);
+    assert.equal(isForcedEphemeral(), true);
     assert.match(loginCommand(API)!, new RegExp(` -e FASTEDGE_SESSION=ephemeral .* login --seal-to ${recipient.publicKey}$`));
     assert.match(codeCommand(API)!, / -e FASTEDGE_SESSION=ephemeral .* login --code --seal-to /);
     assert.equal(useCommand(API), null, "no --use in ephemeral mode");
@@ -369,8 +370,9 @@ test("a malformed seal_to in the handshake is refused (broker_unavailable)", asy
   }
 });
 
-test("forced ephemeral: a handshake with no key, or an all-zero key, is refused", async () => {
-  for (const hello of [{ ok: true }, { ok: true, seal_to: "A".repeat(43) }]) {
+test("a handshake with no key, an all-zero key, no forced flag, or unforced while we're forced is refused", async () => {
+  const valid = generateRecipient().publicKey;
+  for (const hello of [{ ok: true }, { ok: true, seal_to: "A".repeat(43), forced: true }, { ok: true, seal_to: valid }, { ok: true, seal_to: valid, forced: false }]) {
     const socketPath = join(tmp(), "sock");
     const listener = net.createServer((c) => {
       const reader = new FrameReader(1024, () => 0, () => c.write(encodeFrame(hello)));
@@ -378,7 +380,9 @@ test("forced ephemeral: a handshake with no key, or an all-zero key, is refused"
     });
     await new Promise<void>((resolve) => listener.listen(socketPath, resolve));
     try {
-      const auth = await connectBroker({ socketPath, ownerUid: process.getuid!(), checkProcess: false, expectSeal: true });
+      process.env.FASTEDGE_SESSION = "ephemeral";
+      const auth = await connectBroker({ socketPath, ownerUid: process.getuid!(), checkProcess: false });
+      delete process.env.FASTEDGE_SESSION;
       assert.deepEqual(await auth.call(get), { authRequired: "broker_unavailable" }, JSON.stringify(hello));
     } finally {
       listener.close();

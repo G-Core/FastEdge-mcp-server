@@ -12,7 +12,7 @@ import {
   manualFallback,
   useCommand,
 } from "./session.js";
-import { TOKEN_PATTERN, isUsable, listAccounts, readActiveSession, readSealed, type Session } from "./store.js";
+import { TOKEN_PATTERN, isUsable, listAccounts, readActiveSession, readSealed, sealedPresent, type Session } from "./store.js";
 
 export { TOKEN_PATTERN } from "./store.js";
 
@@ -109,6 +109,32 @@ async function checkAccount(token: string, clientId: number): Promise<ApiResult 
   return null;
 }
 
+type Recipient = { privateKey: KeyObject; publicKey: string };
+
+// 8 hours (the longest ephemeral option) plus the protocol's 5 minutes of clock skew between the
+// portal and this machine, as for the 7-day cap (task 10, MUST 10).
+export const EPHEMERAL_MAX_LIFETIME_MS = 8 * 3_600_000 + 5 * 60_000;
+
+/**
+ * Opens and checks the session sealed to `recipient` (task 10), without adopting it: the account
+ * check comes later. A Session, or why it can't be used.
+ */
+function openSealed(recipient: Recipient, sessionDir: string, apiOrigin: string, now: number): Session | AuthRequiredReason {
+  const payload = open(recipient.privateKey, recipient.publicKey, readSealed(sessionDir, recipient.publicKey));
+  if (!payload) return "no_session";
+  if (payload.api_origin !== apiOrigin) return "origin_mismatch";
+  const expires = Date.parse(payload.expires_at);
+  if (!TOKEN_PATTERN.test(payload.token) || Number.isNaN(expires) || payload.client_id <= 0) return "no_session";
+  // The 8 h cap, again at adoption: a planted envelope can't hold a longer session.
+  if (expires - now > EPHEMERAL_MAX_LIFETIME_MS) return "no_session";
+  const session: Session = { version: 1, generation: "sealed", ...payload };
+  return isUsable(session, now) ? session : "expired";
+}
+
+/** Status lines for a run that holds (or is about to adopt) a sealed session. */
+const EPHEMERAL_NOTE =
+  "Ephemeral session: the token is sealed to this server's in-memory key and is never stored in a usable form. It ends when the MCP server stops. While it runs, switching accounts or renewing means restarting the server first, then approving again.";
+
 /**
  * An explicit key always wins and the session cache is never read (S1). Without one, the
  * active session is re-read and validated on every call, and the first accepted account is
@@ -120,7 +146,7 @@ async function checkAccount(token: string, clientId: number): Promise<ApiResult 
  */
 export function createAuth(
   explicitKey: string,
-  opts: { sessionDir?: string; apiOrigin?: string; now?: () => number } = {},
+  opts: { sessionDir?: string; apiOrigin?: string; now?: () => number; recipient?: Recipient } = {},
 ): LocalAuth {
   const apiOrigin = opts.apiOrigin ?? GCORE_API_ORIGIN;
   const command = loginCommand(apiOrigin);
@@ -145,6 +171,33 @@ export function createAuth(
   let verifiedToken: string | undefined;
   let verifying: { token: string; result: Promise<ApiResult | null> } | undefined;
 
+  // Task 10 v2: with a recipient key, a "don't keep" login seals its token to this broker. One
+  // credential state and one pin for both sources (MoM rule 3): until a sealed token is adopted,
+  // every call checks our sealed file first and falls back to plaintext only if it's absent (rule 2).
+  // Once adopted, the run is ephemeral for good: no more disk reads; expiry or a 401 → restart.
+  const recipient = opts.recipient;
+  let sealed: Session | undefined;
+  let sealedEnded = false;
+  let sealing: Promise<"absent" | AuthRequiredReason | ApiResult | null> | undefined;
+  const sealedOver = () => sealedEnded || (sealed !== undefined && !isUsable(sealed, now()));
+
+  const trySealed = (): Promise<"absent" | AuthRequiredReason | ApiResult | null> => {
+    sealing ??= (async (): Promise<"absent" | AuthRequiredReason | ApiResult | null> => {
+      if (!recipient || !sealedPresent(sessionDir, recipient.publicKey)) return "absent";
+      const c = openSealed(recipient, sessionDir, apiOrigin, now());
+      if (typeof c === "string") return c; // present but unusable: blocks plaintext
+      if (pinnedClientId !== undefined && c.client_id !== pinnedClientId) return "account_changed";
+      const problem = await checkAccount(c.token, c.client_id);
+      if (problem) return problem;
+      // A plaintext call may have pinned an account while we waited.
+      if (pinnedClientId !== undefined && c.client_id !== pinnedClientId) return "account_changed";
+      sealed = c;
+      pinnedClientId = c.client_id;
+      return null;
+    })().finally(() => (sealing = undefined));
+    return sealing;
+  };
+
   /** The usable session, checked against the pin without setting it. */
   const current = (): { session: Session } | { authRequired: AuthRequiredReason } => {
     const check = checkSession(sessionDir, apiOrigin, now());
@@ -156,6 +209,7 @@ export function createAuth(
   };
 
   const resolve = (): AuthResolution => {
+    if (sealed) return sealedOver() ? { authRequired: "restart_required" } : { header: `APIKey ${sealed.token}`, source: "session" };
     const c = current();
     if ("authRequired" in c) return c;
     pinnedClientId ??= c.session.client_id;
@@ -181,31 +235,75 @@ export function createAuth(
     return result;
   };
 
+  const call = async (req: Omit<ApiCallOptions, "authHeader">): Promise<ApiResult> => {
+    if (recipient && !sealed) {
+      const r = await trySealed();
+      if (r !== "absent" && r !== null) return typeof r === "string" ? { authRequired: r } : r;
+    }
+    if (sealed) {
+      if (sealedOver()) return { authRequired: "restart_required" };
+      const result = await callWithToken(sealed.token, req, "restart_required");
+      if ("authRequired" in result) sealedEnded = true;
+      return result;
+    }
+
+    const c = current();
+    if ("authRequired" in c) return c;
+    const { session } = c;
+    if (session.token !== verifiedToken) {
+      const problem = await verify(session);
+      if (problem) return problem;
+    }
+    // A sealed token adopted while we waited wins (a fresh "don't keep" login).
+    if (sealed) return call(req);
+    // Pin only a verified account; a concurrent call may have pinned another meanwhile.
+    pinnedClientId ??= session.client_id;
+    if (session.client_id !== pinnedClientId) return { authRequired: "account_changed" };
+
+    // A 401 here concerns this plaintext token only, never a sealed one adopted meanwhile.
+    return callWithToken(session.token, req, "rejected");
+  };
+
+  /** Status for a run holding, or about to adopt, a sealed session. Null when there is none. */
+  const sealedStatus = (): Record<string, unknown> | null => {
+    let session = sealed;
+    let pending: AuthRequiredReason | undefined;
+    if (!session) {
+      if (!recipient || !sealedPresent(sessionDir, recipient.publicKey)) return null;
+      const c = openSealed(recipient, sessionDir, apiOrigin, now());
+      if (typeof c === "string") pending = c;
+      else session = c;
+    }
+    const state = sealed ? (sealedOver() ? "restart_required" : "available") : session ? "available" : pending!;
+    return {
+      credential: "session",
+      mode: "ephemeral",
+      forced: false,
+      state,
+      active_session: session ? describeSession(session) : null,
+      account_verified: sealed !== undefined,
+      pinned_client_id: pinnedClientId ?? null,
+      note: EPHEMERAL_NOTE,
+      ...(session ? {} : { sign_in: SIGN_IN_HINT, login_command: command, code_command: codeCommand(apiOrigin), manual_login: manualFallback(apiOrigin) }),
+      ...(state === "restart_required" ? { next_step: EPHEMERAL_RESTART_HINT } : {}),
+    };
+  };
+
   return {
     resolve,
-
-    async call(call) {
-      const c = current();
-      if ("authRequired" in c) return c;
-      const { session } = c;
-      if (session.token !== verifiedToken) {
-        const problem = await verify(session);
-        if (problem) return problem;
-      }
-      // Pin only a verified account; a concurrent call may have pinned another meanwhile.
-      pinnedClientId ??= session.client_id;
-      if (session.client_id !== pinnedClientId) return { authRequired: "account_changed" };
-
-      return callWithToken(session.token, call, "rejected");
-    },
+    call,
 
     status() {
+      const eph = sealedStatus();
+      if (eph) return eph;
       const at = now();
       const check = checkSession(sessionDir, apiOrigin, at);
       const changed = !("reason" in check) && pinnedClientId !== undefined && check.session.client_id !== pinnedClientId;
       const state = "reason" in check ? check.reason : changed ? "account_changed" : "available";
       return {
         credential: "session",
+        mode: "persistent",
+        forced: false,
         state,
         active_session: "session" in check ? describeSession(check.session) : null,
         // Whether the API confirmed the active session's token belongs to its account (checked on first use).
@@ -236,10 +334,6 @@ export function createAuth(
   };
 }
 
-// 8 hours (the longest ephemeral option) plus the protocol's 5 minutes of clock skew between the
-// portal and this machine, as for the 7-day cap (task 10, MUST 10).
-export const EPHEMERAL_MAX_LIFETIME_MS = 8 * 3_600_000 + 5 * 60_000;
-
 /**
  * Ephemeral session mode (fastedge-coordinator tasks/10-ephemeral-session.md, v1). The broker holds
  * an X25519 key in memory; login seals the approved token to it. The broker adopts one token per
@@ -262,17 +356,7 @@ export function createEphemeralAuth(opts: {
   const over = () => ended || (adopted !== undefined && !isUsable(adopted, now()));
 
   /** Reads and opens our sealed file. Not adopted until the account check passes. */
-  const candidate = (): Session | AuthRequiredReason => {
-    const payload = open(opts.recipient.privateKey, opts.recipient.publicKey, readSealed(sessionDir, opts.recipient.publicKey));
-    if (!payload) return "no_session";
-    if (payload.api_origin !== apiOrigin) return "origin_mismatch";
-    const expires = Date.parse(payload.expires_at);
-    if (!TOKEN_PATTERN.test(payload.token) || Number.isNaN(expires) || payload.client_id <= 0) return "no_session";
-    // The 8 h cap, again at adoption: a planted envelope can't hold a longer session.
-    if (expires - now() > EPHEMERAL_MAX_LIFETIME_MS) return "no_session";
-    const session: Session = { version: 1, generation: "sealed", ...payload };
-    return isUsable(session, now()) ? session : "expired";
-  };
+  const candidate = () => openSealed(opts.recipient, sessionDir, apiOrigin, now());
 
   /** Serialized: concurrent first calls share one adoption. */
   const adopt = (): Promise<AuthRequiredReason | ApiResult | null> => {
@@ -296,12 +380,13 @@ export function createEphemeralAuth(opts: {
     return {
       credential: "session",
       mode: "ephemeral",
+      forced: true,
       state,
       active_session: session ? describeSession(session) : null,
       // Whether the API confirmed the token's account; for a sealed token, on the first API call.
       account_verified: adopted !== undefined,
       pinned_client_id: adopted?.client_id ?? null,
-      note: "Ephemeral session: the token is sealed to this server's in-memory key and is never stored in a usable form. It ends when the MCP server stops. One approval per server start; switching accounts or renewing means restarting the server.",
+      note: EPHEMERAL_NOTE,
       ...(session ? {} : { sign_in: SIGN_IN_HINT, login_command: loginCommand(apiOrigin), code_command: codeCommand(apiOrigin), manual_login: manualFallback(apiOrigin) }),
       ...(state === "restart_required" ? { next_step: EPHEMERAL_RESTART_HINT } : {}),
     };

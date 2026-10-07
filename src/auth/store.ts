@@ -255,6 +255,20 @@ export function writeSealed(dir: string, recipient: string, envelope: object): v
 /** The envelope sealed to `recipient`, unparsed beyond JSON (bounded, no links), or null. */
 export const readSealed = (dir: string, recipient: string): unknown => readJson(sealedPath(dir, recipient));
 
+/**
+ * Whether anything exists at our sealed path (task 10 v2, MoM rule 2): only a truly absent file
+ * lets normal mode fall back to plaintext. A present but unreadable one (bad JSON, a link, too big)
+ * must block that fallback, so it counts as present.
+ */
+export function sealedPresent(dir: string, recipient: string): boolean {
+  try {
+    fs.lstatSync(sealedPath(dir, recipient));
+    return true;
+  } catch (err: any) {
+    return err?.code !== "ENOENT";
+  }
+}
+
 // --- Lock -----------------------------------------------------------------------
 
 export class LockedError extends Error {}

@@ -25,14 +25,10 @@ if (!all(me.uids) || !all(me.gids) || !me.dropped) fail("not running as the brok
 // private half never leaves this process, and no plaintext cache reads at all.
 const mode = process.env.FASTEDGE_SESSION ?? "";
 if (mode !== "" && mode !== "ephemeral") fail("FASTEDGE_SESSION must be unset or \"ephemeral\"");
-let auth;
-if (mode === "ephemeral") {
-  const recipient = generateRecipient();
-  setSealTo(recipient.publicKey);
-  auth = createEphemeralAuth({ recipient });
-} else {
-  auth = createAuth("");
-}
+// Always a key pair (task 10 v2): a normal-mode login can then seal a "don't keep" token to it.
+const recipient = generateRecipient();
+setSealTo(recipient.publicKey, mode === "ephemeral");
+const auth = mode === "ephemeral" ? createEphemeralAuth({ recipient }) : createAuth("", { recipient });
 let connected = false;
 
 const listener = net.createServer((conn) => {

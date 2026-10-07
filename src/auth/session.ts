@@ -23,20 +23,24 @@ if (!TAG_PATTERN.test(IMAGE_TAG)) {
   throw new Error(`package.json version "${IMAGE_TAG}" is not a valid image tag`);
 }
 
-// Ephemeral mode (fastedge-coordinator tasks/10-ephemeral-session.md): the broker's public key,
-// set once per process (the broker at start, the MCP server from the broker's handshake). Login
-// commands then seal the approved token to it instead of writing it to the volume.
+// Session sealing (fastedge-coordinator tasks/10-ephemeral-session.md): the broker's public key,
+// set once per process (the broker at start, the MCP server from the broker's handshake).
+// - Having a key means login can seal: the Approve page then offers "Keep me signed in" (v2).
+// - `forced` (FASTEDGE_SESSION=ephemeral) means login must seal: the page offers no choice (v1).
 const SEAL_KEY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 let sealTo: string | null = null;
+let forced = false;
 
-export function setSealTo(publicKey: string): void {
+export function setSealTo(publicKey: string, forcedEphemeral = false): void {
   if (!SEAL_KEY_PATTERN.test(publicKey)) throw new Error("invalid seal key");
   sealTo = publicKey;
+  forced = forcedEphemeral;
 }
 export const getSealTo = () => sealTo;
+export const isForcedEphemeral = () => forced;
 
-/** Extra `docker run` flags and login arguments for the current mode. */
-const ephemeralEnv = () => (sealTo ? " -e FASTEDGE_SESSION=ephemeral" : "");
+/** Extra `docker run` flags and login arguments: the key whenever there is one; the env only when forced. */
+const ephemeralEnv = () => (forced ? " -e FASTEDGE_SESSION=ephemeral" : "");
 const sealArg = () => (sealTo ? ` --seal-to ${sealTo}` : "");
 
 /**
@@ -49,9 +53,9 @@ export function loginCommand(apiOrigin: string): string | null {
   return `docker run --rm -i -p 127.0.0.1:${LOGIN_PORT}:${LOGIN_PORT} -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin}${ephemeralEnv()} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login${sealArg()}`;
 }
 
-/** `login --use <client_id>` (PROTOCOL.md §3.6): switch to a cached account, no browser, no port. Not in ephemeral mode. */
+/** `login --use <client_id>` (PROTOCOL.md §3.6): switch to a cached account, no browser, no port. Not when forced ephemeral. */
 export function useCommand(apiOrigin: string): string | null {
-  if (!PORTAL_ORIGINS[apiOrigin] || sealTo) return null;
+  if (!PORTAL_ORIGINS[apiOrigin] || forced) return null;
   return `docker run --rm -i -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login --use <client_id>`;
 }
 
@@ -67,7 +71,7 @@ export function manualFallback(apiOrigin: string): string | null {
   const command = codeCommand(apiOrigin);
   if (!portal || !command) return null;
   return [
-    `Ask the user to open ${portal}/fastedge/agent-connect${sealTo ? "?ephemeral=1" : ""} themselves, choose the manual option, approve,`,
+    `Ask the user to open ${portal}/fastedge/agent-connect${forced ? "?ephemeral=1" : sealTo ? "?seal=1" : ""} themselves, choose the manual option, approve,`,
     `and run this in their own terminal (not through you): ${command}`,
     "Never ask them to paste the connect code into this chat.",
   ].join("\n");

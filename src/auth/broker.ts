@@ -8,7 +8,7 @@ import { GCORE_API_ORIGIN, serializeBody } from "../api-client.js";
 import { checkAllowed } from "../policy/enforce.js";
 import type { ApiResult, Auth, LocalAuth } from "./credentials.js";
 import { isValidRecipient } from "./seal.js";
-import { getSealTo, setSealTo } from "./session.js";
+import { getSealTo, isForcedEphemeral, setSealTo } from "./session.js";
 
 export const BROKER_ID = 10002;
 export const BROKER_SOCKET = "/run/fastedge-broker/sock";
@@ -164,9 +164,9 @@ export function serveBroker(socket: net.Socket, auth: LocalAuth, apiOrigin = GCO
     if (!greeted) {
       if (!isPlainObject(m) || m.hello !== HELLO || Object.keys(m).length !== 1) return void socket.destroy();
       greeted = true;
-      // Ephemeral mode: the server needs the public key to build login commands (task 10).
+      // The server needs the public key (and whether ephemeral is forced) to build login commands (task 10).
       const sealTo = getSealTo();
-      return send(sealTo ? { ok: true, seal_to: sealTo } : { ok: true });
+      return send(sealTo ? { ok: true, seal_to: sealTo, forced: isForcedEphemeral() } : { ok: true });
     }
     if (!isPlainObject(m) || !Number.isSafeInteger(m.id)) return void socket.destroy();
     const id = m.id as number;
@@ -234,7 +234,8 @@ export async function connectBroker(
   opts: { socketPath?: string; ownerUid?: number; checkProcess?: boolean; expectSeal?: boolean } = {},
 ): Promise<Auth> {
   const socketPath = opts.socketPath ?? BROKER_SOCKET;
-  const expectSeal = opts.expectSeal ?? process.env.FASTEDGE_SESSION === "ephemeral";
+  const forcedHere = process.env.FASTEDGE_SESSION === "ephemeral";
+  const expectSeal = opts.expectSeal ?? true;
   const ownerUid = opts.ownerUid ?? BROKER_ID;
   const fail = (why: string) => {
     console.error(`Session login unavailable: ${why}`);
@@ -266,10 +267,13 @@ export async function connectBroker(
     if (m?.ok === true && !Number.isSafeInteger(m?.id)) {
       if (m.seal_to !== undefined) {
         // It goes into a shell command the agent runs: a valid X25519 key in base64url, or refuse.
-        if (!isValidRecipient(m.seal_to)) return void socket.destroy();
-        setSealTo(m.seal_to);
+        if (!isValidRecipient(m.seal_to) || typeof m.forced !== "boolean") return void socket.destroy();
+        // Our own config forcing ephemeral wins over a broker that says it isn't.
+        if (forcedHere && !m.forced) return void socket.destroy();
+        setSealTo(m.seal_to, m.forced);
       } else if (expectSeal) {
-        // Forced ephemeral mode with a broker that didn't send a key: never fall back to plaintext login.
+        // Every session broker sends a key (task 10 v2); without one, login commands would
+        // silently lose the "don't keep" choice. Never fall back.
         return void socket.destroy();
       }
       return greeted(true);

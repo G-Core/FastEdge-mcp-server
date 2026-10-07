@@ -15,6 +15,8 @@ VOL_GOOD="fe-gate-good-$$"
 VOL_LEGACY="fe-gate-legacy-$$"
 VOL_LINK="fe-gate-link-$$"
 VOL_EPH="fe-gate-eph-$$"
+VOL_CHOICE="fe-gate-choice-$$"
+CHOICE_NAME="fe-gate-choice-server-$$"
 EPH_NAME="fe-gate-eph-server-$$"
 EPH_DIR=""
 # GATE_WS_PARENT: where the test workspace goes (e.g. /mnt/c/Users/me on Windows, to test a Windows-drive mount).
@@ -35,8 +37,8 @@ check() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1 (expected '$3', got 
 
 cleanup() {
   [ -n "$CONTAINER" ] && docker rm -f "$CONTAINER" >/dev/null 2>&1
-  docker rm -f "$EPH_NAME" >/dev/null 2>&1
-  docker volume rm -f "$VOL_GOOD" "$VOL_LEGACY" "$VOL_LINK" "$VOL_EPH" >/dev/null 2>&1
+  docker rm -f "$EPH_NAME" "$CHOICE_NAME" >/dev/null 2>&1
+  docker volume rm -f "$VOL_GOOD" "$VOL_LEGACY" "$VOL_LINK" "$VOL_EPH" "$VOL_CHOICE" >/dev/null 2>&1
   rm -rf "$WS" ${EPH_DIR:+"$EPH_DIR"}
 }
 trap cleanup EXIT
@@ -56,6 +58,7 @@ seed "$VOL_GOOD" 10002:10002 0700 0600
 seed "$VOL_LEGACY" 10001:10001 0755 0644
 seed "$VOL_LINK" 10002:10002 0700 0600 "ln -s /etc/passwd /run/fastedge/accounts/link"
 seed "$VOL_EPH" 10002:10002 0700 0600
+seed "$VOL_CHOICE" 10002:10002 0700 0600
 
 RUN=(docker run --rm -i -v "$WS:/workspace" -e GCORE_API_BASE=$API)
 
@@ -228,6 +231,41 @@ AFTER="$(printf '%s\n' \
   { cat; sleep 6; } | t_out 60 "${RUN[@]}" -v "$VOL_EPH:/run/fastedge:ro" -e FASTEDGE_SESSION=ephemeral "$IMAGE" 2>/dev/null)"
 grep -q '(no_session)' <<<"$(grep '"id":2}' <<<"$AFTER")" && pass "after a restart the old sealed token can't be opened (new key)" ||
   fail "restart: $(grep '"id":2}' <<<"$AFTER" | head -c 200)"
+
+# --- 6. Choice mode (task 10 v2): no config, the page decides per login ----------------------
+echo "Choice mode"
+mkfifo "$EPH_DIR/cin"
+docker run --rm -i --name "$CHOICE_NAME" -v "$WS:/workspace" -v "$VOL_CHOICE:/run/fastedge:ro" -e GCORE_API_BASE=$API \
+  "$IMAGE" <"$EPH_DIR/cin" >"$EPH_DIR/cout" 2>"$EPH_DIR/cerr" &
+exec 5>"$EPH_DIR/cin"
+csend() { printf '%s\n' "$1" >&5; }
+creply() { for _ in $(seq 1 150); do grep "\"id\":$1}" "$EPH_DIR/cout" && return; sleep 0.2; done; }
+csend '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"gate","version":"0"}}}'
+csend '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+csend '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"fastedge-auth-status","arguments":{}}}'
+CSTATUS="$(creply 2)"
+CKEY="$(grep -oE 'seal-to [A-Za-z0-9_-]{43}' <<<"$CSTATUS" | head -1 | cut -d' ' -f2)"
+grep -q '\\"mode\\": \\"persistent\\"' <<<"$CSTATUS" && [ -n "$CKEY" ] && ! grep -q 'FASTEDGE_SESSION' <<<"$CSTATUS" &&
+  pass "normal mode: persistent, and the login command carries the key without forcing" || fail "choice status: $(head -c 300 <<<"$CSTATUS")"
+plant_choice() { # client_id | "corrupt"
+  docker run --rm -v "$VOL_CHOICE:/run/fastedge" --entrypoint sh "$IMAGE" -c "cd /app && node --input-type=module -e '
+    import { seal } from \"/app/build/auth/seal.js\";
+    import { writeSealed } from \"/app/build/auth/store.js\";
+    const [k, token, id] = process.argv.slice(1), now = Date.now();
+    writeSealed(\"/run/fastedge\", k, id === \"corrupt\" ? { not: \"an envelope\" } : seal(k, { token, api_origin: \"$API\", client_id: Number(id), token_id: 4242,
+      created_at: new Date(now).toISOString(), expires_at: new Date(now + 4 * 3600e3).toISOString() }));
+  ' '$CKEY' '$CANARY_EPH-choice' '$1' && chown -R 10002:10002 /run/fastedge"
+}
+plant_choice corrupt
+csend '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"gcore_api","arguments":{"method":"GET","path":"/fastedge/v1/apps"}}}'
+grep -q '(no_session)' <<<"$(creply 3)" && pass "a corrupt sealed file blocks the plaintext session (no fallback)" || fail "corrupt sealed: $(creply 3 | head -c 200)"
+plant_choice 456
+csend '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"fastedge-auth-status","arguments":{}}}'
+grep -q '\\"mode\\": \\"ephemeral\\"' <<<"$(creply 4)" && grep -q '\\"client_id\\": 456' <<<"$(creply 4)" &&
+  pass "a \"don't keep\" login wins over the saved plaintext session" || fail "sealed over plaintext: $(creply 4 | head -c 300)"
+check "no plaintext \"don't keep\" token in the volume" \
+  "$(docker run --rm -v "$VOL_CHOICE:/v:ro" --entrypoint sh "$IMAGE" -c "grep -rlF '$CANARY_EPH-choice' /v" 2>/dev/null)" ""
+exec 5>&-
 
 echo
 if [ "$failures" = 0 ]; then echo "All broker isolation checks passed."; else echo "$failures check(s) FAILED."; fi

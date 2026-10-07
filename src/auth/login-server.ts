@@ -37,8 +37,10 @@ export interface LoginOptions {
   apiOrigin: string;
   port: number;
   host: string;
-  /** Ephemeral mode (task 10): the broker's public key. The token is sealed to it, never saved in plaintext. */
+  /** Task 10: the broker's public key. With it the page offers "Keep me signed in"; unchecked seals the token to it. */
   sealTo?: string;
+  /** FASTEDGE_SESSION=ephemeral: always seal, no choice (needs `sealTo`). */
+  forced?: boolean;
   /** Test hooks. */
   sessionDir?: string;
   timeoutMs?: number;
@@ -109,48 +111,92 @@ function validateDelivery(
   };
 }
 
-const CODE_PREFIX = "fe1.";
 const MAX_CODE_BYTES = 8192;
 
-/** `fe1.<base64url JSON>` (PROTOCOL.md §3, "Connect code format") → the delivery fields, or null. */
-function decodeConnectCode(code: string): Record<string, string> | null {
+/**
+ * `fe1.` / `fe2.` + base64url JSON (PROTOCOL.md §3, "Connect code format") → the delivery fields
+ * and whether to keep the session, or null. `fe1` = keep; `fe2` = "don't keep" (task 10 v2). A
+ * new prefix, so an older login that ignores unknown fields can't save a "don't keep" code.
+ */
+function decodeConnectCode(code: string): { fields: Record<string, string>; keep: boolean } | null {
   const trimmed = code.trim();
-  if (!trimmed.startsWith(CODE_PREFIX) || trimmed.length > MAX_CODE_BYTES) return null;
-  const body = trimmed.slice(CODE_PREFIX.length);
+  const version = trimmed.startsWith("fe1.") ? 1 : trimmed.startsWith("fe2.") ? 2 : 0;
+  if (!version || trimmed.length > MAX_CODE_BYTES) return null;
+  const body = trimmed.slice(4);
   if (!/^[A-Za-z0-9_-]+$/.test(body)) return null;
   try {
     const raw = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
-    if (typeof raw !== "object" || raw === null || raw.v !== 1) return null;
-    return Object.fromEntries(FIELDS.filter((n) => n !== "state").map((n) => [n, raw[n] == null ? "" : String(raw[n])]));
+    if (typeof raw !== "object" || raw === null || raw.v !== version) return null;
+    const fields = Object.fromEntries(FIELDS.filter((n) => n !== "state").map((n) => [n, raw[n] == null ? "" : String(raw[n])]));
+    return { fields, keep: version === 1 };
   } catch {
     return null;
   }
+}
+
+type How = "keep" | "seal";
+
+/**
+ * The callback's `persist` field against this login's own policy (task 10 v2, MoM rule 5). The
+ * policy comes from how login was started, never from the delivery: forced never keeps; choice
+ * needs exactly one 0|1; a login without a key can't honour "don't keep". Null → reject.
+ */
+export function decidePersist(values: string[], mode: { sealTo?: string; forced?: boolean }): How | null {
+  if (values.length > 1) return null;
+  const v = values[0];
+  if (mode.forced) return v === undefined || v === "0" ? "seal" : null;
+  if (mode.sealTo) return v === "0" ? "seal" : v === "1" ? "keep" : null;
+  return v === undefined || v === "1" ? "keep" : null;
 }
 
 /** Ephemeral mode: a valid 32-byte base64url recipient key, or exit 2 before anything else happens. */
 export function requireSealKey(sealTo: string | undefined): string {
   if (!isValidRecipient(sealTo)) {
     throw new LoginError(
-      "Ephemeral login needs the MCP server's key (--seal-to). Use the exact login command the MCP server printed.",
+      "Login needs the MCP server's key (--seal-to): use the exact login command the MCP server printed.",
       2,
     );
   }
   return sealTo;
 }
 
-/** Saves a validated delivery: sealed to the broker in ephemeral mode, plaintext otherwise. */
-function store(sessionDir: string, delivered: Delivery, sealTo: string | undefined): void {
-  if (sealTo) writeSealed(sessionDir, sealTo, seal(sealTo, { ...delivered, created_at: new Date().toISOString() }));
-  else saveSession(sessionDir, delivered);
+const capFor = (how: How) => (how === "seal" ? EPHEMERAL_MAX_LIFETIME_MS : MAX_LIFETIME_MS);
+
+/**
+ * Saves a validated delivery: sealed to the broker, or plaintext. Plaintext housekeeping (POC
+ * migration, expired accounts) runs only now, once a "keep" delivery is known (MoM rule 6).
+ */
+function store(sessionDir: string, delivered: Delivery, how: How, sealTo: string | undefined): void {
+  if (how === "seal") {
+    writeSealed(sessionDir, sealTo!, seal(sealTo!, { ...delivered, created_at: new Date().toISOString() }));
+    return;
+  }
+  cleanup(sessionDir);
+  saveSession(sessionDir, delivered);
 }
 
 /** `login --code` (PROTOCOL.md §3.8): validate a pasted connect code and save it like a browser login. */
-export function connectWithCode(code: string, opts: { apiOrigin: string; sealTo?: string; sessionDir?: string }): Delivery {
+export function connectWithCode(
+  code: string,
+  opts: { apiOrigin: string; sealTo?: string; forced?: boolean; sessionDir?: string },
+): Delivery {
   requirePortal(opts.apiOrigin);
-  if (opts.sealTo !== undefined) requireSealKey(opts.sealTo);
-  const fields = decodeConnectCode(code);
-  const cap = opts.sealTo ? EPHEMERAL_MAX_LIFETIME_MS : MAX_LIFETIME_MS;
-  const delivered = fields && validateDelivery(fields, opts.apiOrigin, Date.now(), cap);
+  if (opts.sealTo !== undefined || opts.forced) requireSealKey(opts.sealTo);
+  const decoded = decodeConnectCode(code);
+  if (decoded && decoded.keep && opts.forced) {
+    throw new LoginError(
+      'This MCP server only takes sessions that aren\'t kept on this computer. Approve again with "Keep me signed in" unchecked, and copy the new code.',
+      8,
+    );
+  }
+  if (decoded && !decoded.keep && !opts.sealTo) {
+    throw new LoginError(
+      "This code is for a session that isn't kept on this computer, so it needs the login command your AI assistant gave you (it includes this session's key).",
+      8,
+    );
+  }
+  const how: How = decoded?.keep ? "keep" : "seal";
+  const delivered = decoded && validateDelivery(decoded.fields, opts.apiOrigin, Date.now(), capFor(how));
   if (!delivered) {
     throw new LoginError(
       `This connect code isn't valid for ${opts.apiOrigin}, or has expired. Approve again on the portal's agent-connect page and copy the new code.`,
@@ -158,9 +204,9 @@ export function connectWithCode(code: string, opts: { apiOrigin: string; sealTo?
     );
   }
   const sessionDir = opts.sessionDir ?? SESSION_DIR;
-  const release = prepare(sessionDir, !!opts.sealTo);
+  const release = prepare(sessionDir, false);
   try {
-    store(sessionDir, delivered, opts.sealTo);
+    store(sessionDir, delivered, how, opts.sealTo);
     return delivered;
   } finally {
     release();
@@ -175,11 +221,17 @@ function requirePortal(apiOrigin: string): string {
   return portalOrigin;
 }
 
+/** Migrates the POC layout and drops expired accounts. Only before a plaintext save or cache command. */
+function cleanup(sessionDir: string): void {
+  migrateLegacy(sessionDir);
+  removeExpired(sessionDir, Date.now());
+}
+
 /**
- * Takes the lock (exit 3 if held), then migrates the POC layout and drops expired accounts.
- * Ephemeral mode only locks: it never touches plaintext files (task 10, MUST 4).
+ * Takes the lock (exit 3 if held), and with `cleanupNow` also runs `cleanup`. Logins that may
+ * seal take only the lock: plaintext files are touched only once a "keep" delivery arrives.
  */
-function prepare(sessionDir: string, ephemeral = false): () => void {
+function prepare(sessionDir: string, cleanupNow = true): () => void {
   let release: () => void;
   try {
     release = acquireLock(sessionDir);
@@ -187,10 +239,9 @@ function prepare(sessionDir: string, ephemeral = false): () => void {
     if (err instanceof LockedError) throw new LoginError(err.message, 3);
     throw new LoginError(`Cannot write to the session volume (${sessionDir}): ${err?.code ?? "error"}`, 2);
   }
-  if (ephemeral) return release;
+  if (!cleanupNow) return release;
   try {
-    migrateLegacy(sessionDir);
-    removeExpired(sessionDir, Date.now());
+    cleanup(sessionDir);
   } catch (err) {
     release();
     throw err;
@@ -237,8 +288,10 @@ export function logoutActive(opts: { apiOrigin: string; sessionDir?: string }): 
 export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
   const portalOrigin = requirePortal(opts.apiOrigin);
   const sessionDir = opts.sessionDir ?? SESSION_DIR;
-  const sealTo = opts.sealTo === undefined ? undefined : requireSealKey(opts.sealTo);
-  const release = prepare(sessionDir, !!sealTo);
+  const sealTo = opts.sealTo === undefined && !opts.forced ? undefined : requireSealKey(opts.sealTo);
+  const mode = { sealTo, forced: opts.forced };
+  // A legacy login (no key) can only keep, so it cleans up now as before; the others wait.
+  const release = prepare(sessionDir, !sealTo);
 
   const state = randomBytes(32).toString("base64url");
   let settle!: (outcome: LoginOutcome) => void;
@@ -281,16 +334,18 @@ export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
         return;
       }
 
+      const how = decidePersist(form.getAll("persist"), mode);
+      if (!how) return reject();
       const delivered = validateDelivery(
         Object.fromEntries(FIELDS.map((name) => [name, form.get(name) ?? ""])),
         opts.apiOrigin,
         Date.now(),
-        sealTo ? EPHEMERAL_MAX_LIFETIME_MS : MAX_LIFETIME_MS,
+        capFor(how),
       );
       if (!delivered) return reject();
 
       try {
-        store(sessionDir, delivered, sealTo);
+        store(sessionDir, delivered, how, sealTo);
       } catch (err: any) {
         console.error(`Could not save the session: ${err?.code ?? "write failed"}`);
         res.writeHead(500, PAGE_HEADERS).end(BAD_PAGE);
@@ -332,12 +387,13 @@ export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
   const port = (server.address() as AddressInfo).port;
   expectedHost = `127.0.0.1:${port}`;
   const api = new URL(opts.apiOrigin).host;
-  // Ephemeral (task 10): the page offers 4 h / 8 h only and gets no installation id, so it marks
-  // and replaces no tokens. Normal logins then can't delete live ephemeral tokens either.
-  let install = sealTo ? "&ephemeral=1" : "";
-  if (!sealTo) {
+  // Task 10. Forced: `ephemeral=1` and no installation id (the page offers 4 h / 8 h, marks and
+  // replaces nothing). Choice: `seal=1` plus the id; the page shows "Keep me signed in" and uses
+  // the id only when it's checked. Legacy (no key): the id only.
+  let install = opts.forced ? "&ephemeral=1" : sealTo ? "&seal=1" : "";
+  if (!opts.forced) {
     try {
-      install = `&install=${ensureInstallationId(sessionDir)}`;
+      install += `&install=${ensureInstallationId(sessionDir)}`;
     } catch (err: any) {
       // Login still works; the portal just can't replace this machine's earlier tokens.
       console.error(`Could not read or create the installation id: ${err?.code ?? "error"}`);

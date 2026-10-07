@@ -73,19 +73,20 @@ async function main() {
     console.error('login: FASTEDGE_SESSION must be unset or "ephemeral"');
     process.exit(2);
   }
-  const ephemeral = mode === "ephemeral" || sealArg !== undefined;
+  // Only the config forces ephemeral; `--seal-to` alone lets the page offer "Keep me signed in".
+  const forced = mode === "ephemeral";
 
   try {
-    // Forced ephemeral mode: no valid key, no login. Checked before any browser or file work.
-    const sealTo = ephemeral ? requireSealKey(sealArg) : undefined;
+    // A key, when given or required, must be valid before any browser or file work.
+    const sealTo = forced || sealArg !== undefined ? requireSealKey(sealArg) : undefined;
 
-    if (ephemeral && option === "--use") {
+    if (forced && option === "--use") {
       throw new LoginError(
         "Ephemeral sessions can't switch to a cached account. Restart the MCP server, then approve while signed in to the account you want.",
         2,
       );
     }
-    if (ephemeral && option === "--logout") {
+    if (forced && option === "--logout") {
       throw new LoginError(
         "Ephemeral sessions end when the MCP server stops: stop it to sign out. The token stays valid until it expires; delete it on the portal's API tokens page to revoke it now.",
         2,
@@ -127,16 +128,16 @@ async function main() {
         console.error(err?.message ?? "Cancelled.");
         process.exit(2);
       }
-      const session = connectWithCode(code, { apiOrigin: GCORE_API_ORIGIN, sealTo });
+      const session = connectWithCode(code, { apiOrigin: GCORE_API_ORIGIN, sealTo, forced });
       console.error(`FastEdge is connected to account ${session.client_id} until ${session.expires_at}.`);
-      if (!sealTo) console.error(`If an MCP server is already running with another account: ${RESTART_HINT}`);
+      if (!forced) console.error(`If an MCP server is already running with another account: ${RESTART_HINT}`);
       process.exit(0);
     }
 
     if (option !== undefined) usage();
 
     // 0.0.0.0 inside the container; the host publishes it on 127.0.0.1 only.
-    const login = await startLogin({ apiOrigin: GCORE_API_ORIGIN, host: "0.0.0.0", port: LOGIN_PORT, sealTo });
+    const login = await startLogin({ apiOrigin: GCORE_API_ORIGIN, host: "0.0.0.0", port: LOGIN_PORT, sealTo, forced });
     console.error(`Open this URL to approve FastEdge access: ${login.url}`);
     const outcome = await login.result;
     console.error(MESSAGES[outcome]);
