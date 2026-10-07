@@ -74,7 +74,7 @@ test("choice login: seal=1 plus the installation id; a bad persist is refused; p
 
   for (const bad of [[], ["0", "1"], ["maybe"]]) assert.equal(await post(l.port, fields(state, 8 * HOUR, bad)), 400, JSON.stringify(bad));
   assert.equal(await post(l.port, fields(state, 48 * HOUR, ["0"])), 400, "don't keep is capped at 8 h");
-  assert.equal(await post(l.port, fields(state, 8 * HOUR, ["0"])), 200);
+  assert.equal(await post(l.port, fields(state, 8 * HOUR, ["0"])), 303);
   assert.equal(await l.result, "ok");
 
   const files = filesIn(dir);
@@ -88,7 +88,7 @@ test("choice login: persist=1 keeps (plaintext, up to 7 days) and only then migr
   const dir = tmp();
   legacyPoc(dir);
   const { l, state } = await choiceLogin(dir);
-  assert.equal(await post(l.port, fields(state, 7 * 24 * HOUR, ["1"])), 200);
+  assert.equal(await post(l.port, fields(state, 7 * 24 * HOUR, ["1"])), 303);
   assert.equal(await l.result, "ok");
   const files = filesIn(dir);
   assert.ok(!files.includes("session.json"), "legacy migrated now");
@@ -102,7 +102,7 @@ test("a login without a key refuses persist=0 (it can't seal), and keeps by defa
   const state = new URL(l.url).searchParams.get("state")!;
   assert.equal(new URL(l.url).searchParams.get("seal"), null);
   assert.equal(await post(l.port, fields(state, 8 * HOUR, ["0"])), 400);
-  assert.equal(await post(l.port, fields(state, 8 * HOUR, [])), 200);
+  assert.equal(await post(l.port, fields(state, 8 * HOUR, [])), 303);
   assert.ok(existsSync(join(dir, "accounts", "api.preprod.world_123.json")));
 });
 
@@ -370,7 +370,7 @@ test("a login that lost its lock (another took over) saves nothing", async () =>
   assert.equal(await post(l.port, fields(state, 8 * HOUR, ["1"])), 500);
   assert.ok(!existsSync(join(dir, "accounts")), "no plaintext written");
   assert.ok(!existsSync(join(dir, "sealed")), "nothing sealed either");
-  assert.equal(await post(l.port, new URLSearchParams({ state, denied: "1" }).toString()), 200); // end the login
+  assert.equal(await post(l.port, new URLSearchParams({ state, denied: "1" }).toString()), 303); // end the login
   await l.result;
 });
 
@@ -383,4 +383,75 @@ test("lock: held() follows ownership; a fresh foreign lock blocks; release leave
   assert.throws(() => acquireLock(dir), /in progress/);
   release();
   assert.equal(readFileSync(join(dir, ".lock"), "utf8"), "someone-else");
+});
+
+// --- Outcome redirect (PROTOCOL §6): a handled callback goes back to the portal's outcome page ------
+
+/** POST with full control of headers; resolves to the status and Location. */
+function postRaw(port: number, body: string, headers: Record<string, string> = {}): Promise<{ status: number; location?: string }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      { host: "127.0.0.1", port, path: "/callback", method: "POST",
+        headers: { Host: `127.0.0.1:${port}`, Origin: "null", "Content-Type": "application/x-www-form-urlencoded", "Content-Length": String(Buffer.byteLength(body)), ...headers } },
+      (res) => { res.resume(); resolve({ status: res.statusCode ?? 0, location: res.headers.location }); },
+    );
+    req.on("error", reject);
+    req.end(body);
+  });
+}
+const OUTCOME = "https://portal.preprod.world/fastedge/agent-connect?result=";
+
+test("outcome redirect: 303 to the mapped portal page in legacy, choice (0 and 1) and forced modes", async () => {
+  const key = generateRecipient().publicKey;
+  const modes: Array<[string, object, string[]]> = [
+    ["legacy", {}, []],
+    ["choice keep", { sealTo: key }, ["1"]],
+    ["choice don't keep", { sealTo: key }, ["0"]],
+    ["forced", { sealTo: key, forced: true }, []],
+  ];
+  for (const [label, mode, persist] of modes) {
+    for (const deny of [false, true]) {
+      const l = await startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir: tmp(), ...mode });
+      const state = new URL(l.url).searchParams.get("state")!;
+      const body = deny ? new URLSearchParams({ state, denied: "1" }).toString() : fields(state, 4 * HOUR, persist);
+      const r = await postRaw(l.port, body);
+      assert.equal(r.status, 303, `${label} ${deny ? "deny" : "approve"}`);
+      assert.equal(r.location, OUTCOME + (deny ? "denied" : "connected"), label);
+      await l.result;
+    }
+  }
+});
+
+test("outcome redirect: the target comes only from the mapping, and carries nothing but the result", async () => {
+  const dir = tmp();
+  const l = await startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir: dir });
+  const state = new URL(l.url).searchParams.get("state")!;
+  const body = fields(state, 4 * HOUR, []) + "&location=https%3A%2F%2Fevil.example&portal=https%3A%2F%2Fevil.example&result=pwned&redirect=%2F%2Fevil.example";
+  const r = await postRaw(l.port, body, { Origin: "https://portal.preprod.world", Referer: "https://evil.example/x" });
+  assert.equal(r.status, 303);
+  assert.equal(r.location, OUTCOME + "connected");
+  for (const secret of [SEALED, "4242", state]) assert.ok(!r.location!.includes(secret), `Location leaks ${secret}`);
+  // State consumed and the session written before the redirect: the file exists, a replay is a 400.
+  assert.ok(existsSync(join(dir, "accounts", "api.preprod.world_123.json")));
+  assert.ok(!(await postRaw(l.port, body).catch(() => ({ status: 0 }))).location, "a replay is never redirected");
+});
+
+test("outcome redirect: every rejection is a static 400, never a redirect", async () => {
+  const key = generateRecipient().publicKey;
+  const l = await startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir: tmp(), sealTo: key });
+  const state = new URL(l.url).searchParams.get("state")!;
+  const bad: Array<[string, string, Record<string, string>]> = [
+    ["wrong state", fields("x".repeat(43), 4 * HOUR, ["1"]), {}],
+    ["missing persist", fields(state, 4 * HOUR, []), {}],
+    ["don't keep over 8 h", fields(state, 48 * HOUR, ["0"]), {}],
+    ["foreign Origin", fields(state, 4 * HOUR, ["1"]), { Origin: "https://evil.example" }],
+    ["bad token_id", fields(state, 4 * HOUR, ["1"]).replace("token_id=4242", "token_id=abc"), {}],
+  ];
+  for (const [label, body, headers] of bad) {
+    const r = await postRaw(l.port, body, headers);
+    assert.equal(r.status, 400, label);
+    assert.equal(r.location, undefined, `${label}: no redirect`);
+  }
+  assert.equal((await postRaw(l.port, new URLSearchParams({ state, denied: "1" }).toString())).status, 303); // end it
+  await l.result;
 });

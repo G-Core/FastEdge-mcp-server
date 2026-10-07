@@ -278,7 +278,7 @@ test("forced login: ephemeral=1, no installation id, and only a sealed file is w
   const state = url.searchParams.get("state")!;
 
   assert.equal(await post(l.port, delivery(state, 9 * HOUR)), 400, "over the 8 h cap");
-  assert.equal(await post(l.port, delivery(state)), 200);
+  assert.equal(await post(l.port, delivery(state)), 303);
   assert.equal(await l.result, "ok");
 
   const files = filesIn(dir);

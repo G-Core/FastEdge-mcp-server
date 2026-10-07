@@ -71,6 +71,27 @@ const OK_PAGE = page("FastEdge connected", "FastEdge is connected. You can close
 const DENIED_PAGE = page("FastEdge not connected", "Access was denied. You can close this tab.");
 const BAD_PAGE = page("Bad request", "This request was not accepted.");
 
+/**
+ * PROTOCOL.md §6: a handled callback sends the browser to the portal's own outcome page (themed,
+ * display-only), so we don't serve an unstyled page. `portalOrigin` comes only from this login's
+ * API→portal mapping, never from the request; the URL carries nothing but the outcome. Without a
+ * mapping (can't happen: login needs one to start) it falls back to the static page.
+ */
+function sendOutcome(res: http.ServerResponse, portalOrigin: string | undefined, outcome: "connected" | "denied"): void {
+  if (!portalOrigin) {
+    res.writeHead(200, PAGE_HEADERS).end(outcome === "connected" ? OK_PAGE : DENIED_PAGE);
+    return;
+  }
+  res
+    .writeHead(303, {
+      Location: `${portalOrigin}/fastedge/agent-connect?result=${outcome}`,
+      "Cache-Control": "no-store",
+      "Referrer-Policy": "no-referrer",
+      "Content-Length": "0",
+    })
+    .end();
+}
+
 function sameSecret(a: string, b: string): boolean {
   const x = Buffer.from(a);
   const y = Buffer.from(b);
@@ -330,7 +351,7 @@ export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
 
       if (form.get("denied") === "1") {
         finish("denied");
-        res.writeHead(200, PAGE_HEADERS).end(DENIED_PAGE);
+        sendOutcome(res, portalOrigin, "denied");
         return;
       }
 
@@ -353,7 +374,7 @@ export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
         return;
       }
       finish("ok");
-      res.writeHead(200, PAGE_HEADERS).end(OK_PAGE);
+      sendOutcome(res, portalOrigin, "connected");
     });
   });
 

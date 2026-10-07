@@ -14,6 +14,18 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-07] - login callback redirects to the portal's outcome page
+
+- **What changed:** a handled `POST /callback` (approve or deny, in every mode) now answers
+  `303 See Other` to `<portal>/fastedge/agent-connect?result=connected|denied` instead of
+  serving our own unstyled page. The portal page follows the portal's and resellers' themes.
+- **Where it points:** the portal origin comes only from the login's API→portal mapping (never
+  from `Origin`, `Referer` or form fields). The URL carries only the result.
+- **Ordering:** the state is consumed and the session written before the redirect is sent.
+- **Rejections:** still a static 400, never a redirect.
+- **Gate:** the release is held, with no switch in code. The portal outcome page must be live in
+  preprod and prod before the session release (coordinator PROTOCOL §6).
+
 ## [2026-10-07] - "Keep me signed in" per sign-in (task 10 v2)
 
 Users choose on the Approve page instead of in config. `FASTEDGE_SESSION=ephemeral` stays as

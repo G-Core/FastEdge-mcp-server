@@ -371,7 +371,7 @@ test("callback rejects bad requests and then accepts Origin: null with a valid s
   }
   assert.ok(!existsSync(accountFile(l.sessionDir)), "nothing written before a valid callback");
 
-  assert.equal(await post(l.port, { body: good }), 200);
+  assert.equal(await post(l.port, { body: good }), 303);
   assert.equal(await l.result, "ok");
 
   const file = accountFile(l.sessionDir);
@@ -382,18 +382,18 @@ test("callback rejects bad requests and then accepts Origin: null with a valid s
   assert.deepEqual(resolverFor(l.sessionDir)(), sessionHeader());
 
   // Replay after success: refused (400 on a kept-alive socket, or connection refused).
-  assert.notEqual(await post(l.port, { body: good }).catch(() => 0), 200);
+  assert.notEqual(await post(l.port, { body: good }).catch(() => 0), 303, "a replay is never redirected");
 });
 
 test("portal origin is accepted as well as null", async () => {
   const l = await login();
-  assert.equal(await post(l.port, { origin: PORTAL, body: form(goodFields(l.state)) }), 200);
+  assert.equal(await post(l.port, { origin: PORTAL, body: form(goodFields(l.state)) }), 303);
   assert.equal(await l.result, "ok");
 });
 
 test("Deny ends the login with no session written", async () => {
   const l = await login();
-  assert.equal(await post(l.port, { body: form({ state: l.state, denied: "1" }) }), 200);
+  assert.equal(await post(l.port, { body: form({ state: l.state, denied: "1" }) }), 303);
   assert.equal(await l.result, "denied");
   assert.ok(!existsSync(accountFile(l.sessionDir)));
 });
@@ -607,7 +607,7 @@ test("callback accepts a 7-day expiry and rejects anything past 7 days + 5 minut
 
   const ok = await login();
   const atCap = form({ ...goodFields(ok.state), expires_at: new Date(Date.now() + sevenDays).toISOString() });
-  assert.equal(await post(ok.port, { body: atCap }), 200);
+  assert.equal(await post(ok.port, { body: atCap }), 303);
   assert.equal(await ok.result, "ok");
 
   const over = await login();
@@ -697,7 +697,7 @@ test("every cache writer is owner-only: 0700 directories, 0600 files (lock and i
   const l = await startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir });
   assert.equal(statSync(join(sessionDir, ".lock")).mode & 0o777, 0o600, "lock held during login");
   assert.equal(statSync(join(sessionDir, "installation_id")).mode & 0o777, 0o600);
-  assert.equal(await post(l.port, { body: form(goodFields(stateOf(l.url))) }), 200);
+  assert.equal(await post(l.port, { body: form(goodFields(stateOf(l.url))) }), 303);
   assert.equal(await l.result, "ok");
   assert.equal(statSync(sessionDir).mode & 0o777, 0o700);
   assert.equal(statSync(join(sessionDir, "accounts")).mode & 0o777, 0o700);
