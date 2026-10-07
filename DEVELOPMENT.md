@@ -114,7 +114,7 @@ The gate has passed on rootful Docker on Linux amd64. It also has to pass on eac
 | Docker Desktop, macOS, Apple Silicon (also covers **arm64**) | | ⬜ |
 | Docker Desktop, macOS, Intel (if available) | | ⬜ |
 | Docker Desktop, Windows (WSL 2 backend) | Gordon, 2026-10-07 | ✅ gate 37/37 with the workspace in WSL and on `C:`; real login from a Windows client |
-| Rootless Docker, Linux | | ⬜ |
+| Rootless Docker, Linux | Gordon, 2026-10-07 | ✅ gate 37/37 (Linux Mint 22.3, kernel 6.17, Docker 29.2.1); found and fixed a `HOST_GID=10002` refusal bug (`968d74d`) |
 
 **Steps (macOS and Linux):**
 
@@ -133,7 +133,10 @@ On macOS, Docker Desktop must be running and sharing `/var/folders` (the default
 GATE_WS_PARENT=/mnt/c/Users/<you> bash scripts/tests/test-broker-isolation.sh 2>&1 | tee broker-gate-windows-cdrive.log
 ```
 
-**Steps (rootless Docker, Linux):** use the macOS/Linux steps with `DOCKER_HOST` pointing at the rootless daemon. Run `docker info | grep -i rootless` to confirm.
+**Steps (rootless Docker, Linux):** use the macOS/Linux steps with `DOCKER_HOST` pointing at the rootless daemon. Run `docker info | grep -i rootless` to confirm. Setup notes:
+- Install `uidmap`, then run `dockerd-rootless-setuptool.sh install` (add `--force` if rootful Docker also runs). It switches your CLI to the `rootless` context; `docker context use default` switches back.
+- With an encrypted home folder (ecryptfs), image layers fail to unpack (`overlay … invalid argument`). Set `"data-root"` in `~/.config/docker/daemon.json` to a folder on a normal disk, then `systemctl --user restart docker`.
+- The rootless daemon has its own image store: `docker save <image> | docker --context rootless load`.
 
 **Send back** the log file, plus:
 - `docker version` and `docker info` (the OS, kernel and security options lines);
