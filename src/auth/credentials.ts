@@ -64,7 +64,7 @@ function checkSession(dir: string, apiOrigin: string, now: number): SessionCheck
 
 /** Status guidance, so an agent offers the same choices as `auth_required` (§4) instead of picking one. */
 const SIGN_IN_HINT =
-  "To sign in, ask the user which way: 1. Browser on this computer (recommended): with their OK, run login_command yourself in the background and give them the URL as soon as it's printed (the command then waits for their approval). 2. Remote (SSH, Codespaces): give them manual_login. 3. Not now. Never ask them to paste a token or code into this chat.";
+  "To sign in, ask the user which way: 1. Browser on this computer (recommended): with their OK, run login_command yourself as a background task with your tool's own background option (Claude Code: run_in_background, not a shell `&`), and give them the URL as soon as it's printed (the command then waits for their approval). 2. Remote (SSH, Codespaces): give them manual_login. 3. Not now. Never ask them to paste a token or code into this chat.";
 
 /** Metadata safe to show the agent: allowlisted fields, normalised values, never the token. */
 function describeSession(session: Session) {
@@ -372,9 +372,11 @@ export function authRequiredResult(
       "Sign in through the Gcore portal for a time-limited session (or set GCORE_API_KEY instead).",
       "Ask the user how to sign in. If you can ask a multiple-choice question, offer these three",
       "choices; otherwise list them:",
-      "1. Browser on this computer (recommended): with their OK, run this command yourself, in the",
-      "   background: it prints a URL, then waits up to 5 minutes on a local port for their approval",
-      "   in the portal (a one-time handoff, not OAuth). Give them the URL as soon as it's printed:",
+      "1. Browser on this computer (recommended): with their OK, run this command yourself as a",
+      "   background task, using your tool's own background option (Claude Code: run_in_background),",
+      "   not a shell `&`. It prints a URL, then waits up to 5 minutes on a local port for their",
+      "   approval in the portal (a one-time handoff, not OAuth). Read its output and give them the URL",
+      "   as soon as it's printed:",
       `   ${command}`,
       // Same portal mapping as the login command, so it is never null here.
       "2. Remote (SSH, a Codespace, or a browser that can't reach this computer):",
