@@ -14,6 +14,15 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-07] - login lock: heartbeat instead of a 10-minute stale rule
+
+Found in the real-client test: killing the containers (SIGKILL) left `.lock` behind, and every
+new login exited 3 for 10 minutes. Agents kill tool processes routinely.
+- **The lock:** holds a random owner id and is refreshed every 5 s. One not refreshed for 30 s is
+  taken over.
+- **Takeover:** by rename, so two contenders can't both win. This fixes the race MoM flagged.
+- **Release:** removes the lock only if it's still ours.
+
 ## [2026-10-07] - ephemeral session mode (`FASTEDGE_SESSION=ephemeral`)
 
 Coordinator task 10, v1 (forced by config).

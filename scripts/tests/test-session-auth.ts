@@ -573,13 +573,20 @@ test("a second login while one is running fails with exit 3; the lock is release
   await post(again.port, { body: form({ state: stateOf(again.url), denied: "1" }) });
 });
 
-test("a stale lock (older than 10 minutes) is taken over", async () => {
+test("a fresh lock blocks; a lock without a heartbeat for 30 s is taken over (a killed login)", async () => {
   const sessionDir = tmp();
-  writeFileSync(join(sessionDir, ".lock"), "99999");
-  const old = new Date(Date.now() - 11 * 60_000);
+  writeFileSync(join(sessionDir, ".lock"), "someone-else");
+  const isExit3 = (err: unknown) => err instanceof LoginError && err.exitCode === 3;
+  await assert.rejects(startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir }), isExit3);
+  const old = new Date(Date.now() - 31_000);
   utimesSync(join(sessionDir, ".lock"), old, old);
   const l = await startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir });
+  assert.notEqual(readFileSync(join(sessionDir, ".lock"), "utf8"), "someone-else", "now ours");
+  // A lock that isn't ours any more (taken over) is left alone on release.
+  writeFileSync(join(sessionDir, ".lock"), "a-newer-login");
   await post(l.port, { body: form({ state: stateOf(l.url), denied: "1" }) });
+  await l.result;
+  assert.equal(readFileSync(join(sessionDir, ".lock"), "utf8"), "a-newer-login");
 });
 
 test("cached accounts in status never include tokens", () => {

@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 
 const MAX_FILE_BYTES = 4096;
-const LOCK_STALE_MS = 10 * 60_000;
+const LOCK_HEARTBEAT_MS = 5_000;
+const LOCK_STALE_MS = 30_000; // six missed heartbeats
 export const EXPIRY_MARGIN_MS = 60_000;
 // Printable ASCII only, so a tampered file can't smuggle header syntax.
 export const TOKEN_PATTERN = /^[\x21-\x7e]{1,1024}$/;
@@ -258,20 +259,41 @@ export const readSealed = (dir: string, recipient: string): unknown => readJson(
 
 export class LockedError extends Error {}
 
-/** `O_EXCL` lock holding the PID; older than 10 minutes counts as stale. Returns a release function. */
+/**
+ * `O_EXCL` lock holding a random owner id. The holder refreshes its mtime every
+ * `LOCK_HEARTBEAT_MS`; one not refreshed for `LOCK_STALE_MS` belongs to a login that was killed
+ * (an agent cancelling a tool call sends SIGKILL, so no exit handler runs) and is taken over.
+ * Returns a release function, which removes the lock only while it's still ours.
+ */
 export function acquireLock(dir: string): () => void {
   ensurePrivateDir(dir);
   const path = join(dir, ".lock");
-  for (let attempt = 0; attempt < 2; attempt++) {
+  const owner = randomBytes(16).toString("hex");
+  const ours = () => {
+    try {
+      return fs.readFileSync(path, "utf8") === owner;
+    } catch {
+      return false;
+    }
+  };
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const fd = fs.openSync(path, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, FILE_MODE);
-      fs.writeSync(fd, String(process.pid));
+      fs.writeSync(fd, owner);
       fs.closeSync(fd);
-      // Also release on process exit (incl. Ctrl-C/`docker stop`, which login.ts turns into an
-      // exit), so an interrupted login doesn't block the next one for 10 minutes.
+      const heartbeat = setInterval(() => {
+        try {
+          if (ours()) fs.utimesSync(path, new Date(), new Date());
+        } catch {
+          // best effort: a missed beat only shortens the takeover delay
+        }
+      }, LOCK_HEARTBEAT_MS);
+      heartbeat.unref();
+      // Also release on process exit (incl. Ctrl-C/`docker stop`, which login.ts turns into an exit).
       const release = () => {
+        clearInterval(heartbeat);
         process.off("exit", release);
-        fs.rmSync(path, { force: true });
+        if (ours()) fs.rmSync(path, { force: true });
       };
       process.on("exit", release);
       return release;
@@ -284,7 +306,13 @@ export function acquireLock(dir: string): () => void {
         continue; // released meanwhile; retry
       }
       if (age <= LOCK_STALE_MS) break;
-      fs.rmSync(path, { force: true });
+      // Take over by renaming: only one contender's rename succeeds, so two can't both win.
+      try {
+        fs.renameSync(path, join(dir, `.lock-stale-${owner}`));
+        fs.rmSync(join(dir, `.lock-stale-${owner}`), { force: true });
+      } catch {
+        // someone else took it over first; retry
+      }
     }
   }
   throw new LockedError("Another FastEdge login is in progress. Finish or close it, then try again.");
