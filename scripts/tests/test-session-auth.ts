@@ -181,6 +181,9 @@ test("status reports a missing session with the login command", () => {
   assert.deepEqual(status.cached_accounts, []);
   assert.match(String(status.login_command), / login$/);
   assert.match(String(status.use_command), / login --use <client_id>$/);
+  // Renewing the same account needs no restart; only switching does.
+  assert.match(String(status.renew_session), /No restart is needed/);
+  assert.match(String(status.switch_account), /^Only to use a different account: .*Restart this MCP server/);
 });
 
 // --- Tools: a session token rejected by the API (Fix 1) ---------------------------

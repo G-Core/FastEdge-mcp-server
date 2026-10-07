@@ -14,6 +14,11 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-07] - entrypoint: reserved-id check before the root fallback; status wording
+
+- **`docker-entrypoint.sh`:** the `HOST_UID`/`HOST_GID` checks (numeric, not 10002) now run before the fallback to 10001. When the workspace looks root-owned (rootless Docker, likely Docker Desktop for Mac), the fallback replaced a requested `HOST_GID=10002` before it was checked, so the refusal was skipped. The server still ran as 10001:10001, so the broker's identity was never shared. Found by the rootless gate run.
+- **Status tool:** a new `renew_session` field says a login for the same account needs no restart, and `switch_account` now starts "Only to use a different account". In the Windows test, the agent told the user to restart `/mcp` after any sign-in. `login --use` prints the restart hint only for an MCP server that is running with another account.
+
 ## [2026-10-06] - auth_required: sign-in as three choices
 
 After the preprod test, the agent showed two command blocks and then asked a separate question. `auth_required` now asks the agent to offer **1. Browser on this computer (recommended) / 2. Remote (SSH, Codespaces) / 3. Not now**, as a multiple-choice question where the client supports one (Claude Code shows a menu), or as a list otherwise. This folds the permission ask and the method choice into one. It also says that the listener is a one-time local handoff, not OAuth. The manual-fallback text (`session.ts`) now reads as choice 2, and it's also the status tool's `manual_login`. There's a new wording test, and the coordinator's PROTOCOL §4 is updated.

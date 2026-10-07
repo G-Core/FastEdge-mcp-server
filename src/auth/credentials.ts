@@ -199,8 +199,12 @@ export function createAuth(
         // For when the browser can't reach this machine (Codespaces, SSH). The user runs it, never the agent.
         code_command: codeCommand(apiOrigin),
         manual_login: manualFallback(apiOrigin),
+        // Only a different account needs a restart (S5 pins one per process); agents over-apply it otherwise.
+        renew_session: command
+          ? "If the session expired or was rejected, run login_command and approve for the same account. No restart is needed: retry the request."
+          : "Session login is not available for this API origin; set GCORE_API_KEY instead.",
         switch_account: command
-          ? `If the account is in cached_accounts and usable, run use_command with its client_id; otherwise run login_command and approve while signed in to that account. Then: ${RESTART_HINT}`
+          ? `Only to use a different account: if it is in cached_accounts and usable, run use_command with its client_id; otherwise run login_command and approve while signed in to that account. Then: ${RESTART_HINT}`
           : "Session login is not available for this API origin; set GCORE_API_KEY instead.",
       };
     },

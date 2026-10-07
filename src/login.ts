@@ -61,7 +61,7 @@ async function main() {
       if (!value || !/^[1-9]\d{0,17}$/.test(value)) usage();
       const session = useCachedAccount({ apiOrigin: GCORE_API_ORIGIN, clientId: Number(value) });
       console.error(`Switched to account ${session.client_id} (session expires ${session.expires_at}).`);
-      console.error(`If an MCP server is already running: ${RESTART_HINT}`);
+      console.error(`If an MCP server is already running with another account: ${RESTART_HINT}`);
       process.exit(0);
     }
 
