@@ -74,18 +74,47 @@ cached account's token (risk R1).
   - `upload-binary` reads the file itself and sends bytes, never a path.
   - `fastedge-auth-status` returns `auth.status()`: metadata only, plus `account_verified`.
 
+## Ephemeral mode (`FASTEDGE_SESSION=ephemeral`, task 10 v1)
+
+Forced by config, fixed at broker start, and never mixed with the plaintext cache.
+
+- **`src/auth/seal.ts`:** the frozen envelope (X25519 + HKDF-SHA256 + AES-256-GCM, stdlib only).
+  - `seal`, `open`, and `isValidRecipient`, which refuses low-order keys.
+  - Known-answer vector: `scripts/tests/fixtures/seal-kat.{py,json}`, from an independent Python
+    implementation. Regenerate with `python3 -I scripts/tests/fixtures/seal-kat.py`.
+- **Broker (`src/broker.ts`):**
+  - Generates a key pair. The private key stays a `KeyObject` in memory, and `setSealTo(public)`.
+  - `createEphemeralAuth` (`credentials.ts`) reads only `sealed/<sha256(R)>.json`, opens it, checks
+    the 8 h cap, origin and expiry, then runs the account check, and only then adopts.
+  - **One token per lifetime:** it never re-reads after adoption. Expiry or a 401 →
+    `restart_required` (terminal), and the agent is told to restart, not to log in.
+  - Status carries `mode: "ephemeral"`, sealed login commands, and no cached accounts.
+- **Handshake:** `{ ok, seal_to }`. `connectBroker` validates the key and calls `setSealTo`, so the
+  server's `auth_required` commands carry `-e FASTEDGE_SESSION=ephemeral … --seal-to <key>`. With
+  `FASTEDGE_SESSION=ephemeral`, a handshake without a key means `broker_unavailable`.
+- **Login (`--seal-to`):**
+  - Validates the key before listening.
+  - The cap is 8 h, plus the protocol's 5 min of clock skew, at the callback and at `--code`.
+  - URL: `ephemeral=1` and no `install=`.
+  - Writes only the envelope, takes the lock only (no migration or cleanup), and refuses `--use` and
+    `--logout` (exit 2).
+- **Entrypoint:** an unknown value, or ephemeral together with a key, → exit 2 (also in the `login`
+  branch). The value is passed through both `env -i` allowlists.
+
 `auth_required` reasons:
 - `no_session`, `expired`, `origin_mismatch`: offer login.
 - `rejected` (a 401 on the session token): offer login, but stop if a fresh login is rejected too.
 - `account_mismatch`: offer login, but stop if it repeats.
 - `account_changed`: restart the MCP server (no login).
 - `broker_unavailable`: restart the MCP server, or set a key (no login).
+- `restart_required` (ephemeral only): the adopted token expired or got a 401; restart, then approve (no login).
 
 ## Invariants (don't break)
 
 - The token never appears in tool output, logs, argv, the environment of anything but the
   broker, or files outside the cache.
 - Nothing but the broker reads the cache in session mode. No fallback, ever.
+- Ephemeral mode never reads or writes plaintext session files, and never replaces an adopted token.
 - Explicit-key behaviour is unchanged by session work, and starts no broker.
 - The broker enforces its own policy: build code bypasses the MCP handlers.
 - Never ask users to paste tokens or connect codes into the chat.
@@ -96,7 +125,9 @@ cached account's token (risk R1).
 |---|---|
 | `pnpm run test:session-auth` (66) | cache reader, pinning, login callback, `--use`/`--logout`/`--code`, lock, modes, tool mapping, sign-in wording |
 | `pnpm run test:broker` (39) | frames, `checkRequest`, broker↔client over a Unix socket, redirects, size cap, the token-echo canary, the account check, broker loss, socket owner |
-| `pnpm run test:broker-isolation` | **container release gate** (37 checks; needs Docker, not in `test`): startup refusals, process identities, the broker env, a hostile build as the server uid, tools through the broker against preprod. Runbook: DEVELOPMENT.md |
+| `pnpm run test:seal` (10) | envelope: known-answer vector, tampering, wrong recipient, low-order keys, strict base64url |
+| `pnpm run test:ephemeral` (15) | adoption rules, fail-closed (plaintext cache ignored), terminal 401, 8 h cap, sealed login and `--code`, handshake key |
+| `pnpm run test:broker-isolation` | **container release gate** (50 checks, 13 of them ephemeral; needs Docker, not in `test`): startup refusals, process identities, the broker env, a hostile build as the server uid, tools through the broker against preprod; ephemeral refusals, a sealed token planted for the live key, no plaintext anywhere, a new key after restart. Runbook: DEVELOPMENT.md |
 
 Run the container gate after any change to the entrypoint, `Dockerfile`, `src/broker.ts`,
 `src/auth/broker.ts` or `src/auth/store.ts`.

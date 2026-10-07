@@ -50,6 +50,7 @@ docker pull ghcr.io/g-core/fastedge-mcp-server:latest
 | ----------------------- | -------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `GCORE_API_KEY`         | No       | —                                            | API authentication (legacy `FASTEDGE_API_KEY` also accepted). Without it, the container runs in session mode: portal login plus the token broker (see STANDALONE-SETUP.md). |
 | `GCORE_API_BASE`        | No       | Baked at build time (prod: `api.gcore.com`)  | Runtime override for the Gcore API base URL. In-house devs set this to `https://api.preprod.world` to hit preprod with prod schemas. Must be an allowlisted origin (`ALLOWED_API_ORIGINS` in `src/api-client.ts`), otherwise the server exits at startup. |
+| `FASTEDGE_SESSION`      | No       | unset                                        | `ephemeral`: session tokens are sealed to the broker's in-memory key and never stored in a usable form; one approval per server start, 4 h / 8 h at most. Any other value, or `ephemeral` together with an API key, stops the container (exit 2). See STANDALONE-SETUP.md → Ephemeral sessions. |
 | `BATCH_MAX_CALLS`       | No       | `5`                                          | Max calls per `batch_execute` invocation. Bump for batches that exceed 5 steps (total runtime still capped at 3 min).                |
 | `WORKSPACE_ROOT`        | No       | `/workspace` (Docker) / cwd (local)          | Where the server looks for user files for build/upload operations. Usually left at the Docker default.                               |
 
@@ -115,8 +116,8 @@ The gate has passed on rootful Docker on Linux amd64. It also has to pass on eac
 |---|---|---|
 | Docker Desktop, macOS, Apple Silicon (also covers **arm64**) | | ⬜ |
 | Docker Desktop, macOS, Intel (if available) | | ⬜ |
-| Docker Desktop, Windows (WSL 2 backend) | Gordon, 2026-10-07 | ✅ gate 37/37 with the workspace in WSL and on `C:`; real login from a Windows client |
-| Rootless Docker, Linux | Gordon, 2026-10-07 | ✅ gate 37/37 (Linux Mint 22.3, kernel 6.17, Docker 29.2.1); found and fixed a `HOST_GID=10002` refusal bug (`968d74d`) |
+| Docker Desktop, Windows (WSL 2 backend) | Gordon, 2026-10-07 | ✅ gate 37/37 (before ephemeral mode) with the workspace in WSL and on `C:`; real login from a Windows client |
+| Rootless Docker, Linux | Gordon, 2026-10-07 | ✅ gate 37/37 (before ephemeral mode; Linux Mint 22.3, kernel 6.17, Docker 29.2.1); found and fixed a `HOST_GID=10002` refusal bug (`968d74d`) |
 
 **Steps (macOS and Linux):**
 

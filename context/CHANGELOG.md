@@ -14,6 +14,29 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-07] - ephemeral session mode (`FASTEDGE_SESSION=ephemeral`)
+
+Coordinator task 10, v1 (forced by config).
+- **The mode:** the broker generates an X25519 key at start, and login seals the approved token to
+  it (`src/auth/seal.ts`). The volume holds only ciphertext that no one can decrypt once the broker
+  exits.
+- **The broker:**
+  - adopts one sealed token per lifetime, after the `/iam/clients/me` check;
+  - never reads the plaintext cache;
+  - treats expiry or a 401 as terminal: `restart_required`.
+- **Login:** `--seal-to`, an 8 h cap (plus 5 min of skew), `ephemeral=1` and no installation id
+  in the URL, and no plaintext writes or migration. `--use` and `--logout` are refused.
+- **Entrypoint:** validates the value and refuses it together with a key.
+- **Review:** MoM (Codex) found five issues, all fixed in `7c02c82`:
+  - a 401 wasn't terminal;
+  - low-order recipient keys passed the check;
+  - the manual link was missing `ephemeral=1`;
+  - ephemeral login with a key wasn't refused;
+  - the server accepted a handshake without a key.
+- **Deferred:** the stale-lock reclaim race. It predates this work.
+- **Tests:** `test:seal` (10, with an independent known-answer vector), `test:ephemeral` (15), and
+  13 new gate rows (50 in total).
+
 ## [2026-10-07] - entrypoint: reserved-id check before the root fallback; status wording
 
 - **`docker-entrypoint.sh`:** the `HOST_UID`/`HOST_GID` checks (numeric, not 10002) now run before the fallback to 10001. When the workspace looks root-owned (rootless Docker, likely Docker Desktop for Mac), the fallback replaced a requested `HOST_GID=10002` before it was checked, so the refusal was skipped. The server still ran as 10001:10001, so the broker's identity was never shared. Found by the rootless gate run.

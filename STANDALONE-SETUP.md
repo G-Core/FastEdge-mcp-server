@@ -134,6 +134,23 @@ The broker:
 - **MCP configurations you didn't write.** A config can add mounts, environment variables or a different image. Only use MCP configurations you control: be wary of a `.vscode/mcp.json` or similar that arrives inside a cloned repository.
 - **Your disk.** Without disk encryption, the volume is readable from a stolen disk or a backup until the token expires.
 
+### Ephemeral sessions: nothing usable is kept on disk
+
+Add `-e FASTEDGE_SESSION=ephemeral` to the MCP configuration (with no API key) if you'd rather approve each time the MCP server starts than keep a token in the volume:
+
+```json
+"-v", "fastedge-session:/run/fastedge:ro",
+"-e", "FASTEDGE_SESSION=ephemeral",
+```
+
+- The token broker creates a new key pair each time the server starts, and the private key exists only in its memory. The login command it gives you encrypts the approved token to that key, so the volume holds only ciphertext.
+- When the MCP server stops, the key is gone and the stored copy can't be decrypted any more, from a backup or a stolen disk either.
+- Sessions last 4 or 8 hours at most.
+- **Each start needs a new approval**, and that includes `/mcp` reconnects. Switching accounts or renewing an expired session also means restarting the server, then approving again. `login --use` and `login --logout` aren't available: to sign out, stop the server.
+- An API key can't be combined with it: the container refuses to start.
+
+What it doesn't do: anything that can run Docker or is root can still read the broker's memory while the server runs. The token also stays valid at Gcore until it expires, even after the server stops (delete it on the **API tokens** page to revoke it now). And it doesn't remove sessions you saved earlier without this setting.
+
 ## What This Does
 
 - Pulls `ghcr.io/g-core/fastedge-mcp-server:latest` from GitHub Container Registry
