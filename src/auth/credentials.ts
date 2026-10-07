@@ -254,8 +254,10 @@ export function createAuth(
       const problem = await verify(session);
       if (problem) return problem;
     }
-    // A sealed token adopted while we waited wins (a fresh "don't keep" login).
-    if (sealed) return call(req);
+    // A sealed token adopted while we waited wins (a fresh "don't keep" login), but only for the
+    // account this request was for; never retarget a request to another account.
+    const adoptedMeanwhile = sealed as Session | undefined; // set by a concurrent call during the await
+    if (adoptedMeanwhile) return adoptedMeanwhile.client_id === session.client_id ? call(req) : { authRequired: "account_changed" };
     // Pin only a verified account; a concurrent call may have pinned another meanwhile.
     pinnedClientId ??= session.client_id;
     if (session.client_id !== pinnedClientId) return { authRequired: "account_changed" };
@@ -274,7 +276,8 @@ export function createAuth(
       if (typeof c === "string") pending = c;
       else session = c;
     }
-    const state = sealed ? (sealedOver() ? "restart_required" : "available") : session ? "available" : pending!;
+    const blocked = !sealed && session !== undefined && pinnedClientId !== undefined && session.client_id !== pinnedClientId;
+    const state = sealed ? (sealedOver() ? "restart_required" : "available") : blocked ? "account_changed" : session ? "available" : pending!;
     return {
       credential: "session",
       mode: "ephemeral",
@@ -286,6 +289,7 @@ export function createAuth(
       note: EPHEMERAL_NOTE,
       ...(session ? {} : { sign_in: SIGN_IN_HINT, login_command: command, code_command: codeCommand(apiOrigin), manual_login: manualFallback(apiOrigin) }),
       ...(state === "restart_required" ? { next_step: EPHEMERAL_RESTART_HINT } : {}),
+      ...(blocked ? { next_step: RESTART_HINT } : {}),
     };
   };
 
@@ -326,8 +330,10 @@ export function createAuth(
         renew_session: command
           ? "If the session expired or was rejected, run login_command and approve for the same account. No restart is needed: retry the request."
           : "Session login is not available for this API origin; set GCORE_API_KEY instead.",
+        // Restart first, then sign in: a "don't keep" approval is sealed to the server that's running
+        // now, so approving before a restart would strand it.
         switch_account: command
-          ? `Only to use a different account: if it is in cached_accounts and usable, run use_command with its client_id; otherwise run login_command and approve while signed in to that account. Then: ${RESTART_HINT}`
+          ? `Only to use a different account: if it is in cached_accounts and usable, run use_command with its client_id, then: ${RESTART_HINT} Otherwise restart this MCP server first, then sign in while signed in to that account in the portal.`
           : "Session login is not available for this API origin; set GCORE_API_KEY instead.",
       };
     },

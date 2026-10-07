@@ -279,7 +279,7 @@ export class LockedError extends Error {}
  * (an agent cancelling a tool call sends SIGKILL, so no exit handler runs) and is taken over.
  * Returns a release function, which removes the lock only while it's still ours.
  */
-export function acquireLock(dir: string): () => void {
+export function acquireLock(dir: string): (() => void) & { held: () => boolean } {
   ensurePrivateDir(dir);
   const path = join(dir, ".lock");
   const owner = randomBytes(16).toString("hex");
@@ -307,10 +307,14 @@ export function acquireLock(dir: string): () => void {
       const release = () => {
         clearInterval(heartbeat);
         process.off("exit", release);
+        // ponytail: check-then-unlink across processes; a takeover landing in between is
+        // possible but needs a 30 s stall first. Fencing (`held`) guards the writes that matter.
         if (ours()) fs.rmSync(path, { force: true });
       };
       process.on("exit", release);
-      return release;
+      // Fencing: a login that lost its lock (e.g. the laptop slept past the stale window and
+      // another login took over) must not write.
+      return Object.assign(release, { held: ours });
     } catch (err: any) {
       if (err?.code !== "EEXIST") throw err;
       let age = 0;
@@ -320,13 +324,37 @@ export function acquireLock(dir: string): () => void {
         continue; // released meanwhile; retry
       }
       if (age <= LOCK_STALE_MS) break;
-      // Take over by renaming: only one contender's rename succeeds, so two can't both win.
+      // Take over: move the stale lock aside, then make sure what we moved is the stale one we
+      // saw. If another contender replaced it meanwhile, we took their live lock: put it back
+      // and give up, so two logins never both hold it.
+      let staleOwner: string;
       try {
-        fs.renameSync(path, join(dir, `.lock-stale-${owner}`));
-        fs.rmSync(join(dir, `.lock-stale-${owner}`), { force: true });
+        staleOwner = fs.readFileSync(path, "utf8");
       } catch {
-        // someone else took it over first; retry
+        continue;
       }
+      const aside = join(dir, `.lock-stale-${owner}`);
+      try {
+        fs.renameSync(path, aside);
+      } catch {
+        continue; // someone else moved it first; retry
+      }
+      let moved = "";
+      try {
+        moved = fs.readFileSync(aside, "utf8");
+      } catch {
+        // gone: treat as stale
+      }
+      if (moved && moved !== staleOwner) {
+        try {
+          fs.linkSync(aside, path);
+        } catch {
+          // a third login holds it now
+        }
+        fs.rmSync(aside, { force: true });
+        break;
+      }
+      fs.rmSync(aside, { force: true });
     }
   }
   throw new LockedError("Another FastEdge login is in progress. Finish or close it, then try again.");

@@ -12,7 +12,7 @@ import { createAuth } from "../../src/auth/credentials.js";
 import { LoginError, connectWithCode, decidePersist, startLogin } from "../../src/auth/login-server.js";
 import { generateRecipient, seal } from "../../src/auth/seal.js";
 import { codeCommand, loginCommand, manualFallback, setSealTo, useCommand } from "../../src/auth/session.js";
-import { writeSealed } from "../../src/auth/store.js";
+import { acquireLock, writeSealed } from "../../src/auth/store.js";
 
 const API = "https://api.preprod.world";
 const PLAIN = "4242_CANARY-plaintext-token";
@@ -207,6 +207,7 @@ test("a present but unusable sealed file blocks plaintext (no fallback, MoM rule
       assert.deepEqual(await x.auth.call(get), { authRequired: reason }, label);
     }
     assert.deepEqual(s.sent, [], "the plaintext token was never used");
+    assert.ok(!s.meSent.includes(PLAIN), "not even for an account check");
   } finally { s.restore(); }
 });
 
@@ -225,6 +226,7 @@ test("a sealed token rejected or unverifiable at the account check blocks plaint
       if (want) assert.deepEqual(r, want);
       else assert.equal((r as any).status, 503, "an IAM outage is an error, not a fallback");
       assert.deepEqual(s.sent, []);
+      assert.ok(!s.meSent.includes(PLAIN));
     } finally { s.restore(); }
   }
 });
@@ -309,4 +311,76 @@ test("choice-mode commands carry the key but don't force ephemeral; --use stays;
   assert.doesNotMatch(codeCommand(API)!, /FASTEDGE_SESSION/);
   assert.match(useCommand(API)!, / login --use <client_id>$/);
   assert.match(manualFallback(API)!, /agent-connect\?seal=1 /);
+});
+
+/** Resolves once `cond()` holds (an explicit barrier, not a timing guess). */
+async function until(cond: () => boolean) {
+  for (let i = 0; i < 500 && !cond(); i++) await new Promise((r) => setImmediate(r));
+  assert.ok(cond(), "barrier never reached");
+}
+
+test("race: a plaintext request for account A is never sent with a sealed token for account B", async () => {
+  const { dir, auth, putSealed } = setup();
+  plaintext(dir, 123);
+  let releasePlainMe!: () => void;
+  const plainMe = new Promise<void>((r) => (releasePlainMe = r));
+  const s = stub(async (t) => { if (t === PLAIN) { await plainMe; return json({ id: 123 }); } return json({ id: 456 }); });
+  try {
+    const first = auth.call({ method: "DELETE", path: "/fastedge/v1/apps/1" }); // for account 123
+    await until(() => s.meSent.includes(PLAIN));
+    putSealed({ client_id: 456 });
+    assert.equal(((await auth.call(get)) as any).status, 200); // adopts 456
+    releasePlainMe();
+    assert.deepEqual(await first, { authRequired: "account_changed" });
+    assert.deepEqual(s.sent, [SEALED], "only the second call went out; the DELETE for 123 never did");
+  } finally { s.restore(); }
+});
+
+test("status: a pending sealed session for another account than the pinned one shows account_changed", async () => {
+  const { dir, auth, putSealed } = setup();
+  plaintext(dir, 123);
+  const s = stub();
+  try {
+    await auth.call(get); // pins 123
+    putSealed({ client_id: 456 });
+    assert.equal((auth.status() as any).state, "account_changed");
+  } finally { s.restore(); }
+});
+
+test("once sealed, deleting or replacing files changes nothing", async () => {
+  const { dir, auth, putSealed } = setup();
+  putSealed();
+  const s = stub();
+  try {
+    await auth.call(get);
+    writeSealed(dir, generateRecipient().publicKey, {}); // noise elsewhere
+    putSealed({ token: "4242_a-replacement" });
+    plaintext(dir, 123);
+    await auth.call(get);
+    assert.deepEqual(s.sent, [SEALED, SEALED]);
+  } finally { s.restore(); }
+});
+
+// --- Login lock: fencing and takeover --------------------------------------------------------------
+
+test("a login that lost its lock (another took over) saves nothing", async () => {
+  const dir = tmp();
+  const { l, state } = await choiceLogin(dir);
+  writeFileSync(join(dir, ".lock"), "another-login"); // as after a takeover
+  assert.equal(await post(l.port, fields(state, 8 * HOUR, ["1"])), 500);
+  assert.ok(!existsSync(join(dir, "accounts")), "no plaintext written");
+  assert.ok(!existsSync(join(dir, "sealed")), "nothing sealed either");
+  assert.equal(await post(l.port, new URLSearchParams({ state, denied: "1" }).toString()), 200); // end the login
+  await l.result;
+});
+
+test("lock: held() follows ownership; a fresh foreign lock blocks; release leaves a foreign lock alone", () => {
+  const dir = tmp();
+  const release = acquireLock(dir);
+  assert.equal(release.held(), true);
+  writeFileSync(join(dir, ".lock"), "someone-else");
+  assert.equal(release.held(), false);
+  assert.throws(() => acquireLock(dir), /in progress/);
+  release();
+  assert.equal(readFileSync(join(dir, ".lock"), "utf8"), "someone-else");
 });

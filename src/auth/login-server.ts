@@ -179,7 +179,7 @@ function store(sessionDir: string, delivered: Delivery, how: How, sealTo: string
 export function connectWithCode(
   code: string,
   opts: { apiOrigin: string; sealTo?: string; forced?: boolean; sessionDir?: string },
-): Delivery {
+): Delivery & { sealed?: boolean } {
   requirePortal(opts.apiOrigin);
   if (opts.sealTo !== undefined || opts.forced) requireSealKey(opts.sealTo);
   const decoded = decodeConnectCode(code);
@@ -207,7 +207,7 @@ export function connectWithCode(
   const release = prepare(sessionDir, false);
   try {
     store(sessionDir, delivered, how, opts.sealTo);
-    return delivered;
+    return { ...delivered, sealed: how === "seal" };
   } finally {
     release();
   }
@@ -231,8 +231,8 @@ function cleanup(sessionDir: string): void {
  * Takes the lock (exit 3 if held), and with `cleanupNow` also runs `cleanup`. Logins that may
  * seal take only the lock: plaintext files are touched only once a "keep" delivery arrives.
  */
-function prepare(sessionDir: string, cleanupNow = true): () => void {
-  let release: () => void;
+function prepare(sessionDir: string, cleanupNow = true): (() => void) & { held: () => boolean } {
+  let release: (() => void) & { held: () => boolean };
   try {
     release = acquireLock(sessionDir);
   } catch (err: any) {
@@ -345,6 +345,7 @@ export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
       if (!delivered) return reject();
 
       try {
+        if (!release.held()) throw Object.assign(new Error("lost the login lock"), { code: "ELOCKLOST" });
         store(sessionDir, delivered, how, sealTo);
       } catch (err: any) {
         console.error(`Could not save the session: ${err?.code ?? "write failed"}`);

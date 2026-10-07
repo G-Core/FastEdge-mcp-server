@@ -96,8 +96,8 @@ async function main() {
     if (option === "--use") {
       if (!value || !/^[1-9]\d{0,17}$/.test(value)) usage();
       const session = useCachedAccount({ apiOrigin: GCORE_API_ORIGIN, clientId: Number(value) });
-      console.error(`Switched to account ${session.client_id} (session expires ${session.expires_at}).`);
-      console.error(`If an MCP server is already running with another account: ${RESTART_HINT}`);
+      console.error(`The saved session now points at account ${session.client_id} (expires ${session.expires_at}).`);
+      console.error(`An MCP server that's already running keeps its current session: ${RESTART_HINT}`);
       process.exit(0);
     }
 
@@ -107,7 +107,8 @@ async function main() {
       if (!session) {
         console.error("Not signed in.");
       } else {
-        console.error(`Signed out of account ${session.client_id} on this computer.`);
+        console.error(`Removed the saved session for account ${session.client_id} from this computer.`);
+        console.error("An MCP server that's already running keeps its current session until you stop or restart it.");
         console.error(
           `The token stays valid until ${session.expires_at}; delete it on the portal's API tokens page to revoke it now.`,
         );
@@ -130,7 +131,8 @@ async function main() {
       }
       const session = connectWithCode(code, { apiOrigin: GCORE_API_ORIGIN, sealTo, forced });
       console.error(`FastEdge is connected to account ${session.client_id} until ${session.expires_at}.`);
-      if (!forced) console.error(`If an MCP server is already running with another account: ${RESTART_HINT}`);
+      // A sealed session belongs to the server that's running; a restart would strand it.
+      if (!session.sealed) console.error(`If an MCP server is already running with another account: ${RESTART_HINT}`);
       process.exit(0);
     }
 
