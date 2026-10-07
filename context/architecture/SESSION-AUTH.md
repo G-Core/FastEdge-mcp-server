@@ -101,6 +101,28 @@ Forced by config, fixed at broker start, and never mixed with the plaintext cach
 - **Entrypoint:** an unknown value, or ephemeral together with a key, → exit 2 (also in the `login`
   branch). The value is passed through both `env -i` allowlists.
 
+## Choice mode (no `FASTEDGE_SESSION`, task 10 v2)
+
+The Approve page's **Keep me signed in** checkbox decides each sign-in. The contract is PROTOCOL
+§7a in the coordinator.
+
+- **Broker:** always generates a key. Its handshake sends `seal_to` and `forced`, and the server
+  refuses a handshake without them. `setSealTo(key, forced)` keeps capability and policy apart.
+- **`createAuth(…, { recipient })`:** one credential state and pin for both sources.
+  - It checks its sealed file first, and falls back to plaintext only when the file is absent
+    (`sealedPresent`).
+  - A sealed adoption is sticky.
+  - A request waiting on a plaintext account check is re-sent with a sealed token adopted meanwhile
+    only for the same account.
+  - A late plaintext 401 can't end a sealed session.
+- **Login:**
+  - `decidePersist()` maps the callback's `persist` against login's own mode.
+  - `fe1` = keep, `fe2` = don't keep.
+  - Cleanup runs only after a keep delivery.
+  - The callback save checks lock ownership (`held()`).
+- **Lock:** a 5 s heartbeat and a 30 s stale window, with a takeover check. It is best-effort
+  coordination; no security property depends on it.
+
 `auth_required` reasons:
 - `no_session`, `expired`, `origin_mismatch`: offer login.
 - `rejected` (a 401 on the session token): offer login, but stop if a fresh login is rejected too.
@@ -126,8 +148,9 @@ Forced by config, fixed at broker start, and never mixed with the plaintext cach
 | `pnpm run test:session-auth` (66) | cache reader, pinning, login callback, `--use`/`--logout`/`--code`, lock, modes, tool mapping, sign-in wording |
 | `pnpm run test:broker` (39) | frames, `checkRequest`, broker↔client over a Unix socket, redirects, size cap, the token-echo canary, the account check, broker loss, socket owner |
 | `pnpm run test:seal` (10) | envelope: known-answer vector, tampering, wrong recipient, low-order keys, strict base64url |
-| `pnpm run test:ephemeral` (15) | adoption rules, fail-closed (plaintext cache ignored), terminal 401, 8 h cap, sealed login and `--code`, handshake key |
-| `pnpm run test:broker-isolation` | **container release gate** (50 checks, 13 of them ephemeral; needs Docker, not in `test`): startup refusals, process identities, the broker env, a hostile build as the server uid, tools through the broker against preprod; ephemeral refusals, a sealed token planted for the live key, no plaintext anywhere, a new key after restart. Runbook: DEVELOPMENT.md |
+| `pnpm run test:choice` (19) | choice mode: persist matrix, fe1/fe2, no fallback from a present sealed file, sealed↔plaintext transitions and races (cross-account), sticky mode, lock fencing |
+| `pnpm run test:ephemeral` (16) | adoption rules, fail-closed (plaintext cache ignored), terminal 401, 8 h cap, sealed login and `--code`, handshake key |
+| `pnpm run test:broker-isolation` | **container release gate** (54 checks: 13 forced-ephemeral, 4 choice mode; needs Docker, not in `test`): startup refusals, process identities, the broker env, a hostile build as the server uid, tools through the broker against preprod; ephemeral refusals, a sealed token planted for the live key, no plaintext anywhere, a new key after restart. Runbook: DEVELOPMENT.md |
 
 Run the container gate after any change to the entrypoint, `Dockerfile`, `src/broker.ts`,
 `src/auth/broker.ts` or `src/auth/store.ts`.

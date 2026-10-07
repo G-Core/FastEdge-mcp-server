@@ -134,22 +134,37 @@ The broker:
 - **MCP configurations you didn't write.** A config can add mounts, environment variables or a different image. Only use MCP configurations you control: be wary of a `.vscode/mcp.json` or similar that arrives inside a cloned repository.
 - **Your disk.** Without disk encryption, the volume is readable from a stolen disk or a backup until the token expires.
 
-### Ephemeral sessions: nothing usable is kept on disk
+### Don't keep the session on this computer
 
-Add `-e FASTEDGE_SESSION=ephemeral` to the MCP configuration (with no API key) if you'd rather approve each time the MCP server starts than keep a token in the volume:
+The Approve page has a **Keep me signed in on this computer** checkbox, checked by default.
+
+- **Checked:** the session is saved in the `fastedge-session` volume as described above, for 4
+  hours up to 7 days, and later MCP server starts reuse it.
+- **Unchecked:** the token is encrypted to a key that only the running MCP server holds, in
+  memory. The volume keeps only ciphertext, and once the server stops nobody can decrypt it, from a
+  backup or a stolen disk either. You choose 4 or 8 hours, and you approve again the next time the
+  server starts, including after `/mcp` reconnects.
+
+Good to know about unchecked sessions:
+- While the server runs, renewing or switching accounts means **restarting it first**, then
+  approving again. An approval goes to the server that's running when you approve.
+- `login --use` and `login --logout` change only the sessions saved on this computer. A server
+  holding an unchecked session ignores them until it's restarted; to end it, stop the server.
+- A session you saved earlier with the box checked stays saved until you `login --logout` or it
+  expires. After a restart the server can use it again.
+- What it doesn't protect against: anything that can run Docker or is root can still read the
+  server's memory while it runs. The token also stays valid at Gcore until it expires (delete it
+  on the **API tokens** page to revoke it now).
+
+**Make it the rule:** add `-e FASTEDGE_SESSION=ephemeral` to the MCP configuration (with no API
+key). Every sign-in is then unchecked, the page doesn't show the checkbox, and sessions last 4 or 8
+hours. The checkbox is a convenience for each sign-in; this setting is the guarantee. Combining it
+with an API key stops the container.
 
 ```json
 "-v", "fastedge-session:/run/fastedge:ro",
 "-e", "FASTEDGE_SESSION=ephemeral",
 ```
-
-- The token broker creates a new key pair each time the server starts, and the private key exists only in its memory. The login command it gives you encrypts the approved token to that key, so the volume holds only ciphertext.
-- When the MCP server stops, the key is gone and the stored copy can't be decrypted any more, from a backup or a stolen disk either.
-- Sessions last 4 or 8 hours at most.
-- **Each start needs a new approval**, and that includes `/mcp` reconnects. Switching accounts or renewing an expired session also means restarting the server, then approving again. `login --use` and `login --logout` aren't available: to sign out, stop the server.
-- An API key can't be combined with it: the container refuses to start.
-
-What it doesn't do: anything that can run Docker or is root can still read the broker's memory while the server runs. The token also stays valid at Gcore until it expires, even after the server stops (delete it on the **API tokens** page to revoke it now). And it doesn't remove sessions you saved earlier without this setting.
 
 ## What This Does
 

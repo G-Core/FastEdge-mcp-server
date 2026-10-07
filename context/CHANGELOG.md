@@ -14,6 +14,25 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-07] - "Keep me signed in" per sign-in (task 10 v2)
+
+Users choose on the Approve page instead of in config. `FASTEDGE_SESSION=ephemeral` stays as
+the forced policy.
+- **The choice:** the broker always has a key, and login commands always carry `--seal-to`.
+  - The page (`seal=1`) sends `persist=0|1`: `0` seals to the running server (8 h); `1` saves as
+    before.
+  - Codes: `fe1` = keep, `fe2` = don't keep.
+- **MoM design review:** three gaps made the draft less safe than v1; eight rules closed them:
+  - an old reader saving `fe2` as plaintext;
+  - a fallback from an unusable sealed file;
+  - two credential states.
+- **MoM implementation review:**
+  - fixed a High: cross-account re-dispatch;
+  - fixed the status pin conflict, lock takeover verification, fencing on the callback save, and
+    restart-first and cache-only wording.
+- **Lock:** accepted as best-effort; no security harm.
+- **Tests:** `test:choice` (19), and the gate at 54.
+
 ## [2026-10-07] - login lock: heartbeat instead of a 10-minute stale rule
 
 Found in the real-client test: killing the containers (SIGKILL) left `.lock` behind, and every
