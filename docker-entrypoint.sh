@@ -80,6 +80,15 @@ fi
 target_uid="${target_uid:-0}"
 target_gid="${target_gid:-$target_uid}"
 
+# Validate before the root fallback below, which would otherwise silently replace
+# a bad HOST_GID (e.g. rootless Docker, where the workspace looks root-owned).
+fail() { echo "fastedge-mcp-server: $*" >&2; exit 2; }
+case "$target_uid" in ''|*[!0-9]*) fail "HOST_UID must be a number";; esac
+case "$target_gid" in ''|*[!0-9]*) fail "HOST_GID must be a number";; esac
+# The server (and the build tools it runs) must never share the broker's identity.
+[ "$target_uid" != "$BROKER_ID" ] && [ "$target_gid" != "$BROKER_ID" ] ||
+  fail "uid/gid $BROKER_ID is reserved for the token broker; set HOST_UID/HOST_GID to another id"
+
 # When the resolved owner is root (root-owned or absent mount, Docker Desktop
 # virtualized ownership), drop to the baked-in fallback user instead of
 # staying root. This prevents untrusted build code from running as container root.
@@ -87,13 +96,6 @@ if [ "$target_uid" = "0" ]; then
   target_uid=10001
   target_gid=10001
 fi
-
-fail() { echo "fastedge-mcp-server: $*" >&2; exit 2; }
-case "$target_uid" in ''|*[!0-9]*) fail "HOST_UID must be a number";; esac
-case "$target_gid" in ''|*[!0-9]*) fail "HOST_GID must be a number";; esac
-# The server (and the build tools it runs) must never share the broker's identity.
-[ "$target_uid" != "$BROKER_ID" ] && [ "$target_gid" != "$BROKER_ID" ] ||
-  fail "uid/gid $BROKER_ID is reserved for the token broker; set HOST_UID/HOST_GID to another id"
 
 if [ -z "${GCORE_API_KEY:-${FASTEDGE_API_KEY:-}}" ]; then
   # --- Session mode (no API key) ---------------------------------------------
