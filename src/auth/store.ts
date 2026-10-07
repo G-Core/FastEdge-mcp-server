@@ -307,13 +307,15 @@ export function acquireLock(dir: string): (() => void) & { held: () => boolean }
       const release = () => {
         clearInterval(heartbeat);
         process.off("exit", release);
-        // ponytail: check-then-unlink across processes; a takeover landing in between is
-        // possible but needs a 30 s stall first. Fencing (`held`) guards the writes that matter.
+        // ponytail: check-then-unlink across processes, and the lease itself, are best-effort
+        // coordination (no flock in Node). No security property depends on exclusivity: writes are
+        // atomic and each login writes only its own decision. An overlap can at worst lose a cache
+        // update (one more approval). Accepted residual, task 10 v2 MoM review.
         if (ours()) fs.rmSync(path, { force: true });
       };
       process.on("exit", release);
-      // Fencing: a login that lost its lock (e.g. the laptop slept past the stale window and
-      // another login took over) must not write.
+      // Ownership check (not a guarantee): a login that has visibly lost its lock, e.g. after the
+      // laptop slept past the stale window and another login took over, doesn't write.
       return Object.assign(release, { held: ours });
     } catch (err: any) {
       if (err?.code !== "EEXIST") throw err;

@@ -97,7 +97,8 @@ async function main() {
       if (!value || !/^[1-9]\d{0,17}$/.test(value)) usage();
       const session = useCachedAccount({ apiOrigin: GCORE_API_ORIGIN, clientId: Number(value) });
       console.error(`The saved session now points at account ${session.client_id} (expires ${session.expires_at}).`);
-      console.error(`An MCP server that's already running keeps its current session: ${RESTART_HINT}`);
+      console.error(`If an MCP server is running on another account: ${RESTART_HINT}`);
+      console.error('A server holding a "don\'t keep" session ignores saved sessions until it is restarted.');
       process.exit(0);
     }
 
@@ -105,10 +106,10 @@ async function main() {
       if (value) usage();
       const session = logoutActive({ apiOrigin: GCORE_API_ORIGIN });
       if (!session) {
-        console.error("Not signed in.");
+        console.error('No saved session on this computer. (A "don\'t keep" session in a running MCP server ends when you stop or restart it.)');
       } else {
         console.error(`Removed the saved session for account ${session.client_id} from this computer.`);
-        console.error("An MCP server that's already running keeps its current session until you stop or restart it.");
+        console.error('A running MCP server stops using it on its next call, unless it holds a "don\'t keep" session: that lasts until you stop or restart the server.');
         console.error(
           `The token stays valid until ${session.expires_at}; delete it on the portal's API tokens page to revoke it now.`,
         );
