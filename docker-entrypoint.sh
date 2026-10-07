@@ -34,6 +34,7 @@ if [ "${1:-}" = "login" ]; then
   CACHE=/run/fastedge
   login_fail() { echo "login: $*" >&2; exit 2; }
   [ "$(id -u)" = "0" ] || login_fail "must start as root (don't pass --user)"
+  case "${FASTEDGE_SESSION:-}" in ''|ephemeral) ;; *) login_fail "FASTEDGE_SESSION must be unset or \"ephemeral\"";; esac
   command -v setpriv >/dev/null 2>&1 || login_fail "setpriv is missing from the image"
 
   # Migrate as root: refuse links and odd file types, then make everything broker-only.
@@ -53,7 +54,7 @@ if [ "${1:-}" = "login" ]; then
   ulimit -Hc 0
   unset GCORE_API_KEY FASTEDGE_API_KEY
   exec env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp TERM="${TERM:-dumb}" \
-    GCORE_API_BASE="${GCORE_API_BASE:-}" \
+    GCORE_API_BASE="${GCORE_API_BASE:-}" FASTEDGE_SESSION="${FASTEDGE_SESSION:-}" \
     setpriv --reuid="$BROKER_ID" --regid="$BROKER_ID" $DROP \
     /usr/local/bin/node /app/build/login.js "$@"
 fi
@@ -89,6 +90,11 @@ case "$target_gid" in ''|*[!0-9]*) fail "HOST_GID must be a number";; esac
 [ "$target_uid" != "$BROKER_ID" ] && [ "$target_gid" != "$BROKER_ID" ] ||
   fail "uid/gid $BROKER_ID is reserved for the token broker; set HOST_UID/HOST_GID to another id"
 
+# Ephemeral session mode (task 10) is forced by config and wins: no key alongside it, no unknown values.
+case "${FASTEDGE_SESSION:-}" in ''|ephemeral) ;; *) fail "FASTEDGE_SESSION must be unset or \"ephemeral\"";; esac
+[ "${FASTEDGE_SESSION:-}" != "ephemeral" ] || [ -z "${GCORE_API_KEY:-${FASTEDGE_API_KEY:-}}" ] ||
+  fail "FASTEDGE_SESSION=ephemeral can't be combined with GCORE_API_KEY; remove one of them"
+
 # When the resolved owner is root (root-owned or absent mount, Docker Desktop
 # virtualized ownership), drop to the baked-in fallback user instead of
 # staying root. This prevents untrusted build code from running as container root.
@@ -123,7 +129,7 @@ if [ -z "${GCORE_API_KEY:-${FASTEDGE_API_KEY:-}}" ]; then
 
   # Clean, allowlisted environment; absolute paths; a trusted working directory.
   (cd /app && exec env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp/broker-home \
-    GCORE_API_BASE="${GCORE_API_BASE:-}" \
+    GCORE_API_BASE="${GCORE_API_BASE:-}" FASTEDGE_SESSION="${FASTEDGE_SESSION:-}" \
     setpriv --reuid="$BROKER_ID" --regid="$BROKER_ID" $DROP \
     /usr/local/bin/node /app/build/broker.js) &
 

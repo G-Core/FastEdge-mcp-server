@@ -23,6 +23,22 @@ if (!TAG_PATTERN.test(IMAGE_TAG)) {
   throw new Error(`package.json version "${IMAGE_TAG}" is not a valid image tag`);
 }
 
+// Ephemeral mode (fastedge-coordinator tasks/10-ephemeral-session.md): the broker's public key,
+// set once per process (the broker at start, the MCP server from the broker's handshake). Login
+// commands then seal the approved token to it instead of writing it to the volume.
+const SEAL_KEY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+let sealTo: string | null = null;
+
+export function setSealTo(publicKey: string): void {
+  if (!SEAL_KEY_PATTERN.test(publicKey)) throw new Error("invalid seal key");
+  sealTo = publicKey;
+}
+export const getSealTo = () => sealTo;
+
+/** Extra `docker run` flags and login arguments for the current mode. */
+const ephemeralEnv = () => (sealTo ? " -e FASTEDGE_SESSION=ephemeral" : "");
+const sealArg = () => (sealTo ? ` --seal-to ${sealTo}` : "");
+
 /**
  * The canonical login command, or null when this API origin has no portal to approve it.
  * The origin is written out explicitly: a bare `-e GCORE_API_BASE` would take the agent shell's
@@ -30,19 +46,19 @@ if (!TAG_PATTERN.test(IMAGE_TAG)) {
  */
 export function loginCommand(apiOrigin: string): string | null {
   if (!PORTAL_ORIGINS[apiOrigin]) return null;
-  return `docker run --rm -i -p 127.0.0.1:${LOGIN_PORT}:${LOGIN_PORT} -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login`;
+  return `docker run --rm -i -p 127.0.0.1:${LOGIN_PORT}:${LOGIN_PORT} -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin}${ephemeralEnv()} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login${sealArg()}`;
 }
 
-/** `login --use <client_id>` (PROTOCOL.md §3.6): switch to a cached account, no browser, no port. */
+/** `login --use <client_id>` (PROTOCOL.md §3.6): switch to a cached account, no browser, no port. Not in ephemeral mode. */
 export function useCommand(apiOrigin: string): string | null {
-  if (!PORTAL_ORIGINS[apiOrigin]) return null;
+  if (!PORTAL_ORIGINS[apiOrigin] || sealTo) return null;
   return `docker run --rm -i -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login --use <client_id>`;
 }
 
 /** `login --code` (PROTOCOL.md §3.8): needs the user's own terminal (`-it`), so an agent can't run it. */
 export function codeCommand(apiOrigin: string): string | null {
   if (!PORTAL_ORIGINS[apiOrigin]) return null;
-  return `docker run --rm -it -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login --code`;
+  return `docker run --rm -it -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin}${ephemeralEnv()} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login --code${sealArg()}`;
 }
 
 /** Manual fallback text for `auth_required` and the status tool (PROTOCOL.md §4). */
@@ -56,6 +72,10 @@ export function manualFallback(apiOrigin: string): string | null {
     "Never ask them to paste the connect code into this chat.",
   ].join("\n");
 }
+
+/** Ephemeral sessions are never replaced while the server runs (task 10, MUST 6). */
+export const EPHEMERAL_RESTART_HINT =
+  "Restart this MCP server (Claude Code: /mcp, then reconnect; Codex CLI: exit, then `codex resume --last`), then approve again when asked.";
 
 export const RESTART_HINT =
   "Restart this MCP server to use the new account (Claude Code: /mcp, then reconnect; Codex CLI: exit, then `codex resume --last`).";

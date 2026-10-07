@@ -2,6 +2,8 @@ import http from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import type { AddressInfo } from "node:net";
 
+import { EPHEMERAL_MAX_LIFETIME_MS } from "./credentials.js";
+import { decodeB64url, seal } from "./seal.js";
 import { PORTAL_ORIGINS, SESSION_DIR } from "./session.js";
 import {
   LockedError,
@@ -13,6 +15,7 @@ import {
   removeExpired,
   saveSession,
   useAccount,
+  writeSealed,
   type Session,
 } from "./store.js";
 
@@ -34,6 +37,8 @@ export interface LoginOptions {
   apiOrigin: string;
   port: number;
   host: string;
+  /** Ephemeral mode (task 10): the broker's public key. The token is sealed to it, never saved in plaintext. */
+  sealTo?: string;
   /** Test hooks. */
   sessionDir?: string;
   timeoutMs?: number;
@@ -76,7 +81,12 @@ type Delivery = Parameters<typeof saveSession>[1];
  * PROTOCOL.md §6 checks 5–6 plus the task 06 cap, shared by the browser callback and
  * `login --code`. Returns what to save, or null.
  */
-function validateDelivery(f: Record<string, string>, apiOrigin: string, now: number): Delivery | null {
+function validateDelivery(
+  f: Record<string, string>,
+  apiOrigin: string,
+  now: number,
+  maxLifetimeMs = MAX_LIFETIME_MS,
+): Delivery | null {
   const expiresAt = Date.parse(f.expires_at);
   if (
     f.api_origin !== apiOrigin ||
@@ -85,8 +95,8 @@ function validateDelivery(f: Record<string, string>, apiOrigin: string, now: num
     !ID_PATTERN.test(f.client_id) ||
     Number.isNaN(expiresAt) ||
     expiresAt <= now ||
-    // Task 06 cap: a tampered delivery can't plant a longer session than the page allows.
-    expiresAt > now + MAX_LIFETIME_MS
+    // Task 06 cap (8 h for ephemeral, task 10): a tampered delivery can't plant a longer session than the page allows.
+    expiresAt > now + maxLifetimeMs
   ) {
     return null;
   }
@@ -117,11 +127,30 @@ function decodeConnectCode(code: string): Record<string, string> | null {
   }
 }
 
+/** Ephemeral mode: a valid 32-byte base64url recipient key, or exit 2 before anything else happens. */
+export function requireSealKey(sealTo: string | undefined): string {
+  if (!sealTo || !decodeB64url(sealTo, 32)) {
+    throw new LoginError(
+      "Ephemeral login needs the MCP server's key (--seal-to). Use the exact login command the MCP server printed.",
+      2,
+    );
+  }
+  return sealTo;
+}
+
+/** Saves a validated delivery: sealed to the broker in ephemeral mode, plaintext otherwise. */
+function store(sessionDir: string, delivered: Delivery, sealTo: string | undefined): void {
+  if (sealTo) writeSealed(sessionDir, sealTo, seal(sealTo, { ...delivered, created_at: new Date().toISOString() }));
+  else saveSession(sessionDir, delivered);
+}
+
 /** `login --code` (PROTOCOL.md §3.8): validate a pasted connect code and save it like a browser login. */
-export function connectWithCode(code: string, opts: { apiOrigin: string; sessionDir?: string }): Delivery {
+export function connectWithCode(code: string, opts: { apiOrigin: string; sealTo?: string; sessionDir?: string }): Delivery {
   requirePortal(opts.apiOrigin);
+  if (opts.sealTo !== undefined) requireSealKey(opts.sealTo);
   const fields = decodeConnectCode(code);
-  const delivered = fields && validateDelivery(fields, opts.apiOrigin, Date.now());
+  const cap = opts.sealTo ? EPHEMERAL_MAX_LIFETIME_MS : MAX_LIFETIME_MS;
+  const delivered = fields && validateDelivery(fields, opts.apiOrigin, Date.now(), cap);
   if (!delivered) {
     throw new LoginError(
       `This connect code isn't valid for ${opts.apiOrigin}, or has expired. Approve again on the portal's agent-connect page and copy the new code.`,
@@ -129,9 +158,9 @@ export function connectWithCode(code: string, opts: { apiOrigin: string; session
     );
   }
   const sessionDir = opts.sessionDir ?? SESSION_DIR;
-  const release = prepare(sessionDir);
+  const release = prepare(sessionDir, !!opts.sealTo);
   try {
-    saveSession(sessionDir, delivered);
+    store(sessionDir, delivered, opts.sealTo);
     return delivered;
   } finally {
     release();
@@ -146,8 +175,11 @@ function requirePortal(apiOrigin: string): string {
   return portalOrigin;
 }
 
-/** Takes the lock (exit 3 if held), migrates the POC layout and drops expired accounts. */
-function prepare(sessionDir: string): () => void {
+/**
+ * Takes the lock (exit 3 if held), then migrates the POC layout and drops expired accounts.
+ * Ephemeral mode only locks: it never touches plaintext files (task 10, MUST 4).
+ */
+function prepare(sessionDir: string, ephemeral = false): () => void {
   let release: () => void;
   try {
     release = acquireLock(sessionDir);
@@ -155,6 +187,7 @@ function prepare(sessionDir: string): () => void {
     if (err instanceof LockedError) throw new LoginError(err.message, 3);
     throw new LoginError(`Cannot write to the session volume (${sessionDir}): ${err?.code ?? "error"}`, 2);
   }
+  if (ephemeral) return release;
   try {
     migrateLegacy(sessionDir);
     removeExpired(sessionDir, Date.now());
@@ -204,7 +237,8 @@ export function logoutActive(opts: { apiOrigin: string; sessionDir?: string }): 
 export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
   const portalOrigin = requirePortal(opts.apiOrigin);
   const sessionDir = opts.sessionDir ?? SESSION_DIR;
-  const release = prepare(sessionDir);
+  const sealTo = opts.sealTo === undefined ? undefined : requireSealKey(opts.sealTo);
+  const release = prepare(sessionDir, !!sealTo);
 
   const state = randomBytes(32).toString("base64url");
   let settle!: (outcome: LoginOutcome) => void;
@@ -251,11 +285,12 @@ export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
         Object.fromEntries(FIELDS.map((name) => [name, form.get(name) ?? ""])),
         opts.apiOrigin,
         Date.now(),
+        sealTo ? EPHEMERAL_MAX_LIFETIME_MS : MAX_LIFETIME_MS,
       );
       if (!delivered) return reject();
 
       try {
-        saveSession(sessionDir, delivered);
+        store(sessionDir, delivered, sealTo);
       } catch (err: any) {
         console.error(`Could not save the session: ${err?.code ?? "write failed"}`);
         res.writeHead(500, PAGE_HEADERS).end(BAD_PAGE);
@@ -297,12 +332,16 @@ export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
   const port = (server.address() as AddressInfo).port;
   expectedHost = `127.0.0.1:${port}`;
   const api = new URL(opts.apiOrigin).host;
-  let install = "";
-  try {
-    install = `&install=${ensureInstallationId(sessionDir)}`;
-  } catch (err: any) {
-    // Login still works; the portal just can't replace this machine's earlier tokens.
-    console.error(`Could not read or create the installation id: ${err?.code ?? "error"}`);
+  // Ephemeral (task 10): the page offers 4 h / 8 h only and gets no installation id, so it marks
+  // and replaces no tokens. Normal logins then can't delete live ephemeral tokens either.
+  let install = sealTo ? "&ephemeral=1" : "";
+  if (!sealTo) {
+    try {
+      install = `&install=${ensureInstallationId(sessionDir)}`;
+    } catch (err: any) {
+      // Login still works; the portal just can't replace this machine's earlier tokens.
+      console.error(`Could not read or create the installation id: ${err?.code ?? "error"}`);
+    }
   }
   return {
     url: `${portalOrigin}/fastedge/agent-connect?port=${port}&state=${state}&api=${api}${install}`,

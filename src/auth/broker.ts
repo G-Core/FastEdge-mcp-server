@@ -7,6 +7,8 @@ import net from "node:net";
 import { GCORE_API_ORIGIN, serializeBody } from "../api-client.js";
 import { checkAllowed } from "../policy/enforce.js";
 import type { ApiResult, Auth, LocalAuth } from "./credentials.js";
+import { decodeB64url } from "./seal.js";
+import { getSealTo, setSealTo } from "./session.js";
 
 export const BROKER_ID = 10002;
 export const BROKER_SOCKET = "/run/fastedge-broker/sock";
@@ -162,7 +164,9 @@ export function serveBroker(socket: net.Socket, auth: LocalAuth, apiOrigin = GCO
     if (!greeted) {
       if (!isPlainObject(m) || m.hello !== HELLO || Object.keys(m).length !== 1) return void socket.destroy();
       greeted = true;
-      return send({ ok: true });
+      // Ephemeral mode: the server needs the public key to build login commands (task 10).
+      const sealTo = getSealTo();
+      return send(sealTo ? { ok: true, seal_to: sealTo } : { ok: true });
     }
     if (!isPlainObject(m) || !Number.isSafeInteger(m.id)) return void socket.destroy();
     const id = m.id as number;
@@ -258,7 +262,14 @@ export async function connectBroker(
   const handshake = new Promise<boolean>((resolve) => (greeted = resolve));
 
   const reader = new FrameReader(MAX_RESPONSE_FRAME, () => 0, (m: any) => {
-    if (m?.ok === true && !Number.isSafeInteger(m?.id)) return greeted(true);
+    if (m?.ok === true && !Number.isSafeInteger(m?.id)) {
+      if (m.seal_to !== undefined) {
+        // It goes into a shell command the agent runs: exactly 32 bytes of base64url, or refuse.
+        if (!decodeB64url(m.seal_to, 32)) return void socket.destroy();
+        setSealTo(m.seal_to);
+      }
+      return greeted(true);
+    }
     const done = pending.get(m?.id);
     pending.delete(m?.id);
     done?.(m);

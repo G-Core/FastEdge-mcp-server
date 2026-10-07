@@ -1,5 +1,9 @@
 import { GCORE_API_ORIGIN, callGcoreApi, type ApiCallOptions, type ApiCallResult } from "../api-client.js";
+import type { KeyObject } from "node:crypto";
+
+import { open } from "./seal.js";
 import {
+  EPHEMERAL_RESTART_HINT,
   PORTAL_ORIGINS,
   RESTART_HINT,
   SESSION_DIR,
@@ -8,7 +12,7 @@ import {
   manualFallback,
   useCommand,
 } from "./session.js";
-import { isUsable, listAccounts, readActiveSession, type Session } from "./store.js";
+import { TOKEN_PATTERN, isUsable, listAccounts, readActiveSession, readSealed, type Session } from "./store.js";
 
 export { TOKEN_PATTERN } from "./store.js";
 
@@ -19,7 +23,8 @@ export type AuthRequiredReason =
   | "origin_mismatch"
   | "rejected"
   | "account_mismatch"
-  | "broker_unavailable";
+  | "broker_unavailable"
+  | "restart_required";
 export type CredentialSource = "explicit" | "session";
 export type AuthResolution = { header: string; source: CredentialSource } | { authRequired: AuthRequiredReason };
 export type ApiResult = ApiCallResult | { authRequired: AuthRequiredReason };
@@ -64,6 +69,40 @@ function describeSession(session: Session) {
     api_origin: PORTAL_ORIGINS[session.api_origin] ? session.api_origin : "unsupported origin",
     expires_at: new Date(Date.parse(session.expires_at)).toISOString(),
   };
+}
+
+/** One API call with a session token; a 401 becomes `on401`. Never returns a response containing the token. */
+async function callWithToken(
+  token: string,
+  call: Omit<ApiCallOptions, "authHeader">,
+  on401: AuthRequiredReason,
+): Promise<ApiResult> {
+  const result = await callGcoreApi({ ...call, authHeader: `APIKey ${token}` }, SESSION_LIMITS);
+  // A 403 is a permission problem, not a login problem: pass it through.
+  if (result.status === 401) return { authRequired: on401 };
+  // Never hand the token across the broker boundary, even if an upstream echoes it.
+  if (JSON.stringify(result.data ?? null).includes(token)) {
+    return { status: 0, data: { error: "The API response was withheld because it contained the session token." } };
+  }
+  return result;
+}
+
+/**
+ * The cache only *claims* an account. Ask the API whose token it is (GET /iam/clients/me → `id`,
+ * PROTOCOL.md §2a). Null when it matches; otherwise the result to return instead. An IAM outage
+ * is an error, never a login prompt or a fallback.
+ */
+async function checkAccount(token: string, clientId: number): Promise<ApiResult | null> {
+  const me = await callGcoreApi({ method: "GET", path: "/iam/clients/me", authHeader: `APIKey ${token}` }, SESSION_LIMITS);
+  if (me.status === 401) return { authRequired: "rejected" };
+  if (me.status !== 200) {
+    return {
+      status: me.status >= 400 ? me.status : 502,
+      data: { error: `Couldn't confirm which account the session token belongs to (GET /iam/clients/me answered ${me.status}). Try again shortly.` },
+    };
+  }
+  if ((me.data as { id?: unknown } | null)?.id !== clientId) return { authRequired: "account_mismatch" };
+  return null;
 }
 
 /**
@@ -128,20 +167,9 @@ export function createAuth(
   const verify = (session: Session): Promise<ApiResult | null> => {
     if (verifying?.token === session.token) return verifying.result;
     const result = (async (): Promise<ApiResult | null> => {
-      const me = await callGcoreApi(
-        { method: "GET", path: "/iam/clients/me", authHeader: `APIKey ${session.token}` },
-        SESSION_LIMITS,
-      );
-      if (me.status === 401) return { authRequired: "rejected" };
-      if (me.status !== 200) {
-        return {
-          status: me.status >= 400 ? me.status : 502,
-          data: { error: `Couldn't confirm which account the session token belongs to (GET /iam/clients/me answered ${me.status}). Try again shortly.` },
-        };
-      }
-      if ((me.data as { id?: unknown } | null)?.id !== session.client_id) return { authRequired: "account_mismatch" };
-      verifiedToken = session.token;
-      return null;
+      const problem = await checkAccount(session.token, session.client_id);
+      if (!problem) verifiedToken = session.token;
+      return problem;
     })().finally(() => {
       if (verifying?.token === session.token) verifying = undefined;
     });
@@ -164,15 +192,7 @@ export function createAuth(
       pinnedClientId ??= session.client_id;
       if (session.client_id !== pinnedClientId) return { authRequired: "account_changed" };
 
-      const result = await callGcoreApi({ ...call, authHeader: `APIKey ${session.token}` }, SESSION_LIMITS);
-      // A 403 is a permission problem, not a login problem: pass it through.
-      if (result.status === 401) return { authRequired: "rejected" };
-      // Never hand the token across the broker boundary, even if an upstream echoes it.
-      const token = session.token;
-      if (JSON.stringify(result.data ?? null).includes(token)) {
-        return { status: 0, data: { error: "The API response was withheld because it contained the session token." } };
-      }
-      return result;
+      return callWithToken(session.token, call, "rejected");
     },
 
     status() {
@@ -211,6 +231,90 @@ export function createAuth(
   };
 }
 
+// 8 hours (the longest ephemeral option) plus 5 minutes of clock skew (task 10, MUST 10).
+export const EPHEMERAL_MAX_LIFETIME_MS = 8 * 3_600_000 + 5 * 60_000;
+
+/**
+ * Ephemeral session mode (fastedge-coordinator tasks/10-ephemeral-session.md, v1). The broker holds
+ * an X25519 key in memory; login seals the approved token to it. The broker adopts one token per
+ * lifetime: it reads only its own sealed file, checks the account, and from then on never reads the
+ * volume again. Expiry or a 401 means restart, never a re-read. It never reads the plaintext cache.
+ * `sessionDir`, `apiOrigin` and `now` are test hooks.
+ */
+export function createEphemeralAuth(opts: {
+  recipient: { privateKey: KeyObject; publicKey: string };
+  sessionDir?: string;
+  apiOrigin?: string;
+  now?: () => number;
+}): LocalAuth {
+  const apiOrigin = opts.apiOrigin ?? GCORE_API_ORIGIN;
+  const sessionDir = opts.sessionDir ?? SESSION_DIR;
+  const now = opts.now ?? Date.now;
+  let adopted: Session | undefined;
+  let adopting: Promise<AuthRequiredReason | ApiResult | null> | undefined;
+
+  /** Reads and opens our sealed file. Not adopted until the account check passes. */
+  const candidate = (): Session | AuthRequiredReason => {
+    const payload = open(opts.recipient.privateKey, opts.recipient.publicKey, readSealed(sessionDir, opts.recipient.publicKey));
+    if (!payload) return "no_session";
+    if (payload.api_origin !== apiOrigin) return "origin_mismatch";
+    const expires = Date.parse(payload.expires_at);
+    if (!TOKEN_PATTERN.test(payload.token) || Number.isNaN(expires) || payload.client_id <= 0) return "no_session";
+    // The 8 h cap, again at adoption: a planted envelope can't hold a longer session.
+    if (expires - now() > EPHEMERAL_MAX_LIFETIME_MS) return "no_session";
+    const session: Session = { version: 1, generation: "sealed", ...payload };
+    return isUsable(session, now()) ? session : "expired";
+  };
+
+  /** Serialized: concurrent first calls share one adoption. */
+  const adopt = (): Promise<AuthRequiredReason | ApiResult | null> => {
+    adopting ??= (async () => {
+      const c = candidate();
+      if (typeof c === "string") return c;
+      const problem = await checkAccount(c.token, c.client_id);
+      if (problem) return problem;
+      adopted = c;
+      return null;
+    })().finally(() => (adopting = undefined));
+    return adopting;
+  };
+
+  const status = () => {
+    const state = adopted ? (isUsable(adopted, now()) ? "available" : "restart_required") : "no_session";
+    return {
+      credential: "session",
+      mode: "ephemeral",
+      state,
+      active_session: adopted ? describeSession(adopted) : null,
+      account_verified: adopted !== undefined,
+      pinned_client_id: adopted?.client_id ?? null,
+      note: "Ephemeral session: the token is sealed to this server's in-memory key and is never stored in a usable form. It ends when the MCP server stops. One approval per server start; switching accounts or renewing means restarting the server.",
+      ...(adopted ? {} : { login_command: loginCommand(apiOrigin), code_command: codeCommand(apiOrigin), manual_login: manualFallback(apiOrigin) }),
+      ...(state === "restart_required" ? { next_step: EPHEMERAL_RESTART_HINT } : {}),
+    };
+  };
+
+  return {
+    resolve: () => {
+      if (!adopted) return { authRequired: "no_session" };
+      if (!isUsable(adopted, now())) return { authRequired: "restart_required" };
+      return { header: `APIKey ${adopted.token}`, source: "session" };
+    },
+
+    async call(call) {
+      if (!adopted) {
+        const problem = await adopt();
+        if (typeof problem === "string") return { authRequired: problem };
+        if (problem) return problem;
+      }
+      if (!isUsable(adopted!, now())) return { authRequired: "restart_required" };
+      return callWithToken(adopted!.token, call, "restart_required");
+    },
+
+    status,
+  };
+}
+
 /** PROTOCOL.md §4. Metadata only: never the token or the file contents (S3). */
 export function authRequiredResult(
   reason: AuthRequiredReason,
@@ -220,7 +324,13 @@ export function authRequiredResult(
   const command = loginCommand(apiOrigin);
   const lines = [`FastEdge is not connected to a Gcore account (${reason}).`];
 
-  if (reason === "account_changed") {
+  if (reason === "restart_required") {
+    lines.push(
+      "This ephemeral session has ended (it expired or was revoked). Ephemeral sessions are never renewed while the MCP server runs.",
+      "Don't run a login command now.",
+      EPHEMERAL_RESTART_HINT,
+    );
+  } else if (reason === "account_changed") {
     lines.push("A login for a different account replaced the session this server was using.", RESTART_HINT);
   } else if (reason === "broker_unavailable") {
     lines.push(

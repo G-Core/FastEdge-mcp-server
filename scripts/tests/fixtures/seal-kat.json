@@ -1,0 +1,26 @@
+{
+  "recipient_seed": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
+  "sender_seed": "ZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5_gIGCg4Q",
+  "payload": {
+    "token": "4242_kat-token-not-real",
+    "api_origin": "https://api.preprod.world",
+    "client_id": 5724274,
+    "token_id": 2393790,
+    "created_at": "2026-10-07T10:00:00.000Z",
+    "expires_at": "2026-10-07T18:00:00.000Z"
+  },
+  "envelope": {
+    "v": 1,
+    "suite": "X25519/HKDF-SHA256/AES-256-GCM",
+    "recipient": "B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9_AsrhtHHw",
+    "epk": "VxR2nRFr92Q2rnS8eT0sMK0ZA8WaxSc4BcfiaYtBDDY",
+    "salt": "AAcOFRwjKjE4P0ZNVFtiaXB3foWMk5qhqK-2vcTL0tk",
+    "nonce": "BRIfLDlGU2BteoeU",
+    "api_origin": "https://api.preprod.world",
+    "client_id": 5724274,
+    "token_id": 2393790,
+    "created_at": "2026-10-07T10:00:00.000Z",
+    "expires_at": "2026-10-07T18:00:00.000Z",
+    "ct": "Qs5skhXY4u13qzd28k75bNEE1SXc8d902HUE-EoGzPt9y3ko4YVIhITAJESucI6Y4lsZ9ILUC_VCo3KaxuPaAw9uKH7B2iRc-CL5f68wURxXpPIX-e9vSFZY082_H8ISMcUuMTtsZ23F55ZmRNLRMd-8pg9SYnYlzqPw_T5OIE5h1aGJjkSOapeqNftbRlEIxpqj7tO7Zu4oG_PnXe03Nb9DoWr2bmH-6vpl4wMTHrx4gfnwa4llZVzOgF8T2HsI6Raj6VAB3jKs-bx25r1oaRyH7A"
+  }
+}

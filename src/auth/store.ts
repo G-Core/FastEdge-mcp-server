@@ -2,7 +2,7 @@
 // server, read-only mount) and the writer (the login container) share these helpers.
 import fs from "node:fs";
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 const MAX_FILE_BYTES = 4096;
 const LOCK_STALE_MS = 10 * 60_000;
@@ -238,6 +238,21 @@ export function removeExpired(dir: string, now: number): void {
     }
   }
 }
+
+// --- Sealed sessions (task 10, ephemeral mode) ---------------------------------------
+
+/** `sealed/<sha256(raw recipient key)>.json`: one file per broker key, named only from the key. */
+const sealedPath = (dir: string, recipient: string) =>
+  join(dir, "sealed", `${createHash("sha256").update(Buffer.from(recipient, "base64url")).digest("hex")}.json`);
+
+/** Writes an envelope for `recipient` atomically (`0700` dir, `0600` file). Never plaintext. */
+export function writeSealed(dir: string, recipient: string, envelope: object): void {
+  ensurePrivateDir(dir);
+  writeAtomic(sealedPath(dir, recipient), envelope);
+}
+
+/** The envelope sealed to `recipient`, unparsed beyond JSON (bounded, no links), or null. */
+export const readSealed = (dir: string, recipient: string): unknown => readJson(sealedPath(dir, recipient));
 
 // --- Lock -----------------------------------------------------------------------
 

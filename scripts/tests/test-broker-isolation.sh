@@ -14,6 +14,9 @@ DROP="--clear-groups --no-new-privs --inh-caps=-all --ambient-caps=-all --boundi
 VOL_GOOD="fe-gate-good-$$"
 VOL_LEGACY="fe-gate-legacy-$$"
 VOL_LINK="fe-gate-link-$$"
+VOL_EPH="fe-gate-eph-$$"
+EPH_NAME="fe-gate-eph-server-$$"
+EPH_DIR=""
 # GATE_WS_PARENT: where the test workspace goes (e.g. /mnt/c/Users/me on Windows, to test a Windows-drive mount).
 WS="$(mktemp -d "${GATE_WS_PARENT:-${TMPDIR:-/tmp}}/fe-gate-XXXXXX")"
 chmod 0755 "$WS"
@@ -32,8 +35,9 @@ check() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1 (expected '$3', got 
 
 cleanup() {
   [ -n "$CONTAINER" ] && docker rm -f "$CONTAINER" >/dev/null 2>&1
-  docker volume rm -f "$VOL_GOOD" "$VOL_LEGACY" "$VOL_LINK" >/dev/null 2>&1
-  rm -rf "$WS"
+  docker rm -f "$EPH_NAME" >/dev/null 2>&1
+  docker volume rm -f "$VOL_GOOD" "$VOL_LEGACY" "$VOL_LINK" "$VOL_EPH" >/dev/null 2>&1
+  rm -rf "$WS" ${EPH_DIR:+"$EPH_DIR"}
 }
 trap cleanup EXIT
 
@@ -51,6 +55,7 @@ seed() { # volume owner dirmode filemode [extra shell]
 seed "$VOL_GOOD" 10002:10002 0700 0600
 seed "$VOL_LEGACY" 10001:10001 0755 0644
 seed "$VOL_LINK" 10002:10002 0700 0600 "ln -s /etc/passwd /run/fastedge/accounts/link"
+seed "$VOL_EPH" 10002:10002 0700 0600
 
 RUN=(docker run --rm -i -v "$WS:/workspace" -e GCORE_API_BASE=$API)
 
@@ -102,7 +107,7 @@ SERVER_GID="$(in_c "awk '/^Gid:/{print \$2}' /proc/1/status")"
 dropped "$BROKER" 10002 && pass "broker: uid 10002, no groups, no capabilities, no_new_privs" || fail "broker identity: $(status_of "$BROKER")"
 dropped 1 "$SERVER_UID" && pass "server: uid $SERVER_UID, no groups, no capabilities, no_new_privs" || fail "server identity: $(status_of 1)"
 # Even container root needs CAP_SYS_PTRACE to read the broker's environ (it isn't dumpable).
-check "broker environment is the allowlist only" "$(docker exec --privileged "$CONTAINER" sh -c "tr '\0' '\n' </proc/$BROKER/environ | cut -d= -f1 | sort | tr '\n' ' '" 2>/dev/null)" "GCORE_API_BASE HOME PATH "
+check "broker environment is the allowlist only" "$(docker exec --privileged "$CONTAINER" sh -c "tr '\0' '\n' </proc/$BROKER/environ | cut -d= -f1 | sort | tr '\n' ' '" 2>/dev/null)" "FASTEDGE_SESSION GCORE_API_BASE HOME PATH "
 check "broker core dumps are off" "$(in_c "grep 'Max core file size' /proc/$BROKER/limits | tr -s ' ' | cut -d' ' -f5,6")" "0 0"
 check "NODE_OPTIONS from the launch config did not reach the broker" "$(docker logs "$CONTAINER" 2>&1 | grep -c 'PRELOAD RAN in uid 10002')" "0"
 
@@ -158,6 +163,68 @@ grep -q '\\"client_id\\": 123' <<<"$(line 2)" && pass "fastedge-auth-status read
 grep -q '(rejected)' <<<"$(line 3)" && pass "gcore_api reaches the API through the broker (fake token → rejected)" || fail "gcore_api: $(line 3 | head -c 200)"
 grep -q 'policy_denied' <<<"$(line 4)" && pass "a path outside the policy is denied" || fail "policy: $(line 4 | head -c 200)"
 check "no tool output contains the canary" "$(grep -c "$CANARY" <<<"$OUT")" "0"
+
+# --- 5. Ephemeral mode (task 10): sealed to the broker's in-memory key ------------------------
+echo "Ephemeral mode"
+expect_refusal "ephemeral together with an API key is refused" "can't be combined" -e FASTEDGE_SESSION=ephemeral -e GCORE_API_KEY=not-a-real-key
+expect_refusal "an unknown FASTEDGE_SESSION is refused" "must be unset" -e FASTEDGE_SESSION=sometimes
+login_refusal() { # label pattern login-args...
+  local label=$1 pattern=$2; shift 2
+  local out code
+  out="$(t_out 60 docker run --rm -i -v "$VOL_EPH:/run/fastedge" -e GCORE_API_BASE=$API -e FASTEDGE_SESSION=ephemeral "$IMAGE" login "$@" </dev/null 2>&1)"; code=$?
+  if [ "$code" = 2 ] && grep -q "$pattern" <<<"$out"; then pass "$label"; else fail "$label (exit $code: $(tail -1 <<<"$out"))"; fi
+}
+login_refusal "ephemeral login without --seal-to is refused" "needs the MCP server's key"
+login_refusal "ephemeral login --use is refused" "can't switch" --use 123 --seal-to AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+
+# One MCP server kept running over a FIFO, so a sealed token can be planted for its live key.
+CANARY_EPH="4242_GATE-EPHEMERAL-$(date +%s)"
+EPH_DIR="$(mktemp -d)"
+mkfifo "$EPH_DIR/in"
+docker run --rm -i --name "$EPH_NAME" -v "$WS:/workspace" -v "$VOL_EPH:/run/fastedge:ro" -e GCORE_API_BASE=$API \
+  -e FASTEDGE_SESSION=ephemeral "$IMAGE" <"$EPH_DIR/in" >"$EPH_DIR/out" 2>"$EPH_DIR/err" &
+exec 4>"$EPH_DIR/in"
+send() { printf '%s\n' "$1" >&4; }
+reply() { for _ in $(seq 1 150); do grep "\"id\":$1}" "$EPH_DIR/out" && return; sleep 0.2; done; }
+send '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"gate","version":"0"}}}'
+send '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+send '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"fastedge-auth-status","arguments":{}}}'
+STATUS="$(reply 2)"
+SEAL_KEY="$(grep -oE 'seal-to [A-Za-z0-9_-]{43}' <<<"$STATUS" | head -1 | cut -d' ' -f2)"
+grep -q '\\"mode\\": \\"ephemeral\\"' <<<"$STATUS" && grep -q '\\"state\\": \\"no_session\\"' <<<"$STATUS" &&
+  pass "ephemeral status: no session, the plaintext account in the volume is ignored" || fail "ephemeral status: $(head -c 300 <<<"$STATUS")"
+[ -n "$SEAL_KEY" ] && pass "the login command carries the broker's public key" || fail "no --seal-to key in the status"
+
+# Plant a token sealed to that key, as a volume writer would (root in another container).
+docker run --rm -v "$VOL_EPH:/run/fastedge" --entrypoint sh "$IMAGE" -c "cd /app && node --input-type=module -e '
+  import { seal } from \"/app/build/auth/seal.js\";
+  import { writeSealed } from \"/app/build/auth/store.js\";
+  const [k, token] = process.argv.slice(1), now = Date.now();
+  writeSealed(\"/run/fastedge\", k, seal(k, { token, api_origin: \"$API\", client_id: 123, token_id: 4242,
+    created_at: new Date(now).toISOString(), expires_at: new Date(now + 4 * 3600e3).toISOString() }));
+' '$SEAL_KEY' '$CANARY_EPH' && chown -R 10002:10002 /run/fastedge"
+send '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"gcore_api","arguments":{"method":"GET","path":"/fastedge/v1/apps"}}}'
+grep -q '(rejected)' <<<"$(reply 3)" && pass "the broker opens the sealed token and uses it (fake token → rejected)" || fail "sealed adoption: $(reply 3 | head -c 200)"
+
+EPH_SERVER_UID="$(docker exec "$EPH_NAME" awk '/^Uid:/{print $2}' /proc/1/status)"
+found="$(docker exec "$EPH_NAME" setpriv --reuid="$EPH_SERVER_UID" --regid="$EPH_SERVER_UID" $DROP \
+  sh -c "timeout 30 grep -rlsF --exclude-dir=proc --exclude-dir=sys --exclude-dir=dev '$CANARY_EPH' / | head -3" 2>/dev/null)"
+check "build code can't: find the ephemeral token anywhere" "$found" ""
+check "no plaintext ephemeral token in the volume, even for root" \
+  "$(docker run --rm -v "$VOL_EPH:/v:ro" --entrypoint sh "$IMAGE" -c "grep -rlF '$CANARY_EPH' /v" 2>/dev/null)" ""
+check "the ephemeral token is in no output or log" "$(cat "$EPH_DIR/out" "$EPH_DIR/err" | grep -c "$CANARY_EPH")" "0"
+
+# Stop the server: the broker and its key die with it. A new server can't open the old file.
+exec 4>&-
+for _ in $(seq 1 150); do docker inspect --type container "$EPH_NAME" >/dev/null 2>&1 || break; sleep 0.2; done
+docker inspect --type container "$EPH_NAME" >/dev/null 2>&1 && fail "the ephemeral server stops when its client goes away" || pass "the ephemeral server stops when its client goes away"
+AFTER="$(printf '%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"gate","version":"0"}}}' \
+  '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"gcore_api","arguments":{"method":"GET","path":"/fastedge/v1/apps"}}}' |
+  { cat; sleep 6; } | t_out 60 "${RUN[@]}" -v "$VOL_EPH:/run/fastedge:ro" -e FASTEDGE_SESSION=ephemeral "$IMAGE" 2>/dev/null)"
+grep -q '(no_session)' <<<"$(grep '"id":2}' <<<"$AFTER")" && pass "after a restart the old sealed token can't be opened (new key)" ||
+  fail "restart: $(grep '"id":2}' <<<"$AFTER" | head -c 200)"
 
 echo
 if [ "$failures" = 0 ]; then echo "All broker isolation checks passed."; else echo "$failures check(s) FAILED."; fi
