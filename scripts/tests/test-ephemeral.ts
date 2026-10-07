@@ -13,7 +13,7 @@ import { FrameReader, connectBroker, encodeFrame, serveBroker } from "../../src/
 import { authRequiredResult, createEphemeralAuth } from "../../src/auth/credentials.js";
 import { LoginError, connectWithCode, startLogin } from "../../src/auth/login-server.js";
 import { generateRecipient, seal } from "../../src/auth/seal.js";
-import { codeCommand, getSealTo, loginCommand, setSealTo, useCommand } from "../../src/auth/session.js";
+import { codeCommand, getSealTo, loginCommand, manualFallback, setSealTo, useCommand } from "../../src/auth/session.js";
 import { writeSealed } from "../../src/auth/store.js";
 
 const API = "https://api.preprod.world";
@@ -183,6 +183,22 @@ test("an envelope beyond the 8 h cap, expired, for another origin, or for anothe
   }
 });
 
+test("a 401 after adoption ends the session: nothing more is sent with that token", async () => {
+  const { auth, put } = setup();
+  put();
+  let status = 401;
+  const stub = stubFetch(undefined, () => json({}, status));
+  try {
+    assert.deepEqual(await auth.call(get), { authRequired: "restart_required" });
+    status = 200; // even if the API would now accept it
+    assert.deepEqual(await auth.call(get), { authRequired: "restart_required" });
+    assert.equal(stub.calls.api, 1, "the rejected token was not sent again");
+    assert.equal((auth.status() as Record<string, unknown>).state, "restart_required");
+  } finally {
+    stub.restore();
+  }
+});
+
 // --- What the agent is told -----------------------------------------------------------
 
 test("restart_required offers no login, only a restart", () => {
@@ -265,7 +281,8 @@ test("ephemeral login: ephemeral=1, no installation id, and only a sealed file i
 });
 
 test("ephemeral login refuses a missing or malformed key before listening", async () => {
-  for (const sealTo of ["", "short", "A".repeat(44), "A".repeat(42) + "+"]) {
+  const lowOrder = Buffer.from("e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800", "hex").toString("base64url");
+  for (const sealTo of ["", "short", "A".repeat(44), "A".repeat(42) + "+", "A".repeat(43) /* all-zero point */, lowOrder]) {
     await assert.rejects(
       startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir: tmp(), sealTo }),
       (e: unknown) => e instanceof LoginError && e.exitCode === 2,
@@ -312,6 +329,7 @@ test("the broker's handshake carries its key; the server's login commands then s
     assert.match(loginCommand(API)!, new RegExp(` -e FASTEDGE_SESSION=ephemeral .* login --seal-to ${recipient.publicKey}$`));
     assert.match(codeCommand(API)!, / -e FASTEDGE_SESSION=ephemeral .* login --code --seal-to /);
     assert.equal(useCommand(API), null, "no --use in ephemeral mode");
+    assert.match(manualFallback(API)!, /agent-connect\?ephemeral=1 /, "the manual path tells the page too");
   } finally {
     conns.forEach((c) => c.destroy());
     listener.close();
@@ -330,5 +348,22 @@ test("a malformed seal_to in the handshake is refused (broker_unavailable)", asy
     assert.deepEqual(await auth.call(get), { authRequired: "broker_unavailable" });
   } finally {
     listener.close();
+  }
+});
+
+test("forced ephemeral: a handshake with no key, or an all-zero key, is refused", async () => {
+  for (const hello of [{ ok: true }, { ok: true, seal_to: "A".repeat(43) }]) {
+    const socketPath = join(tmp(), "sock");
+    const listener = net.createServer((c) => {
+      const reader = new FrameReader(1024, () => 0, () => c.write(encodeFrame(hello)));
+      c.on("data", (chunk: Buffer) => reader.push(chunk));
+    });
+    await new Promise<void>((resolve) => listener.listen(socketPath, resolve));
+    try {
+      const auth = await connectBroker({ socketPath, ownerUid: process.getuid!(), checkProcess: false, expectSeal: true });
+      assert.deepEqual(await auth.call(get), { authRequired: "broker_unavailable" }, JSON.stringify(hello));
+    } finally {
+      listener.close();
+    }
   }
 });

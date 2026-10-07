@@ -67,7 +67,7 @@ export function manualFallback(apiOrigin: string): string | null {
   const command = codeCommand(apiOrigin);
   if (!portal || !command) return null;
   return [
-    `Ask the user to open ${portal}/fastedge/agent-connect themselves, choose the manual option, approve,`,
+    `Ask the user to open ${portal}/fastedge/agent-connect${sealTo ? "?ephemeral=1" : ""} themselves, choose the manual option, approve,`,
     `and run this in their own terminal (not through you): ${command}`,
     "Never ask them to paste the connect code into this chat.",
   ].join("\n");

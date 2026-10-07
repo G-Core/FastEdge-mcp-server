@@ -35,6 +35,8 @@ if [ "${1:-}" = "login" ]; then
   login_fail() { echo "login: $*" >&2; exit 2; }
   [ "$(id -u)" = "0" ] || login_fail "must start as root (don't pass --user)"
   case "${FASTEDGE_SESSION:-}" in ''|ephemeral) ;; *) login_fail "FASTEDGE_SESSION must be unset or \"ephemeral\"";; esac
+  [ "${FASTEDGE_SESSION:-}" != "ephemeral" ] || [ -z "${GCORE_API_KEY:-${FASTEDGE_API_KEY:-}}" ] ||
+    login_fail "FASTEDGE_SESSION=ephemeral can't be combined with GCORE_API_KEY; remove one of them"
   command -v setpriv >/dev/null 2>&1 || login_fail "setpriv is missing from the image"
 
   # Migrate as root: refuse links and odd file types, then make everything broker-only.

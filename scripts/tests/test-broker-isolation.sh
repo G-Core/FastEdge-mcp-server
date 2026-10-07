@@ -171,11 +171,14 @@ expect_refusal "an unknown FASTEDGE_SESSION is refused" "must be unset" -e FASTE
 login_refusal() { # label pattern login-args...
   local label=$1 pattern=$2; shift 2
   local out code
-  out="$(t_out 60 docker run --rm -i -v "$VOL_EPH:/run/fastedge" -e GCORE_API_BASE=$API -e FASTEDGE_SESSION=ephemeral "$IMAGE" login "$@" </dev/null 2>&1)"; code=$?
+  local docker_args=()
+  while [ "${1:-}" = "-e" ]; do docker_args+=("$1" "$2"); shift 2; done
+  out="$(t_out 60 docker run --rm -i -v "$VOL_EPH:/run/fastedge" -e GCORE_API_BASE=$API -e FASTEDGE_SESSION=ephemeral "${docker_args[@]}" "$IMAGE" login "$@" </dev/null 2>&1)"; code=$?
   if [ "$code" = 2 ] && grep -q "$pattern" <<<"$out"; then pass "$label"; else fail "$label (exit $code: $(tail -1 <<<"$out"))"; fi
 }
 login_refusal "ephemeral login without --seal-to is refused" "needs the MCP server's key"
-login_refusal "ephemeral login --use is refused" "can't switch" --use 123 --seal-to AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+login_refusal "ephemeral login with an API key is refused" "can't be combined" -e GCORE_API_KEY=x
+login_refusal "ephemeral login --use is refused" "can't switch" --use 123 --seal-to B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9_AsrhtHHw
 
 # One MCP server kept running over a FIFO, so a sealed token can be planted for its live key.
 CANARY_EPH="4242_GATE-EPHEMERAL-$(date +%s)"

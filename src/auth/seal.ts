@@ -74,6 +74,21 @@ const publicKeyFromRaw = (raw: Buffer) =>
 
 const rawPublic = (key: KeyObject) => Buffer.from(key.export({ format: "jwk" }).x as string, "base64url");
 
+/**
+ * Whether `recipient` is a usable X25519 public key: 32 bytes of strict base64url that gives a
+ * non-zero shared secret (low-order points, including all-zero, don't). Checked before any login.
+ */
+export function isValidRecipient(recipient: unknown): recipient is string {
+  const R = decodeB64url(recipient, KEY_BYTES);
+  if (!R) return false;
+  try {
+    const z = diffieHellman({ privateKey: generateKeyPairSync("x25519").privateKey, publicKey: publicKeyFromRaw(R) });
+    return !z.every((b) => b === 0);
+  } catch {
+    return false;
+  }
+}
+
 /** A recipient key pair. The private key never leaves the process that created it. */
 export function generateRecipient(): { privateKey: KeyObject; publicKey: string } {
   const { privateKey, publicKey } = generateKeyPairSync("x25519");

@@ -68,7 +68,12 @@ async function main() {
   const sealArg = at >= 0 ? args.splice(at, 2)[1] ?? "" : undefined;
   const [option, value, ...rest] = args;
   if (rest.length) usage();
-  const ephemeral = process.env.FASTEDGE_SESSION === "ephemeral" || sealArg !== undefined;
+  const mode = process.env.FASTEDGE_SESSION ?? "";
+  if (mode !== "" && mode !== "ephemeral") {
+    console.error('login: FASTEDGE_SESSION must be unset or "ephemeral"');
+    process.exit(2);
+  }
+  const ephemeral = mode === "ephemeral" || sealArg !== undefined;
 
   try {
     // Forced ephemeral mode: no valid key, no login. Checked before any browser or file work.

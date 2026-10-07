@@ -7,7 +7,7 @@ import net from "node:net";
 import { GCORE_API_ORIGIN, serializeBody } from "../api-client.js";
 import { checkAllowed } from "../policy/enforce.js";
 import type { ApiResult, Auth, LocalAuth } from "./credentials.js";
-import { decodeB64url } from "./seal.js";
+import { isValidRecipient } from "./seal.js";
 import { getSealTo, setSealTo } from "./session.js";
 
 export const BROKER_ID = 10002;
@@ -231,9 +231,10 @@ function splitQuery(path: string, query?: Record<string, string>) {
  * cache. `socketPath`, `ownerUid` and `checkProcess` are test hooks.
  */
 export async function connectBroker(
-  opts: { socketPath?: string; ownerUid?: number; checkProcess?: boolean } = {},
+  opts: { socketPath?: string; ownerUid?: number; checkProcess?: boolean; expectSeal?: boolean } = {},
 ): Promise<Auth> {
   const socketPath = opts.socketPath ?? BROKER_SOCKET;
+  const expectSeal = opts.expectSeal ?? process.env.FASTEDGE_SESSION === "ephemeral";
   const ownerUid = opts.ownerUid ?? BROKER_ID;
   const fail = (why: string) => {
     console.error(`Session login unavailable: ${why}`);
@@ -264,9 +265,12 @@ export async function connectBroker(
   const reader = new FrameReader(MAX_RESPONSE_FRAME, () => 0, (m: any) => {
     if (m?.ok === true && !Number.isSafeInteger(m?.id)) {
       if (m.seal_to !== undefined) {
-        // It goes into a shell command the agent runs: exactly 32 bytes of base64url, or refuse.
-        if (!decodeB64url(m.seal_to, 32)) return void socket.destroy();
+        // It goes into a shell command the agent runs: a valid X25519 key in base64url, or refuse.
+        if (!isValidRecipient(m.seal_to)) return void socket.destroy();
         setSealTo(m.seal_to);
+      } else if (expectSeal) {
+        // Forced ephemeral mode with a broker that didn't send a key: never fall back to plaintext login.
+        return void socket.destroy();
       }
       return greeted(true);
     }

@@ -3,7 +3,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import type { AddressInfo } from "node:net";
 
 import { EPHEMERAL_MAX_LIFETIME_MS } from "./credentials.js";
-import { decodeB64url, seal } from "./seal.js";
+import { isValidRecipient, seal } from "./seal.js";
 import { PORTAL_ORIGINS, SESSION_DIR } from "./session.js";
 import {
   LockedError,
@@ -129,7 +129,7 @@ function decodeConnectCode(code: string): Record<string, string> | null {
 
 /** Ephemeral mode: a valid 32-byte base64url recipient key, or exit 2 before anything else happens. */
 export function requireSealKey(sealTo: string | undefined): string {
-  if (!sealTo || !decodeB64url(sealTo, 32)) {
+  if (!isValidRecipient(sealTo)) {
     throw new LoginError(
       "Ephemeral login needs the MCP server's key (--seal-to). Use the exact login command the MCP server printed.",
       2,

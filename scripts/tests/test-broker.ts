@@ -144,7 +144,7 @@ async function brokerPairIn(sessionDir: string) {
     serveBroker(conn, createAuth("", { sessionDir, apiOrigin: API }), API);
   });
   await new Promise<void>((resolve) => listener.listen(socketPath, resolve));
-  const client = await connectBroker({ socketPath, ownerUid: process.getuid!(), checkProcess: false });
+  const client = await connectBroker({ socketPath, ownerUid: process.getuid!(), checkProcess: false, expectSeal: false });
   const stop = () => {
     conns.forEach((c) => c.destroy());
     listener.close();

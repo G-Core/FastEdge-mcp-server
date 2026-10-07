@@ -231,7 +231,8 @@ export function createAuth(
   };
 }
 
-// 8 hours (the longest ephemeral option) plus 5 minutes of clock skew (task 10, MUST 10).
+// 8 hours (the longest ephemeral option) plus the protocol's 5 minutes of clock skew between the
+// portal and this machine, as for the 7-day cap (task 10, MUST 10).
 export const EPHEMERAL_MAX_LIFETIME_MS = 8 * 3_600_000 + 5 * 60_000;
 
 /**
@@ -251,7 +252,9 @@ export function createEphemeralAuth(opts: {
   const sessionDir = opts.sessionDir ?? SESSION_DIR;
   const now = opts.now ?? Date.now;
   let adopted: Session | undefined;
+  let ended = false; // a 401 on the adopted token: nothing is sent with it again
   let adopting: Promise<AuthRequiredReason | ApiResult | null> | undefined;
+  const over = () => ended || (adopted !== undefined && !isUsable(adopted, now()));
 
   /** Reads and opens our sealed file. Not adopted until the account check passes. */
   const candidate = (): Session | AuthRequiredReason => {
@@ -280,7 +283,7 @@ export function createEphemeralAuth(opts: {
   };
 
   const status = () => {
-    const state = adopted ? (isUsable(adopted, now()) ? "available" : "restart_required") : "no_session";
+    const state = adopted ? (over() ? "restart_required" : "available") : "no_session";
     return {
       credential: "session",
       mode: "ephemeral",
@@ -297,7 +300,7 @@ export function createEphemeralAuth(opts: {
   return {
     resolve: () => {
       if (!adopted) return { authRequired: "no_session" };
-      if (!isUsable(adopted, now())) return { authRequired: "restart_required" };
+      if (over()) return { authRequired: "restart_required" };
       return { header: `APIKey ${adopted.token}`, source: "session" };
     },
 
@@ -307,8 +310,10 @@ export function createEphemeralAuth(opts: {
         if (typeof problem === "string") return { authRequired: problem };
         if (problem) return problem;
       }
-      if (!isUsable(adopted!, now())) return { authRequired: "restart_required" };
-      return callWithToken(adopted!.token, call, "restart_required");
+      if (over()) return { authRequired: "restart_required" };
+      const result = await callWithToken(adopted!.token, call, "restart_required");
+      if ("authRequired" in result) ended = true;
+      return result;
     },
 
     status,
