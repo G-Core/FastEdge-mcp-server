@@ -11,7 +11,7 @@ import {
   useCachedAccount,
 } from "./auth/login-server.js";
 import { LOGIN_PORT, PORTAL_ORIGINS, RESTART_HINT } from "./auth/session.js";
-import type { Session } from "./auth/store.js";
+import { parseId, type Session } from "./auth/store.js";
 
 const EXIT_CODES = { ok: 0, timeout: 5, denied: 6 } as const;
 const MESSAGES = {
@@ -71,8 +71,7 @@ async function main() {
   // `--account <client_id>`: accept only that Gcore account (browser login or --code).
   const accAt = args.indexOf("--account");
   const accountArg = accAt >= 0 ? args.splice(accAt, 2)[1] ?? "" : undefined;
-  if (accountArg !== undefined && !/^[1-9]\d{0,17}$/.test(accountArg)) usage();
-  const account = accountArg === undefined ? undefined : Number(accountArg);
+  const account = accountArg === undefined ? undefined : (parseId(accountArg) ?? usage());
   const [option, value, ...rest] = args;
   if (rest.length) usage();
   const mode = process.env.FASTEDGE_SESSION ?? "";
@@ -103,8 +102,8 @@ async function main() {
     if (account !== undefined && (option === "--use" || option === "--logout")) usage();
 
     if (option === "--use") {
-      if (!value || !/^[1-9]\d{0,17}$/.test(value)) usage();
-      const session = useCachedAccount({ apiOrigin: GCORE_API_ORIGIN, clientId: Number(value) });
+      const clientId = parseId(value) ?? usage();
+      const session = useCachedAccount({ apiOrigin: GCORE_API_ORIGIN, clientId });
       console.error(`The saved session now points at account ${session.client_id} (expires ${session.expires_at}).`);
       console.error(`If an MCP server is running on another account: ${RESTART_HINT}`);
       console.error('A server holding a "don\'t keep" session ignores saved sessions until it is restarted.');
@@ -114,7 +113,7 @@ async function main() {
     if (option === "--logout") {
       // No argument: the active account (as before). `<client_id>`: that account. `all`: every
       // saved session for prod and preprod, plus sealed files.
-      if (value !== undefined && value !== "all" && !/^[1-9]\d{0,17}$/.test(value)) usage();
+      const target = value === undefined || value === "all" ? value : (parseId(value) ?? usage());
       let removed: Session[];
       let sealed = 0;
       if (value === undefined) {
@@ -123,7 +122,7 @@ async function main() {
       } else {
         ({ sessions: removed, sealed } = logoutSessions({
           apiOrigin: GCORE_API_ORIGIN,
-          target: value === "all" ? "all" : Number(value),
+          target: target!,
         }));
       }
       if (removed.length === 0 && sealed === 0) {

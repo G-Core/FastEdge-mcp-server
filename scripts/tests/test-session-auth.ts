@@ -496,6 +496,17 @@ test("a present but unreadable active pointer never falls back to legacy session
   assert.deepEqual(resolverFor(linked)(), { authRequired: "no_session" }, "a symlinked pointer");
 });
 
+test("ids must fit a JavaScript number exactly; sessions need their full stored shape (review A8)", async () => {
+  const { parseId } = await import("../../src/auth/store.js");
+  assert.equal(parseId("9007199254740991"), 9007199254740991);
+  for (const bad of ["9007199254740993", "123456789012345678", "0", "012", "1e3", "", undefined]) assert.equal(parseId(bad), null, String(bad));
+  for (const missing of ["token_id", "generation", "created_at"]) {
+    const s = session() as Record<string, unknown>;
+    delete s[missing];
+    assert.deepEqual(resolverFor(writeSession(tmp(), s, 123))(), { authRequired: "no_session" }, missing);
+  }
+});
+
 test("legacy session.json is read until the first login migrates it", () => {
   const dir = tmp();
   writeFileSync(join(dir, "session.json"), JSON.stringify(session()));

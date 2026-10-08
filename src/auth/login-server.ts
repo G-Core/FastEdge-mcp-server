@@ -18,6 +18,7 @@ import {
   saveSession,
   useAccount,
   writeSealed,
+  parseId,
   type Session,
 } from "./store.js";
 
@@ -60,7 +61,7 @@ const MAX_BODY_BYTES = 8192;
 const LOGIN_TIMEOUT_MS = 5 * 60_000;
 // 7 days (the longest option on the Approve page) plus 5 minutes of clock skew (PROTOCOL.md constants).
 export const MAX_LIFETIME_MS = 7 * 24 * 3_600_000 + 5 * 60_000;
-const ID_PATTERN = /^[1-9]\d{0,17}$/;
+
 const FIELDS = ["state", "token", "token_id", "client_id", "expires_at", "api_origin"] as const;
 
 const PAGE_HEADERS = {
@@ -118,8 +119,8 @@ function validateDelivery(
   if (
     f.api_origin !== apiOrigin ||
     !TOKEN_PATTERN.test(f.token) ||
-    !ID_PATTERN.test(f.token_id) ||
-    !ID_PATTERN.test(f.client_id) ||
+    parseId(f.token_id) === null ||
+    parseId(f.client_id) === null ||
     Number.isNaN(expiresAt) ||
     expiresAt <= now ||
     // Task 06 cap (8 h for ephemeral, task 10): a tampered delivery can't plant a longer session than the page allows.

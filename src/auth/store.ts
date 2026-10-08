@@ -70,6 +70,16 @@ function absent(path: string): boolean {
   }
 }
 
+/**
+ * A positive decimal id that fits a JavaScript number exactly (review A8: 18 digits passed the
+ * old patterns but could lose precision). Null otherwise.
+ */
+export function parseId(text: string | undefined): number | null {
+  if (text === undefined || !/^[1-9]\d{0,15}$/.test(text)) return null;
+  const n = Number(text);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
 const isId = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) > 0;
 
 function parseSession(raw: unknown): Session | null {
@@ -77,9 +87,11 @@ function parseSession(raw: unknown): Session | null {
   const s = raw as Record<string, unknown>;
   if (s.version !== 1) return null;
   if (typeof s.token !== "string" || !TOKEN_PATTERN.test(s.token)) return null;
-  if (!isId(s.client_id)) return null;
+  if (!isId(s.client_id) || !isId(s.token_id)) return null;
   if (typeof s.api_origin !== "string" || typeof s.expires_at !== "string") return null;
   if (Number.isNaN(Date.parse(s.expires_at))) return null;
+  // The rest of the stored shape (review A8): written by saveSession, checked on read.
+  if (typeof s.generation !== "string" || typeof s.created_at !== "string") return null;
   return s as unknown as Session;
 }
 

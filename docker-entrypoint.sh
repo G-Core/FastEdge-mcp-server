@@ -43,7 +43,10 @@ if [ "${1:-}" = "login" ]; then
   # This also upgrades POC volumes (0644, owned by 10001) in place.
   if [ -e "$CACHE" ]; then
     [ -d "$CACHE" ] && [ ! -L "$CACHE" ] || login_fail "$CACHE is not a directory"
-    odd="$(find "$CACHE" -mindepth 1 \( -type l -o ! \( -type f -o -type d \) \) -print | head -1)"
+    # Capture first: a pipe into head would hide a find failure (review A8).
+    found="$(find "$CACHE" -mindepth 1 \( -type l -o ! \( -type f -o -type d \) \) -print)" ||
+      login_fail "could not inspect the session cache"
+    odd="$(printf '%s\n' "$found" | head -1)"
     [ -z "$odd" ] || login_fail "unexpected entry in the session cache: $odd"
     chown -R "$BROKER_ID:$BROKER_ID" "$CACHE"
     find "$CACHE" -type d -exec chmod 0700 {} +
@@ -120,8 +123,10 @@ if [ -z "${GCORE_API_KEY:-${FASTEDGE_API_KEY:-}}" ]; then
   # The cache must be broker-only. It is mounted read-only here, so refuse, never fix.
   # The image always has /run/fastedge; anything but a real directory is refused.
   [ -d /run/fastedge ] && [ ! -L /run/fastedge ] || fail "/run/fastedge is not a directory"
-  bad="$(find /run/fastedge \( -type l -o ! \( -type f -o -type d \) -o ! -user "$BROKER_ID" \
-    -o \( -type d ! -perm 0700 \) -o \( -type f -perm /077 \) \) -print 2>/dev/null | head -1)"
+  found="$(find /run/fastedge \( -type l -o ! \( -type f -o -type d \) -o ! -user "$BROKER_ID" \
+    -o \( -type d ! -perm 0700 \) -o \( -type f -perm /077 \) \) -print)" ||
+    fail "could not inspect the session cache"
+  bad="$(printf '%s\n' "$found" | head -1)"
   [ -z "$bad" ] || fail "the session cache is readable by other users ($bad). Run the login command once to upgrade it."
 
   mkdir -p /run/fastedge-broker /tmp/broker-home /run/fastedge-launch
