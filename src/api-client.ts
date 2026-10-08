@@ -34,6 +34,9 @@ export function allowedApiOrigin(base: string): string | null {
     if (url.protocol !== "https:") return null;
     // userinfo would ride along with every request, next to the key.
     if (url.username || url.password) return null;
+    // An origin only: requests are built from the origin, and a path, query or fragment here
+    // would make the URL sent differ from the one the policy and broker checked.
+    if (url.pathname !== "/" || base.includes("?") || base.includes("#")) return null;
     return ALLOWED_API_ORIGINS.has(url.origin) ? url.origin : null;
   } catch {
     return null;
@@ -174,7 +177,7 @@ export async function callGcoreApi(
   // does not depend on it.
   let url: URL;
   try {
-    url = new URL(`${GCORE_API_BASE}${opts.path}`);
+    url = new URL(`${GCORE_API_ORIGIN}${opts.path}`);
   } catch {
     return { status: 0, data: { error: `Invalid API path: ${opts.path}` } };
   }

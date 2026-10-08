@@ -342,6 +342,11 @@ test("allowedApiOrigin: only exact Gcore API origins may receive the key", () =>
     "blob:https://api.gcore.com",                 // inherits an https origin
     "not a url",
     "",
+    "https://api.gcore.com/iam/users",            // a path: requests would go elsewhere than checked
+    "https://api.gcore.com/iam/users#",
+    "https://api.gcore.com/#",                    // fragment
+    "https://api.gcore.com/?x=1",                 // query
+    "https://api.gcore.com?",
   ]) {
     assert.equal(allowedApiOrigin(base), null, `expected ${JSON.stringify(base)} to be rejected`);
   }
