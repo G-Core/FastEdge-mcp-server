@@ -483,6 +483,19 @@ const usable = (overrides: Record<string, unknown> = {}) => session(overrides);
 const expiredSession = (overrides: Record<string, unknown> = {}) =>
   session({ expires_at: new Date(Date.now() - HOUR).toISOString(), ...overrides });
 
+test("a present but unreadable active pointer never falls back to legacy session.json (review A4)", () => {
+  for (const pointer of ["{not json", JSON.stringify({ version: 2 }), "x".repeat(5000)]) {
+    const dir = tmp();
+    writeFileSync(join(dir, "session.json"), JSON.stringify(session()));
+    writeFileSync(activeFile(dir), pointer);
+    assert.deepEqual(resolverFor(dir)(), { authRequired: "no_session" }, pointer.slice(0, 20));
+  }
+  const linked = tmp();
+  writeFileSync(join(linked, "session.json"), JSON.stringify(session()));
+  symlinkSync(join(linked, "session.json"), activeFile(linked));
+  assert.deepEqual(resolverFor(linked)(), { authRequired: "no_session" }, "a symlinked pointer");
+});
+
 test("legacy session.json is read until the first login migrates it", () => {
   const dir = tmp();
   writeFileSync(join(dir, "session.json"), JSON.stringify(session()));

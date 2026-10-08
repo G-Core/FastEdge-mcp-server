@@ -60,6 +60,16 @@ function readJson(path: string): unknown {
   }
 }
 
+/** True only if nothing at all is at `path` (ENOENT); any other state counts as present. */
+function absent(path: string): boolean {
+  try {
+    fs.lstatSync(path);
+    return false;
+  } catch (err: any) {
+    return err?.code === "ENOENT";
+  }
+}
+
 const isId = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) > 0;
 
 function parseSession(raw: unknown): Session | null {
@@ -89,7 +99,11 @@ const readSession = (path: string) => parseSession(readJson(path));
  */
 export function readActiveSession(dir: string, origin: string): Session | null {
   const pointer = parsePointer(readJson(activePath(dir, origin)));
-  if (!pointer) return readSession(legacyPath(dir));
+  if (!pointer) {
+    // Legacy `session.json` only when there's no pointer at all: a present but unreadable one
+    // (malformed, a link, too big) means no session, never a fall back to another credential.
+    return absent(activePath(dir, origin)) ? readSession(legacyPath(dir)) : null;
+  }
   if (pointer.api_origin !== origin) return null;
   const session = readSession(accountPath(dir, origin, pointer.client_id));
   return session && session.client_id === pointer.client_id ? session : null;
@@ -310,14 +324,7 @@ export const readSealed = (dir: string, recipient: string): unknown => readJson(
  * lets normal mode fall back to plaintext. A present but unreadable one (bad JSON, a link, too big)
  * must block that fallback, so it counts as present.
  */
-export function sealedPresent(dir: string, recipient: string): boolean {
-  try {
-    fs.lstatSync(sealedPath(dir, recipient));
-    return true;
-  } catch (err: any) {
-    return err?.code !== "ENOENT";
-  }
-}
+export const sealedPresent = (dir: string, recipient: string): boolean => !absent(sealedPath(dir, recipient));
 
 // --- Lock -----------------------------------------------------------------------
 
