@@ -83,7 +83,9 @@ test("no sealed file: no_session, and the plaintext cache is never read", async 
 
 test("status shows a sealed session before adoption, unverified, without adopting it", async () => {
   const { auth, put } = setup();
-  assert.match(String((auth.status() as Record<string, unknown>).sign_in), /1\. Browser on this computer/);
+  const before = auth.status() as Record<string, unknown>;
+  assert.match(String(before.sign_in), /1\. Browser on this computer/);
+  assert.match(String(before.login_for_account), / login( .*)? --account <client_id>$/, "switching after a restart");
   put();
   const stub = stubFetch();
   try {
@@ -92,6 +94,7 @@ test("status shows a sealed session before adoption, unverified, without adoptin
     assert.equal(status.active_session.client_id, 123);
     assert.equal(status.account_verified, false);
     assert.equal(status.sign_in, undefined);
+    assert.equal(status.login_for_account, undefined, "no command with this server's key once it has a session");
     assert.ok(!JSON.stringify(status).includes(TOKEN));
     assert.equal(stub.calls.me + stub.calls.api, 0, "status sends nothing");
   } finally {

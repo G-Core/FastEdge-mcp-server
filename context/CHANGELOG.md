@@ -14,6 +14,14 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-08] - plugin review: sealed-mode switching, Approve page wording
+
+- **Status:** a session-only server without a session now lists `login_for_account`, so switching
+  accounts after a restart works in that mode too. It's still hidden while a session is held: the
+  command carries this server's key, which the restart replaces.
+- **Wording:** the Approve page offers two options ("Keep me signed in on this computer" / "Only
+  for this MCP server session"), not a checkbox. The forced-mode `fe1` error and the docs say so.
+
 ## [2026-10-08] - `--account`: sign in one specific account
 
 - **Why:** found in a Codex test. Renewing account 5724274 while the portal was on 4732724 silently

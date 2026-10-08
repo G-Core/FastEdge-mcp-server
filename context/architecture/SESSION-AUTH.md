@@ -103,7 +103,8 @@ Forced by config, fixed at broker start, and never mixed with the plaintext cach
 
 ## Choice mode (no `FASTEDGE_SESSION`, task 10 v2)
 
-The Approve page's **Keep me signed in** checkbox decides each sign-in. The contract is PROTOCOL
+The Approve page's choice (**Keep me signed in on this computer** or **Only for this MCP server
+session**) decides each sign-in. The contract is PROTOCOL
 §7a in the coordinator.
 
 - **Broker:** always generates a key. Its handshake sends `seal_to` and `forced`, and the server

@@ -307,7 +307,16 @@ export function createAuth(
       account_verified: sealed !== undefined,
       pinned_client_id: pinnedClientId ?? null,
       note: EPHEMERAL_NOTE,
-      ...(session ? {} : { sign_in: SIGN_IN_HINT, login_command: command, code_command: codeCommand(apiOrigin), manual_login: manualFallback(apiOrigin) }),
+      // Sign-in commands only without a session: they carry this server's key, which a restart replaces.
+      ...(session
+        ? {}
+        : {
+            sign_in: SIGN_IN_HINT,
+            login_command: command,
+            login_for_account: loginCommand(apiOrigin, "<client_id>"),
+            code_command: codeCommand(apiOrigin),
+            manual_login: manualFallback(apiOrigin),
+          }),
       ...(state === "restart_required" ? { next_step: EPHEMERAL_RESTART_HINT } : {}),
       ...(blocked ? { next_step: RESTART_HINT } : {}),
       logout_command: logoutCommand(apiOrigin),

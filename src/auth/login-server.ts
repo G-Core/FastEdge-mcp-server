@@ -41,7 +41,7 @@ export interface LoginOptions {
   apiOrigin: string;
   port: number;
   host: string;
-  /** Task 10: the broker's public key. With it the page offers "Keep me signed in"; unchecked seals the token to it. */
+  /** Task 10: the broker's public key. With it the page offers "Keep me signed in"; the other option seals the token to it. */
   sealTo?: string;
   /** FASTEDGE_SESSION=ephemeral: always seal, no choice (needs `sealTo`). */
   forced?: boolean;
@@ -212,7 +212,7 @@ export function connectWithCode(
   const decoded = decodeConnectCode(code);
   if (decoded && decoded.keep && opts.forced) {
     throw new LoginError(
-      'This MCP server only takes sessions that aren\'t kept on this computer. Approve again with "Keep me signed in" unchecked, and copy the new code.',
+      'This MCP server only takes sessions that aren\'t kept on this computer. Approve again choosing "Only for this MCP server session", and copy the new code.',
       8,
     );
   }
@@ -464,7 +464,7 @@ export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
   const api = new URL(opts.apiOrigin).host;
   // Task 10. Forced: `ephemeral=1` and no installation id (the page offers 4 h / 8 h, marks and
   // replaces nothing). Choice: `seal=1` plus the id; the page shows "Keep me signed in" and uses
-  // the id only when it's checked. Legacy (no key): the id only.
+  // the id only when that option is chosen. Legacy (no key): the id only.
   let install = (opts.forced ? "&ephemeral=1" : sealTo ? "&seal=1" : "") + (opts.account !== undefined ? `&account=${opts.account}` : "");
   if (!opts.forced) {
     try {

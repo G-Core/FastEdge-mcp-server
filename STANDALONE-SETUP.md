@@ -140,29 +140,30 @@ The broker:
 
 ### Don't keep the session on this computer
 
-The Approve page has a **Keep me signed in on this computer** checkbox, checked by default.
+The Approve page offers two options: **Keep me signed in on this computer** (the default) and
+**Only for this MCP server session**.
 
-- **Checked:** the session is saved in the `fastedge-session` volume as described above, for 4
+- **Keep me signed in:** the session is saved in the `fastedge-session` volume as described above, for 4
   hours up to 7 days, and later MCP server starts reuse it.
-- **Unchecked:** the token is encrypted to a key that only the running MCP server holds, in
+- **Only for this MCP server session:** the token is encrypted to a key that only the running MCP server holds, in
   memory. The volume keeps only ciphertext, and once the server stops nobody can decrypt it, from a
   backup or a stolen disk either. You choose 4 or 8 hours, and you approve again the next time the
   server starts, including after `/mcp` reconnects.
 
-Good to know about unchecked sessions:
+Good to know about session-only sign-ins:
 - While the server runs, renewing or switching accounts means **restarting it first**, then
   approving again. An approval goes to the server that's running when you approve.
 - `login --use` and `login --logout` change only the sessions saved on this computer. A server
-  holding an unchecked session ignores them until it's restarted; to end it, stop the server.
-- A session you saved earlier with the box checked stays saved until you `login --logout` or it
+  holding a session-only sign-in ignores them until it's restarted; to end it, stop the server.
+- A session you saved earlier with "Keep me signed in" stays saved until you `login --logout` or it
   expires. After a restart the server can use it again.
 - What it doesn't protect against: anything that can run Docker or is root can still read the
   server's memory while it runs. The token also stays valid at Gcore until it expires (delete it
   on the **API tokens** page to revoke it now).
 
 **Make it the rule:** add `-e FASTEDGE_SESSION=ephemeral` to the MCP configuration (with no API
-key). Every sign-in is then unchecked, the page doesn't show the checkbox, and sessions last 4 or 8
-hours. The checkbox is a convenience for each sign-in; this setting is the guarantee. Combining it
+key). Every sign-in is then session-only, the page doesn't offer "Keep me signed in", and sessions last
+4 or 8 hours. The page's choice is a convenience for each sign-in; this setting is the guarantee. Combining it
 with an API key stops the container.
 
 ```json
