@@ -511,3 +511,26 @@ test("a response echoing a token with quotes or backslashes is withheld", async 
     } finally { st.restore(); }
   }
 });
+
+// --- Review A5: a rejected "keep" token is remembered ----------------------------------------------
+
+test("a saved token the API rejected isn't sent again, and status says rejected until a new token arrives", async () => {
+  const { dir, auth } = setup();
+  plaintext(dir);
+  let status = 401;
+  const s = stub(undefined, () => json({}, status));
+  try {
+    assert.deepEqual(await auth.call(get), { authRequired: "rejected", clientId: 123 });
+    status = 200;
+    assert.deepEqual(await auth.call(get), { authRequired: "rejected", clientId: 123 });
+    assert.deepEqual(s.sent, [PLAIN], "the rejected token went out once");
+    const st = auth.status() as Record<string, unknown>;
+    assert.equal(st.state, "rejected");
+    assert.equal(st.account_verified, false);
+    // A renewal writes a new token: it's used straight away.
+    const f = join(dir, "accounts", "api.preprod.world_123.json");
+    writeFileSync(f, readFileSync(f, "utf8").replace(PLAIN, "4242_renewed"));
+    assert.equal(((await auth.call(get)) as { status: number }).status, 200);
+    assert.equal((auth.status() as Record<string, unknown>).state, "available");
+  } finally { s.restore(); }
+});

@@ -237,13 +237,14 @@ test("a policy denial is a broker error, and nothing is sent", async () => {
 });
 
 test("a 401 on the session token becomes rejected; a 403 passes through", async () => {
-  let status = 401;
+  // 403 first: once a token gets a 401 it isn't sent again (review A5).
+  let status = 403;
   await withBroker(
     () => json({ message: "Invalid API token" }, status),
     async (client) => {
-      assert.deepEqual(await client.call({ method: "GET", path: "/fastedge/v1/apps" }), { authRequired: "rejected", clientId: 123 });
-      status = 403;
       assert.equal(((await client.call({ method: "GET", path: "/fastedge/v1/apps" })) as { status: number }).status, 403);
+      status = 401;
+      assert.deepEqual(await client.call({ method: "GET", path: "/fastedge/v1/apps" }), { authRequired: "rejected", clientId: 123 });
     },
   );
 });

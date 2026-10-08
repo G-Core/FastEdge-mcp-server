@@ -180,6 +180,9 @@ export function createAuth(
   // The token whose account the API confirmed, and a check in progress (shared by concurrent calls).
   let verifiedToken: string | undefined;
   let verifying: { token: string; result: Promise<ApiResult | null> } | undefined;
+  // A token the API answered 401 for: never sent again. A renewal (a new token) clears it.
+  let rejectedToken: string | undefined;
+  const isRejection = (r: ApiResult | null) => r !== null && "authRequired" in r && r.authRequired === "rejected";
 
   // Task 10 v2: with a recipient key, a "don't keep" login seals its token to this broker. One
   // credential state and one pin for both sources (MoM rule 3): until a sealed token is adopted,
@@ -262,8 +265,10 @@ export function createAuth(
     const c = current();
     if ("authRequired" in c) return c;
     const { session } = c;
+    if (session.token === rejectedToken) return { authRequired: "rejected", clientId: session.client_id };
     if (session.token !== verifiedToken) {
       const problem = await verify(session);
+      if (isRejection(problem)) rejectedToken = session.token;
       if (problem) return problem;
     }
     // A sealed token adopted while we waited wins (a fresh "don't keep" login), but only for the
@@ -275,7 +280,9 @@ export function createAuth(
     if (session.client_id !== pinnedClientId) return { authRequired: "account_changed" };
 
     // A 401 here concerns this plaintext token only, never a sealed one adopted meanwhile.
-    return callWithToken(session.token, req, "rejected", session.client_id);
+    const result = await callWithToken(session.token, req, "rejected", session.client_id);
+    if (isRejection(result)) rejectedToken = session.token;
+    return result;
   };
 
   /** Status for a run holding, or about to adopt, a sealed session. Null when there is none. */
@@ -317,7 +324,8 @@ export function createAuth(
       const at = now();
       const check = checkSession(sessionDir, apiOrigin, at);
       const changed = !("reason" in check) && pinnedClientId !== undefined && check.session.client_id !== pinnedClientId;
-      const state = "reason" in check ? check.reason : changed ? "account_changed" : "available";
+      const rejected = !("reason" in check) && check.session.token === rejectedToken;
+      const state = "reason" in check ? check.reason : changed ? "account_changed" : rejected ? "rejected" : "available";
       return {
         credential: "session",
         mode: "persistent",
@@ -325,7 +333,7 @@ export function createAuth(
         state,
         active_session: "session" in check ? describeSession(check.session) : null,
         // Whether the API confirmed the active session's token belongs to its account (checked on first use).
-        account_verified: "session" in check && check.session.token === verifiedToken,
+        account_verified: "session" in check && check.session.token === verifiedToken && !rejected,
         // The account this server process is locked to; null until the first API call.
         pinned_client_id: pinnedClientId ?? null,
         cached_accounts: listAccounts(sessionDir, apiOrigin).map((s) => ({
