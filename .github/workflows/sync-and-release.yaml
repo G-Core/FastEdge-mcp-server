@@ -55,10 +55,17 @@ jobs:
 
       - name: Resolve inputs
         id: inputs
+        # Payload and inputs reach the shell as environment variables, never pasted into the
+        # script, and are validated before any later step uses them (review C1).
+        env:
+          IN_REF: ${{ github.event.client_payload.tag || inputs.plugin_ref || 'main' }}
+          IN_VERSION: ${{ github.event.client_payload.version || inputs.version || '' }}
         run: |
           # Prefer dispatch payload, fall back to workflow_dispatch inputs.
-          REF="${{ github.event.client_payload.tag || inputs.plugin_ref || 'main' }}"
-          VERSION="${{ github.event.client_payload.version || inputs.version || '' }}"
+          REF="$IN_REF"
+          VERSION="$IN_VERSION"
+          [[ "$REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$ ]] || { echo "Invalid plugin ref: $REF" >&2; exit 1; }
+          [ -z "$VERSION" ] || [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "Invalid version: $VERSION" >&2; exit 1; }
           echo "ref=${REF}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Syncing from fastedge-plugin ref: ${REF}, version: ${VERSION}"
@@ -76,19 +83,26 @@ jobs:
         if: github.event_name == 'repository_dispatch'
         env:
           GITHUB_TOKEN: ${{ steps.plugin-token.outputs.token }}
+          ARTIFACT_URL: ${{ github.event.client_payload.artifact_url }}
+          SHA256_URL: ${{ github.event.client_payload.artifact_sha256_url }}
+          VERSION: ${{ steps.inputs.outputs.version }}
         run: |
+          # Only release assets of the plugin repo (review C1).
+          for u in "$ARTIFACT_URL" "$SHA256_URL"; do
+            [[ "$u" =~ ^https://github\.com/G-Core/fastedge-plugin/releases/download/[A-Za-z0-9._/-]+$ ]] || { echo "Invalid artifact URL: $u" >&2; exit 1; }
+          done
           bash scripts/sync-from-artifact.sh \
-            --artifact-url "${{ github.event.client_payload.artifact_url }}" \
-            --sha256-url   "${{ github.event.client_payload.artifact_sha256_url }}" \
-            --version      "${{ github.event.client_payload.version }}"
+            --artifact-url "$ARTIFACT_URL" \
+            --sha256-url   "$SHA256_URL" \
+            --version      "$VERSION"
 
       # workflow_dispatch: sparse checkout at the given ref (dev/testing path).
       - name: Sparse checkout fastedge-plugin (workflow_dispatch)
         if: github.event_name == 'workflow_dispatch'
         env:
           PLUGIN_TOKEN: ${{ steps.plugin-token.outputs.token }}
+          REF: ${{ steps.inputs.outputs.ref }}
         run: |
-          REF="${{ steps.inputs.outputs.ref }}"
           rm -rf /tmp/fastedge-plugin
           git clone --depth 1 --sparse --branch "$REF" \
             "https://x-access-token:${PLUGIN_TOKEN}@github.com/G-Core/fastedge-plugin.git" /tmp/fastedge-plugin
@@ -114,8 +128,9 @@ jobs:
 
       - name: Bump version to match plugin release
         if: steps.changes.outputs.changed == 'true' && steps.inputs.outputs.version != ''
+        env:
+          VERSION: ${{ steps.inputs.outputs.version }}
         run: |
-          VERSION="${{ steps.inputs.outputs.version }}"
           jq --arg v "$VERSION" '.version = $v' package.json > package.json.tmp \
             && mv package.json.tmp package.json
           echo "Set package.json version to ${VERSION}"
@@ -132,9 +147,10 @@ jobs:
       - name: Commit, tag, and push
         if: steps.changes.outputs.changed == 'true'
         id: commit
+        env:
+          REF: ${{ steps.inputs.outputs.ref }}
+          VERSION: ${{ steps.inputs.outputs.version }}
         run: |
-          REF="${{ steps.inputs.outputs.ref }}"
-          VERSION="${{ steps.inputs.outputs.version }}"
 
           git add reference-docs/ package.json
 
@@ -159,10 +175,10 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF: ${{ steps.inputs.outputs.ref }}
+          VERSION: ${{ steps.inputs.outputs.version }}
+          BRANCH: ${{ steps.commit.outputs.branch }}
         run: |
-          REF="${{ steps.inputs.outputs.ref }}"
-          VERSION="${{ steps.inputs.outputs.version }}"
-          BRANCH="${{ steps.commit.outputs.branch }}"
 
           if [ -n "$VERSION" ]; then
             TITLE="release: v${VERSION}"

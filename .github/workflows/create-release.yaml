@@ -47,40 +47,50 @@ jobs:
 
       - name: Create release tag
         id: determine-tag
+        # Inputs and the token reach the shell as environment variables, never pasted into the
+        # script (review C1). An existing tag must point at the commit being built (review C2).
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag_version }}
+          REF_NAME: ${{ github.ref_name }}
+          EVENT: ${{ github.event_name }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          if [ -n "${{ github.event.inputs.tag_version }}" ]; then
-            TAG_VERSION="${{ github.event.inputs.tag_version }}"
-            if [[ ! "$TAG_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9]+)?$ ]]; then
-              echo "Invalid tag format: $TAG_VERSION"
-              exit 1
-            fi
+          valid() { [[ "$1" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9]+)?$ ]]; }
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            TAG_VERSION="$INPUT_TAG"
+            valid "$TAG_VERSION" || { echo "Invalid tag format: $TAG_VERSION" >&2; exit 1; }
             # Set up auth and identity before any remote operation (ls-remote or push).
-            GH_TOKEN="${{ steps.app-token.outputs.token }}" gh auth setup-git
+            gh auth setup-git
             git config user.name "fastedge-plugin-sync[bot]"
             git config user.email "fastedge-plugin-sync[bot]@users.noreply.github.com"
-            if git ls-remote --tags origin "refs/tags/$TAG_VERSION" | grep -q "$TAG_VERSION"; then
-              echo "Tag $TAG_VERSION already exists on remote — using it"
+            # An annotated tag lists the tag object first and its commit on the "^{}" line: compare
+            # the commit (the peeled line), or the plain ref for a lightweight tag.
+            REFS="$(git ls-remote --tags origin "refs/tags/$TAG_VERSION" "refs/tags/$TAG_VERSION^{}")"
+            TAGGED="$(awk -v t="refs/tags/$TAG_VERSION^{}" '$2==t{print $1}' <<<"$REFS")"
+            [ -n "$TAGGED" ] || TAGGED="$(awk -v t="refs/tags/$TAG_VERSION" '$2==t{print $1}' <<<"$REFS")"
+            if [ -n "$TAGGED" ]; then
+              HEAD_SHA="$(git rev-parse HEAD)"
+              if [ "$TAGGED" != "$HEAD_SHA" ]; then
+                echo "Tag $TAG_VERSION already exists at $TAGGED, but this run checked out $HEAD_SHA. Run the release from that tag, or use a new version." >&2
+                exit 1
+              fi
+              echo "Tag $TAG_VERSION already exists at this commit — using it"
             else
               echo "Creating new release tag: $TAG_VERSION"
               git tag -a "$TAG_VERSION" -m "Release $TAG_VERSION"
               git push origin "$TAG_VERSION"
             fi
-            echo "has_tag=true" >> $GITHUB_OUTPUT
-            echo "TAG_VERSION=$TAG_VERSION" >> $GITHUB_ENV
           else
-            TAG_VERSION=${GITHUB_REF#refs/tags/}
-            if [[ ! "$TAG_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9]+)?$ ]]; then
-              echo "Invalid tag format: $TAG_VERSION"
-              exit 1
-            fi
-            echo "has_tag=true" >> $GITHUB_OUTPUT
-            echo "TAG_VERSION=$TAG_VERSION" >> $GITHUB_ENV
+            TAG_VERSION="$REF_NAME"
+            valid "$TAG_VERSION" || { echo "Invalid tag format: $TAG_VERSION" >&2; exit 1; }
           fi
+          echo "has_tag=true" >> "$GITHUB_OUTPUT"
+          echo "TAG_VERSION=$TAG_VERSION" >> "$GITHUB_ENV"
 
       - name: Debug release tag
         if: ${{ steps.determine-tag.outputs.has_tag == 'true' }}
         run: |
-          echo "Release tag created successfully: ${{ env.TAG_VERSION }}"
+          echo "Release tag created successfully: $TAG_VERSION"
 
       - name: Build and push Docker Image
         if: ${{ steps.determine-tag.outputs.has_tag == 'true' }}

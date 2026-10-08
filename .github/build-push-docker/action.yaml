@@ -22,17 +22,22 @@ runs:
     - name: Extract Docker Tag version
       shell: bash
       id: extract_version
+      # Inputs reach the shell as environment variables, never pasted into the script (review C1).
+      env:
+        TAG_VERSION: ${{ inputs.tag_version }}
       run: |
-        DOCKER_TAG_VERSION=${{ inputs.tag_version }}
-        DOCKER_TAG_VERSION=${DOCKER_TAG_VERSION#v}  # Remove the 'v' prefix
+        [[ "$TAG_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9]+)?$ ]] || { echo "Invalid tag: $TAG_VERSION" >&2; exit 1; }
+        DOCKER_TAG_VERSION=${TAG_VERSION#v}  # Remove the 'v' prefix
         echo "DOCKER_TAG_VERSION: $DOCKER_TAG_VERSION"
         echo "DOCKER_TAG_VERSION=$DOCKER_TAG_VERSION" >> $GITHUB_ENV
         echo "DOCKER_TAG_VERSION=$DOCKER_TAG_VERSION" >> $GITHUB_OUTPUT
 
     - name: Update package.json version
       shell: bash
+      env:
+        VERSION: ${{ steps.extract_version.outputs.DOCKER_TAG_VERSION }}
       run: |
-        jq --arg version "${{ steps.extract_version.outputs.DOCKER_TAG_VERSION }}" '.version = $version' package.json > package.tmp.json
+        jq --arg version "$VERSION" '.version = $version' package.json > package.tmp.json
         mv package.tmp.json package.json
 
     - name: Set up Docker Buildx
