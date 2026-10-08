@@ -9,6 +9,7 @@ import {
   SESSION_DIR,
   codeCommand,
   loginCommand,
+  logoutCommand,
   manualFallback,
   useCommand,
 } from "./session.js";
@@ -65,6 +66,10 @@ function checkSession(dir: string, apiOrigin: string, now: number): SessionCheck
 /** Status guidance, so an agent offers the same choices as `auth_required` (§4) instead of picking one. */
 const SIGN_IN_HINT =
   "To sign in, ask the user which way: 1. Browser on this computer (recommended): with their OK, run login_command yourself as a background task with your tool's own background option (Claude Code: run_in_background, not a shell `&`), and give them the URL as soon as it's printed (the command then waits for their approval). The page connects whichever account the portal is signed in to and shows it before Approve; tell the user to check it. 2. Remote (SSH, Codespaces): give them manual_login. 3. Not now. Never ask them to paste a token or code into this chat.";
+
+/** Status guidance for "log me out" requests (PROTOCOL §3.7). */
+const SIGN_OUT_HINT =
+  "To sign out on this computer: with the user's OK, run logout_command with a client_id, or `all` (every saved account, prod and preprod). It removes local sessions only and prints the token ids; tell the user to delete those tokens on the portal's API tokens page to revoke them. A server holding a \"don't keep\" session keeps it until it's stopped or restarted.";
 
 /** Metadata safe to show the agent: allowlisted fields, normalised values, never the token. */
 function describeSession(session: Session) {
@@ -290,6 +295,8 @@ export function createAuth(
       ...(session ? {} : { sign_in: SIGN_IN_HINT, login_command: command, code_command: codeCommand(apiOrigin), manual_login: manualFallback(apiOrigin) }),
       ...(state === "restart_required" ? { next_step: EPHEMERAL_RESTART_HINT } : {}),
       ...(blocked ? { next_step: RESTART_HINT } : {}),
+      logout_command: logoutCommand(apiOrigin),
+      sign_out: SIGN_OUT_HINT,
     };
   };
 
@@ -323,6 +330,8 @@ export function createAuth(
         ...(changed ? { next_step: RESTART_HINT } : {}),
         login_command: command,
         use_command: use,
+        logout_command: logoutCommand(apiOrigin),
+        sign_out: SIGN_OUT_HINT,
         // For when the browser can't reach this machine (Codespaces, SSH). The user runs it, never the agent.
         code_command: codeCommand(apiOrigin),
         manual_login: manualFallback(apiOrigin),
@@ -395,6 +404,8 @@ export function createEphemeralAuth(opts: {
       note: EPHEMERAL_NOTE,
       ...(session ? {} : { sign_in: SIGN_IN_HINT, login_command: loginCommand(apiOrigin), code_command: codeCommand(apiOrigin), manual_login: manualFallback(apiOrigin) }),
       ...(state === "restart_required" ? { next_step: EPHEMERAL_RESTART_HINT } : {}),
+      logout_command: logoutCommand(apiOrigin),
+      sign_out: SIGN_OUT_HINT,
     };
   };
 

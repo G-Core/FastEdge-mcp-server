@@ -104,7 +104,11 @@ docker run --rm -i -p 127.0.0.1:47215:47215 -v fastedge-session:/run/fastedge \
 | Command | What it does |
 |---|---|
 | `… login --use <client_id>` (no `-p` needed) | Switch to another account that's already signed in, without the browser. |
-| `… login --logout` | Forget the active account on this computer. The token itself stays valid until it expires; delete it on the portal's **API tokens** page to revoke it now. |
+| `… login --logout` | Forget the active account on this computer. |
+| `… login --logout <client_id>` | Forget that account on this computer. |
+| `… login --logout all` | Forget every saved account on this computer, prod and preprod (and any "don't keep" session not yet in use). |
+
+Logout is local: it prints each removed account's **token id** and expiry, and the tokens stay valid until they expire. To revoke them now, delete those token ids on the portal's **API tokens** page. A running MCP server stops using a removed session on its next call; one holding a "don't keep" session keeps it until you stop or restart it. Your agent can run these for you: ask it to "log me out of account 123" or "log me out of all my FastEdge accounts".
 | `docker run -it … login --code` | For Codespaces, SSH or anything else where your browser can't reach this machine's `127.0.0.1`. Choose the manual option on the Approve page, then paste the code into this prompt **in your own terminal**. Never paste it into the agent chat: it contains the token. |
 
 **Good to know:**

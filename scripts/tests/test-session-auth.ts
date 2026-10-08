@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import net from "node:net";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, symlinkSync, statSync, existsSync, readFileSync, lstatSync, chmodSync, utimesSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, symlinkSync, statSync, existsSync, readFileSync, lstatSync, chmodSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -16,7 +16,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import { authRequiredResult, createAuth, type Auth, type AuthRequiredReason } from "../../src/auth/credentials.js";
-import { LoginError, connectWithCode, ensureInstallationId, logoutActive, startLogin, useCachedAccount } from "../../src/auth/login-server.js";
+import { LoginError, connectWithCode, ensureInstallationId, logoutActive, logoutSessions, startLogin, useCachedAccount } from "../../src/auth/login-server.js";
 import { registerApiTools } from "../../src/tools/api/index.js";
 
 const API = "https://api.preprod.world";
@@ -557,6 +557,57 @@ test("--logout removes only the active account (local only) and is a no-op when 
   assert.ok(!existsSync(activeFile(dir)));
   assert.ok(existsSync(accountFile(dir, 111)), "other cached accounts stay");
   assert.equal(logoutActive({ apiOrigin: API, sessionDir: dir }), null);
+});
+
+test("--logout <client_id>: removes that account; the active pointer only if it pointed there", () => {
+  const dir = tmp();
+  writeSession(dir, usable({ client_id: 111, token_id: 11 }));
+  writeSession(dir, usable({ client_id: 222, token_id: 22 })); // active
+  const a = logoutSessions({ apiOrigin: API, target: 111, sessionDir: dir });
+  assert.deepEqual(a.sessions.map((x) => [x.client_id, x.token_id]), [[111, 11]]);
+  assert.ok(!existsSync(accountFile(dir, 111)));
+  assert.ok(existsSync(activeFile(dir)), "the pointer to 222 stays");
+  const b = logoutSessions({ apiOrigin: API, target: 222, sessionDir: dir });
+  assert.equal(b.sessions[0].client_id, 222);
+  assert.ok(!existsSync(accountFile(dir, 222)));
+  assert.ok(!existsSync(activeFile(dir)), "the pointer to 222 goes with it");
+  assert.deepEqual(logoutSessions({ apiOrigin: API, target: 999, sessionDir: dir }).sessions, []);
+});
+
+test("--logout all: every account and pointer for prod and preprod, the legacy file and sealed files; not the installation id", () => {
+  const dir = tmp();
+  writeSession(dir, usable({ client_id: 111 }));
+  const prod = { ...usable({ client_id: 333, api_origin: "https://api.gcore.com" }) };
+  writeFileSync(join(dir, "accounts", "api.gcore.com_333.json"), JSON.stringify(prod));
+  writeFileSync(join(dir, "active-api.gcore.com.json"), JSON.stringify({ version: 1, api_origin: "https://api.gcore.com", client_id: 333, generation: "g" }));
+  writeFileSync(join(dir, "session.json"), JSON.stringify(usable({ client_id: 444 })));
+  mkdirSync(join(dir, "sealed"));
+  writeFileSync(join(dir, "sealed", "a".repeat(64) + ".json"), "{}");
+  writeFileSync(join(dir, "sealed", "b".repeat(64) + ".json"), "{}");
+  const id = ensureInstallationId(dir);
+
+  const out = logoutSessions({ apiOrigin: API, target: "all", sessionDir: dir });
+  assert.deepEqual(out.sessions.map((x) => x.client_id).sort(), [111, 333, 444]);
+  assert.equal(out.sealed, 2);
+  assert.deepEqual(readdirSync(join(dir, "accounts")), []);
+  assert.deepEqual(readdirSync(join(dir, "sealed")), []);
+  assert.ok(!readdirSync(dir).some((n) => n.startsWith("active-") || n === "session.json"));
+  assert.equal(ensureInstallationId(dir), id, "the installation id stays");
+});
+
+test("after --logout, a running server's next call has no session (saved sessions are re-read)", async () => {
+  const dir = writeSession(tmp(), usable({ client_id: 123 }));
+  const auth = authFor(dir);
+  assert.ok("header" in auth.resolve());
+  logoutSessions({ apiOrigin: API, target: "all", sessionDir: dir });
+  assert.deepEqual(auth.resolve(), { authRequired: "no_session" });
+});
+
+test("status offers logout_command (client_id or all) and sign-out guidance", () => {
+  const status = authFor(tmp()).status() as Record<string, unknown>;
+  assert.match(String(status.logout_command), / login --logout <client_id\|all>$/);
+  assert.doesNotMatch(String(status.logout_command), /FASTEDGE_SESSION/);
+  assert.match(String(status.sign_out), /token ids/);
 });
 
 test("a second login while one is running fails with exit 3; the lock is released afterwards", async () => {

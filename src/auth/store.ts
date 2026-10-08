@@ -199,6 +199,56 @@ export function logout(dir: string, origin: string): Session | null {
   return session;
 }
 
+/**
+ * Removes one saved account for this origin, and the origin's active pointer if it pointed at it.
+ * Local only. Returns the removed session (for its token id and expiry), or null if none.
+ */
+export function logoutAccount(dir: string, origin: string, clientId: number): Session | null {
+  const path = accountPath(dir, origin, clientId);
+  const session = readSession(path);
+  const pointer = parsePointer(readJson(activePath(dir, origin)));
+  if (pointer && pointer.client_id === clientId) fs.rmSync(activePath(dir, origin), { force: true });
+  if (!session && !fs.existsSync(path)) return null;
+  fs.rmSync(path, { force: true });
+  return session && session.client_id === clientId ? session : null;
+}
+
+/**
+ * Removes every saved session on this volume, for every API origin (prod and preprod): account
+ * files, active pointers, the legacy POC file, and sealed files (so a server that hasn't adopted
+ * its "don't keep" token yet can't). File names are listed from fixed directories, never built
+ * from input. Returns the readable sessions removed and how many sealed files went.
+ */
+export function logoutAll(dir: string): { sessions: Session[]; sealed: number } {
+  const sessions: Session[] = [];
+  const list = (d: string) => {
+    try {
+      return fs.readdirSync(d);
+    } catch {
+      return [];
+    }
+  };
+  for (const name of list(accountsDir(dir))) {
+    if (!name.endsWith(".json")) continue;
+    const session = readSession(join(accountsDir(dir), name));
+    if (session) sessions.push(session);
+    fs.rmSync(join(accountsDir(dir), name), { force: true });
+  }
+  for (const name of list(dir)) {
+    if (/^active-.+\.json$/.test(name)) fs.rmSync(join(dir, name), { force: true });
+  }
+  const legacy = readSession(legacyPath(dir));
+  if (legacy) sessions.push(legacy);
+  fs.rmSync(legacyPath(dir), { force: true });
+  let sealed = 0;
+  for (const name of list(join(dir, "sealed"))) {
+    if (!name.endsWith(".json")) continue;
+    fs.rmSync(join(dir, "sealed", name), { force: true });
+    sealed++;
+  }
+  return { sessions, sealed };
+}
+
 /** Moves a POC `session.json` into the per-account layout (once). */
 export function migrateLegacy(dir: string): void {
   const session = readSession(legacyPath(dir));

@@ -5,11 +5,13 @@ import {
   LoginError,
   connectWithCode,
   logoutActive,
+  logoutSessions,
   requireSealKey,
   startLogin,
   useCachedAccount,
 } from "./auth/login-server.js";
-import { LOGIN_PORT, RESTART_HINT } from "./auth/session.js";
+import { LOGIN_PORT, PORTAL_ORIGINS, RESTART_HINT } from "./auth/session.js";
+import type { Session } from "./auth/store.js";
 
 const EXIT_CODES = { ok: 0, timeout: 5, denied: 6 } as const;
 const MESSAGES = {
@@ -21,7 +23,7 @@ const MAX_CODE_CHARS = 8192;
 
 function usage(): never {
   console.error(
-    "Usage: login [--seal-to <key>] | login --code [--seal-to <key>] | login --use <client_id> | login --logout",
+    "Usage: login [--seal-to <key>] | login --code [--seal-to <key>] | login --use <client_id> | login --logout [<client_id> | all]",
   );
   process.exit(2);
 }
@@ -103,17 +105,37 @@ async function main() {
     }
 
     if (option === "--logout") {
-      if (value) usage();
-      const session = logoutActive({ apiOrigin: GCORE_API_ORIGIN });
-      if (!session) {
-        console.error('No saved session on this computer. (A "don\'t keep" session in a running MCP server ends when you stop or restart it.)');
+      // No argument: the active account (as before). `<client_id>`: that account. `all`: every
+      // saved session for prod and preprod, plus sealed files.
+      if (value !== undefined && value !== "all" && !/^[1-9]\d{0,17}$/.test(value)) usage();
+      let removed: Session[];
+      let sealed = 0;
+      if (value === undefined) {
+        const session = logoutActive({ apiOrigin: GCORE_API_ORIGIN });
+        removed = session ? [session] : [];
       } else {
-        console.error(`Removed the saved session for account ${session.client_id} from this computer.`);
-        console.error('A running MCP server stops using it on its next call, unless it holds a "don\'t keep" session: that lasts until you stop or restart the server.');
+        ({ sessions: removed, sealed } = logoutSessions({
+          apiOrigin: GCORE_API_ORIGIN,
+          target: value === "all" ? "all" : Number(value),
+        }));
+      }
+      if (removed.length === 0 && sealed === 0) {
+        console.error("No saved session to remove on this computer.");
+      }
+      for (const s of removed) {
+        const where = new URL(s.api_origin).host;
+        console.error(`Removed account ${s.client_id} (${where}) from this computer: token id ${s.token_id}, valid until ${s.expires_at}.`);
+      }
+      if (sealed > 0) console.error(`Removed ${sealed} sealed "don't keep" session file(s).`);
+      if (removed.length > 0) {
+        const portals = [...new Set(removed.map((s) => PORTAL_ORIGINS[s.api_origin]).filter(Boolean))];
         console.error(
-          `The token stays valid until ${session.expires_at}; delete it on the portal's API tokens page to revoke it now.`,
+          `Those tokens stay valid at Gcore until they expire. To revoke them now, delete them by token id on the API tokens page of ${portals.join(" / ")}.`,
         );
       }
+      console.error(
+        'A running MCP server stops using a removed session on its next call. One holding a "don\'t keep" session keeps it until you stop or restart that server.',
+      );
       process.exit(0);
     }
 

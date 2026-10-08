@@ -59,6 +59,16 @@ export function useCommand(apiOrigin: string): string | null {
   return `docker run --rm -i -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login --use <client_id>`;
 }
 
+/**
+ * `login --logout <client_id>` / `login --logout all` (PROTOCOL.md §3.7): removes saved sessions
+ * from this computer (all = prod and preprod). No port, no browser, prints no secrets, so an
+ * agent may run it with the user's OK. Never sets FASTEDGE_SESSION (logout isn't refused then).
+ */
+export function logoutCommand(apiOrigin: string): string | null {
+  if (!PORTAL_ORIGINS[apiOrigin]) return null;
+  return `docker run --rm -i -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login --logout <client_id|all>`;
+}
+
 /** `login --code` (PROTOCOL.md §3.8): needs the user's own terminal (`-it`), so an agent can't run it. */
 export function codeCommand(apiOrigin: string): string | null {
   if (!PORTAL_ORIGINS[apiOrigin]) return null;

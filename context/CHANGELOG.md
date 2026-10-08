@@ -14,6 +14,21 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-08] - logout by account, or everything
+
+- **New forms:**
+  - `login --logout <client_id>` removes that account (and the active pointer only if it pointed
+    there).
+  - `login --logout all` removes every saved session for prod **and** preprod, the legacy file and
+    sealed files, keeping the installation id.
+- **Output:** each removed account's client id, environment, token id and expiry, and where to
+  revoke them. Never a token.
+- **Agents:** the status tool now offers `logout_command` and a `sign_out` hint, so "log me out of
+  account X / all my accounts" works through the agent.
+- **Effect:** a running server sees the logout on its next call. A "don't keep" session lasts
+  until its server stops.
+- **Tests:** 4 new, in `test:session-auth` (70).
+
 ## [2026-10-07] - login callback redirects to the portal's outcome page
 
 - **What changed:** a handled `POST /callback` (approve or deny, in every mode) now answers

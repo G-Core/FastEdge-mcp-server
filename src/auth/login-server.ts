@@ -11,6 +11,8 @@ import {
   acquireLock,
   ensureInstallationId,
   logout,
+  logoutAccount,
+  logoutAll,
   migrateLegacy,
   removeExpired,
   saveSession,
@@ -284,6 +286,28 @@ export function useCachedAccount(opts: { apiOrigin: string; clientId: number; se
       );
     }
     return session;
+  } finally {
+    release();
+  }
+}
+
+/**
+ * `login --logout <client_id>` / `login --logout all` (PROTOCOL.md §3.7). Local only: tokens stay
+ * valid at Gcore until they expire. `all` covers every API origin on this volume (prod and
+ * preprod) and the sealed files. Returns what was removed, for the revocation hint.
+ */
+export function logoutSessions(opts: {
+  apiOrigin: string;
+  target: number | "all";
+  sessionDir?: string;
+}): { sessions: Session[]; sealed: number } {
+  requirePortal(opts.apiOrigin);
+  const sessionDir = opts.sessionDir ?? SESSION_DIR;
+  const release = prepare(sessionDir);
+  try {
+    if (opts.target === "all") return logoutAll(sessionDir);
+    const session = logoutAccount(sessionDir, opts.apiOrigin, opts.target);
+    return { sessions: session ? [session] : [], sealed: 0 };
   } finally {
     release();
   }
