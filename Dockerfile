@@ -1,7 +1,7 @@
 # Base image built from Dockerfile-base and published to GHCR.
 # Update both the tag and the digest together when publishing a new base image.
 # apt/rustup runs inside the pinned base build — accepted.
-ARG BASE_IMAGE=ghcr.io/g-core/fastedge-mcp-server-base:latest
+ARG BASE_IMAGE=ghcr.io/g-core/fastedge-mcp-server-base:0.2.9@sha256:18c20628f204f70785fa7bd709d9181676400692d38e1e337bd70cf8ab58a58a
 
 # Build stage
 FROM ${BASE_IMAGE} AS builder

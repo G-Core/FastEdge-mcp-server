@@ -42,6 +42,12 @@ Offline or slow network? Drop `--pull=always` and manage upgrades manually:
 docker pull ghcr.io/g-core/fastedge-mcp-server:latest
 ```
 
+**Releases are gated** (`create-release.yaml`):
+- The job runs in the `release` GitHub environment. Set required reviewers in Settings → Environments → release, so publishing needs an approval.
+- It builds the image and runs the token-broker isolation gate (`scripts/tests/test-broker-isolation.sh`) before anything is pushed.
+- Actions are pinned by commit SHA (Dependabot keeps them current).
+- The base image is pinned by digest in the Dockerfile's `BASE_IMAGE`: update the tag and digest together when you publish a new base. Use the multi-arch **index** digest (`docker buildx imagetools inspect ghcr.io/g-core/fastedge-mcp-server-base:<tag>`), because releases build amd64 and arm64.
+
 **Pre-release tags don't move `latest`.** Any `v*` tag publishes to public ghcr. A plain `vX.Y.Z` tag also moves `latest`, which every plugin user pulls. A pre-release tag `vX.Y.Z-N` publishes only `:X.Y.Z-N` (`.github/build-push-docker/action.yaml`). Public is still public, though: keep unreleased work in a private registry.
 
 ### Environment Variables

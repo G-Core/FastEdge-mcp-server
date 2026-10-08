@@ -20,6 +20,9 @@ jobs:
   create_docker_release:
     # needs: fossa
     runs-on: [self-hosted, ubuntu-22-04, regular]
+    # Publishing needs an approval (review C3). Configure required reviewers in the repository's
+    # Settings → Environments → release; without them GitHub creates the environment unprotected.
+    environment: release
 
     permissions:
       contents: read
@@ -29,19 +32,19 @@ jobs:
       - name: Generate App token
         if: github.event_name == 'workflow_dispatch'
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
         with:
           app-id: ${{ secrets.FASTEDGE_APP_ID }}
           private-key: ${{ secrets.FASTEDGE_APP_PRIVATE_KEY }}
           repositories: FastEdge-mcp-server
 
       - name: Checkout this repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "24.12.0"
 
@@ -91,6 +94,14 @@ jobs:
         if: ${{ steps.determine-tag.outputs.has_tag == 'true' }}
         run: |
           echo "Release tag created successfully: $TAG_VERSION"
+
+      # The token-broker release gate (SECURITY.md, DEVELOPMENT.md): the image this commit builds
+      # must pass the container isolation checks before anything is published (review C3).
+      - name: Token broker isolation gate
+        if: ${{ steps.determine-tag.outputs.has_tag == 'true' }}
+        run: |
+          docker build -t fastedge-mcp-server:release-gate .
+          bash scripts/tests/test-broker-isolation.sh fastedge-mcp-server:release-gate
 
       - name: Build and push Docker Image
         if: ${{ steps.determine-tag.outputs.has_tag == 'true' }}
