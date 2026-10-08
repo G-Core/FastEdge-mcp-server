@@ -73,6 +73,13 @@ expect_refusal() { # label pattern docker-args...
 expect_refusal "HOST_UID=10002 is refused" "reserved for the token broker" -v "$VOL_GOOD:/run/fastedge:ro" -e HOST_UID=10002
 expect_refusal "HOST_GID=10002 is refused" "reserved for the token broker" -v "$VOL_GOOD:/run/fastedge:ro" -e HOST_GID=10002
 expect_refusal "a non-numeric HOST_UID is refused" "must be a number" -v "$VOL_GOOD:/run/fastedge:ro" -e "HOST_UID=1000;id"
+expect_refusal "a leading-zero HOST_UID (010002) is refused" "no leading zeros" -v "$VOL_GOOD:/run/fastedge:ro" -e HOST_UID=010002
+expect_refusal "a leading-zero HOST_GID (010002) is refused" "no leading zeros" -v "$VOL_GOOD:/run/fastedge:ro" -e HOST_GID=010002
+expect_refusal "HOST_UID=00 is refused (not root)" "no leading zeros" -v "$VOL_GOOD:/run/fastedge:ro" -e HOST_UID=00
+expect_refusal "an out-of-range HOST_UID is refused" "must be a number" -v "$VOL_GOOD:/run/fastedge:ro" -e HOST_UID=99999999999
+# Second line: the server itself won't run keyless as the broker's uid, even past the entrypoint.
+out="$(t_out 60 "${RUN[@]}" --entrypoint setpriv "$IMAGE" --reuid=10002 --regid=10002 --clear-groups /usr/local/bin/node /app/build/server.js </dev/null 2>&1)"; code=$?
+if [ "$code" = 2 ] && grep -q "reserved for the token broker" <<<"$out"; then pass "the server refuses to run keyless as uid 10002"; else fail "server as 10002 (exit $code: $(tail -1 <<<"$out"))"; fi
 expect_refusal "--user without a key is refused" "must start as root" --user "$(id -u)" -v "$VOL_GOOD:/run/fastedge:ro"
 expect_refusal "a readable (legacy) cache is refused" "readable by other users" -v "$VOL_LEGACY:/run/fastedge:ro"
 expect_refusal "a symlink in the cache is refused" "readable by other users" -v "$VOL_LINK:/run/fastedge:ro"

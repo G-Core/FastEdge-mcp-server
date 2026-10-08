@@ -6,7 +6,7 @@ import { registerAllPrompts } from "./prompts/index.js";
 import { registerAllTools } from "./tools/index.js";
 import { registerAllResources } from "./resources/index.js";
 import { createAuth } from "./auth/credentials.js";
-import { connectBroker } from "./auth/broker.js";
+import { BROKER_ID, connectBroker, readIdentity } from "./auth/broker.js";
 
 function readApiKey(): string | undefined {
   try {
@@ -37,7 +37,22 @@ if (process.env.FASTEDGE_SESSION === "ephemeral" && GCORE_API_KEY) {
   process.exit(2);
 }
 
+/**
+ * Session mode only: refuse to run as root or as the token broker's uid. Build tools run as this
+ * process, so either identity could read the session cache directly. The entrypoint prevents this;
+ * this is the second line (e.g. a non-canonical HOST_UID). Not running with dropped privileges is
+ * allowed here, so the server still starts for local development outside Docker.
+ */
+function refuseUnsafeIdentity(): void {
+  const { uids, gids } = readIdentity();
+  if ([...uids, ...gids].some((id) => id === 0 || id === BROKER_ID)) {
+    console.error(`Refusing to start without GCORE_API_KEY as root or as uid/gid ${BROKER_ID} (reserved for the token broker).`);
+    process.exit(2);
+  }
+}
+
 async function main() {
+  if (!GCORE_API_KEY) refuseUnsafeIdentity();
   // Session mode: connect to the token broker before any tool (and so any build) can run.
   // This process never reads the session cache itself.
   const auth = GCORE_API_KEY ? createAuth(GCORE_API_KEY) : await connectBroker();

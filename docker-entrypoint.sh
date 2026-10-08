@@ -86,10 +86,16 @@ target_gid="${target_gid:-$target_uid}"
 # Validate before the root fallback below, which would otherwise silently replace
 # a bad HOST_GID (e.g. rootless Docker, where the workspace looks root-owned).
 fail() { echo "fastedge-mcp-server: $*" >&2; exit 2; }
-case "$target_uid" in ''|*[!0-9]*) fail "HOST_UID must be a number";; esac
-case "$target_gid" in ''|*[!0-9]*) fail "HOST_GID must be a number";; esac
+# Canonical decimal only: setpriv reads "010002" as 10002, so a leading zero could slip a reserved
+# id past a string comparison. At most 10 digits and within the 32-bit id range.
+canonical_id() {
+  case "$1" in ''|*[!0-9]*) return 1;; 0) return 0;; 0*) return 1;; esac
+  [ "${#1}" -le 10 ] && [ "$1" -le 4294967294 ] 2>/dev/null
+}
+canonical_id "$target_uid" || fail "HOST_UID must be a number (decimal, no leading zeros)"
+canonical_id "$target_gid" || fail "HOST_GID must be a number (decimal, no leading zeros)"
 # The server (and the build tools it runs) must never share the broker's identity.
-[ "$target_uid" != "$BROKER_ID" ] && [ "$target_gid" != "$BROKER_ID" ] ||
+[ "$target_uid" -ne "$BROKER_ID" ] && [ "$target_gid" -ne "$BROKER_ID" ] ||
   fail "uid/gid $BROKER_ID is reserved for the token broker; set HOST_UID/HOST_GID to another id"
 
 # Ephemeral session mode (task 10) is forced by config and wins: no key alongside it, no unknown values.
