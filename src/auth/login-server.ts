@@ -370,14 +370,25 @@ export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
       return reject();
     }
 
+    // Oversized bodies are refused as soon as we know, not read to the end (review A6).
+    const tooBig = () => {
+      res.writeHead(400, { ...PAGE_HEADERS, Connection: "close" }).end(BAD_PAGE);
+      req.destroy();
+    };
+    if (Number(req.headers["content-length"]) > MAX_BODY_BYTES) return tooBig();
     const chunks: Buffer[] = [];
     let size = 0;
+    let overflow = false;
     req.on("data", (chunk: Buffer) => {
       size += chunk.length;
-      if (size <= MAX_BODY_BYTES) chunks.push(chunk);
+      if (size <= MAX_BODY_BYTES) return void chunks.push(chunk);
+      if (!overflow) {
+        overflow = true;
+        tooBig();
+      }
     });
     req.on("end", () => {
-      if (done || size > MAX_BODY_BYTES) return reject();
+      if (done || overflow) return;
       const form = new URLSearchParams(Buffer.concat(chunks).toString("utf8"));
       if (!sameSecret(form.get("state") ?? "", state)) return reject();
 
@@ -413,6 +424,11 @@ export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
     });
   });
 
+  // Slow or many connections can't hold the one-shot listener (review A6): a browser needs one
+  // request, sent at once.
+  server.headersTimeout = 10_000;
+  server.requestTimeout = 15_000;
+  server.maxConnections = 16;
   const timer = setTimeout(() => finish("timeout"), opts.timeoutMs ?? LOGIN_TIMEOUT_MS);
   function finish(outcome: LoginOutcome) {
     if (done) return;

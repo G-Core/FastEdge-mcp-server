@@ -534,3 +534,37 @@ test("a saved token the API rejected isn't sent again, and status says rejected 
     assert.equal((auth.status() as Record<string, unknown>).state, "available");
   } finally { s.restore(); }
 });
+
+// --- Review A6: the callback refuses oversized bodies promptly ---------------------------------------
+
+test("callback: an oversized body is refused early (declared or streamed), and login still works", async () => {
+  const net = await import("node:net");
+  const l = await startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir: tmp() });
+  const state = new URL(l.url).searchParams.get("state")!;
+  // Declared too big: answered before any body is sent.
+  const declared = await new Promise<string>((resolve) => {
+    const sock = net.connect(l.port, "127.0.0.1", () => {
+      sock.write(`POST /callback HTTP/1.1\r\nHost: 127.0.0.1:${l.port}\r\nOrigin: null\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 999999\r\n\r\n`);
+    });
+    let out = "";
+    sock.on("data", (d) => (out += d));
+    sock.on("close", () => resolve(out));
+  });
+  assert.match(declared, /^HTTP\/1\.1 400/);
+  // Streamed past the limit without a declared length: cut off, not read to the end.
+  const streamed = await new Promise<string>((resolve) => {
+    const sock = net.connect(l.port, "127.0.0.1", () => {
+      sock.write(`POST /callback HTTP/1.1\r\nHost: 127.0.0.1:${l.port}\r\nOrigin: null\r\nContent-Type: application/x-www-form-urlencoded\r\nTransfer-Encoding: chunked\r\n\r\n`);
+      const chunk = "x".repeat(4096);
+      for (let i = 0; i < 4; i++) sock.write(`${chunk.length.toString(16)}\r\n${chunk}\r\n`);
+      // never sends the final 0-chunk: the server must not wait for it
+    });
+    let out = "";
+    sock.on("data", (d) => (out += d));
+    sock.on("close", () => resolve(out));
+    sock.on("error", () => resolve(out));
+  });
+  assert.match(streamed, /^HTTP\/1\.1 400/);
+  assert.equal((await postRaw(l.port, fields(state, 4 * HOUR, []))).status, 303, "a normal approval still works");
+  await l.result;
+});
