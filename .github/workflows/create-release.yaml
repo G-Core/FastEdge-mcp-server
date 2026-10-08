@@ -97,11 +97,24 @@ jobs:
 
       # The token-broker release gate (SECURITY.md, DEVELOPMENT.md): the image this commit builds
       # must pass the container isolation checks before anything is published (review C3).
+      # The base image is private: log in before the gate's build pulls it.
+      - name: Log in to the registry (for the gate's build)
+        if: ${{ steps.determine-tag.outputs.has_tag == 'true' }}
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # Native architecture only (the runner's): arm64 is covered by the platform sign-off.
       - name: Token broker isolation gate
         if: ${{ steps.determine-tag.outputs.has_tag == 'true' }}
+        env:
+          GATE_IMAGE: fastedge-mcp-server:release-gate-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
-          docker build -t fastedge-mcp-server:release-gate .
-          bash scripts/tests/test-broker-isolation.sh fastedge-mcp-server:release-gate
+          docker build -t "$GATE_IMAGE" .
+          bash scripts/tests/test-broker-isolation.sh "$GATE_IMAGE"
+          docker image rm "$GATE_IMAGE" >/dev/null 2>&1 || true
 
       - name: Build and push Docker Image
         if: ${{ steps.determine-tag.outputs.has_tag == 'true' }}

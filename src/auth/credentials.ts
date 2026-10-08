@@ -178,8 +178,10 @@ export function createAuth(
   // The token whose account the API confirmed, and a check in progress (shared by concurrent calls).
   let verifiedToken: string | undefined;
   let verifying: { token: string; result: Promise<ApiResult | null> } | undefined;
-  // A token the API answered 401 for: never sent again. A renewal (a new token) clears it.
-  let rejectedToken: string | undefined;
+  // Tokens the API answered 401 for: never sent again. A set, so an older request's late 401
+  // can't erase a newer token's rejection (review, verification round). A renewal brings a new
+  // token, which isn't in it.
+  const rejectedTokens = new Set<string>();
   const isRejection = (r: ApiResult | null) => r !== null && "authRequired" in r && r.authRequired === "rejected";
 
   // Task 10 v2: with a recipient key, a "don't keep" login seals its token to this broker. One
@@ -259,10 +261,10 @@ export function createAuth(
     const c = current();
     if ("authRequired" in c) return c;
     const { session } = c;
-    if (session.token === rejectedToken) return { authRequired: "rejected", clientId: session.client_id };
+    if (rejectedTokens.has(session.token)) return { authRequired: "rejected", clientId: session.client_id };
     if (session.token !== verifiedToken) {
       const problem = await verify(session);
-      if (isRejection(problem)) rejectedToken = session.token;
+      if (isRejection(problem)) rejectedTokens.add(session.token);
       if (problem) return problem;
     }
     // A sealed token adopted while we waited wins (a fresh "don't keep" login), but only for the
@@ -275,7 +277,7 @@ export function createAuth(
 
     // A 401 here concerns this plaintext token only, never a sealed one adopted meanwhile.
     const result = await callWithToken(session.token, req, "rejected", session.client_id);
-    if (isRejection(result)) rejectedToken = session.token;
+    if (isRejection(result)) rejectedTokens.add(session.token);
     return result;
   };
 
@@ -322,7 +324,7 @@ export function createAuth(
       const at = now();
       const check = checkSession(sessionDir, apiOrigin, at);
       const changed = !("reason" in check) && pinnedClientId !== undefined && check.session.client_id !== pinnedClientId;
-      const rejected = !("reason" in check) && check.session.token === rejectedToken;
+      const rejected = !("reason" in check) && rejectedTokens.has(check.session.token);
       const state = "reason" in check ? check.reason : changed ? "account_changed" : rejected ? "rejected" : "available";
       return {
         credential: "session",

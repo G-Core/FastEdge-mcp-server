@@ -573,3 +573,25 @@ test("the seal key is set once per process; a different second value is refused 
   // setSealTo(publicKey, false) already ran in this file (choice-mode commands test).
   assert.throws(() => setSealTo(generateRecipient().publicKey, false), /already set/);
 });
+
+test("a late 401 for an older token can't erase a newer token's rejection (review, verification round)", async () => {
+  const { dir, auth } = setup();
+  plaintext(dir);
+  let releaseOld!: () => void;
+  const oldHeld = new Promise<void>((r) => (releaseOld = r));
+  const s = stub(undefined, async (t) => {
+    if (t === PLAIN) { await oldHeld; return json({}, 401); }
+    return json({}, 401);
+  });
+  try {
+    const first = auth.call(get); // the old token's request, answer held back
+    await until(() => s.sent.includes(PLAIN));
+    const f = join(dir, "accounts", "api.preprod.world_123.json");
+    writeFileSync(f, readFileSync(f, "utf8").replace(PLAIN, "4242_newer"));
+    assert.deepEqual(await auth.call(get), { authRequired: "rejected", clientId: 123 }); // newer rejected
+    releaseOld();
+    await first; // old 401 arrives late
+    await auth.call(get);
+    assert.equal(s.sent.filter((t) => t === "4242_newer").length, 1, "the newer rejected token wasn't sent again");
+  } finally { s.restore(); }
+});
