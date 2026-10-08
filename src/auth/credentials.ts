@@ -26,8 +26,6 @@ export type AuthRequiredReason =
   | "account_mismatch"
   | "broker_unavailable"
   | "restart_required";
-export type CredentialSource = "explicit" | "session";
-export type AuthResolution = { header: string; source: CredentialSource } | { authRequired: AuthRequiredReason };
 // `clientId`: the account the failed session was for (expired/rejected), so a renewal can be
 // pinned to it (`login --account`). Metadata only, never the token.
 export type ApiResult = ApiCallResult | { authRequired: AuthRequiredReason; clientId?: number };
@@ -40,10 +38,11 @@ export interface Auth {
   status(): Record<string, unknown> | Promise<Record<string, unknown>>;
 }
 
-/** An Auth that holds its credential in this process. */
+/**
+ * An Auth that holds its credential in this process (the broker, or an explicit key). There is
+ * deliberately no way to read the credential back out: requests go through `call()` only.
+ */
 export interface LocalAuth extends Auth {
-  /** Credential for one request. Pins the account on first use of a session. */
-  resolve(): AuthResolution;
   status(): Record<string, unknown>;
 }
 
@@ -165,7 +164,6 @@ export function createAuth(
   if (explicitKey) {
     const header = `APIKey ${explicitKey}`;
     return {
-      resolve: () => ({ header, source: "explicit" }),
       call: (call) => callGcoreApi({ ...call, authHeader: header }),
       status: () => ({
         credential: "explicit_key",
@@ -221,14 +219,6 @@ export function createAuth(
       return { authRequired: "account_changed" };
     }
     return { session: check.session };
-  };
-
-  const resolve = (): AuthResolution => {
-    if (sealed) return sealedOver() ? { authRequired: "restart_required" } : { header: `APIKey ${sealed.token}`, source: "session" };
-    const c = current();
-    if ("authRequired" in c) return c;
-    pinnedClientId ??= c.session.client_id;
-    return { header: `APIKey ${c.session.token}`, source: "session" };
   };
 
   /**
@@ -315,7 +305,6 @@ export function createAuth(
   };
 
   return {
-    resolve,
     call,
 
     status() {
@@ -427,12 +416,6 @@ export function createEphemeralAuth(opts: {
   };
 
   return {
-    resolve: () => {
-      if (!adopted) return { authRequired: "no_session" };
-      if (over()) return { authRequired: "restart_required" };
-      return { header: `APIKey ${adopted.token}`, source: "session" };
-    },
-
     async call(call) {
       if (!adopted) {
         const problem = await adopt();

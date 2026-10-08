@@ -568,3 +568,8 @@ test("callback: an oversized body is refused early (declared or streamed), and l
   assert.equal((await postRaw(l.port, fields(state, 4 * HOUR, []))).status, 303, "a normal approval still works");
   await l.result;
 });
+
+test("the seal key is set once per process; a different second value is refused (review B3)", () => {
+  // setSealTo(publicKey, false) already ran in this file (choice-mode commands test).
+  assert.throws(() => setSealTo(generateRecipient().publicKey, false), /already set/);
+});

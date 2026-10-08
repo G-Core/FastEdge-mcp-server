@@ -233,10 +233,23 @@ function splitQuery(path: string, query?: Record<string, string>) {
 /**
  * Connects to the broker once, at startup, before any tool can run (MUST 5, MUST 9). Any
  * problem gives an Auth that answers `broker_unavailable`: it never falls back to reading the
- * cache. `socketPath`, `ownerUid` and `checkProcess` are test hooks.
+ * cache. Every check is on; there are no options to turn one off.
  */
-export async function connectBroker(
-  opts: { socketPath?: string; ownerUid?: number; checkProcess?: boolean; expectSeal?: boolean } = {},
+export const connectBroker = (): Promise<Auth> => connectBrokerImpl({});
+
+/**
+ * TESTS ONLY: the same, with the socket path, the expected socket owner, the process-identity
+ * check and the handshake-key requirement overridable. Production code must use connectBroker().
+ */
+export const connectBrokerForTest = (opts: {
+  socketPath: string;
+  ownerUid: number;
+  checkProcess?: boolean;
+  expectSeal?: boolean;
+}): Promise<Auth> => connectBrokerImpl(opts);
+
+async function connectBrokerImpl(
+  opts: { socketPath?: string; ownerUid?: number; checkProcess?: boolean; expectSeal?: boolean },
 ): Promise<Auth> {
   const socketPath = opts.socketPath ?? BROKER_SOCKET;
   const forcedHere = process.env.FASTEDGE_SESSION === "ephemeral";

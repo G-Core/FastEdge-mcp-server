@@ -116,7 +116,6 @@ export function serializeBody(
     return JSON.stringify(body);
   }
   if (contentType === "application/octet-stream") {
-    if (body instanceof Uint8Array) return body;
     if (body instanceof ArrayBuffer) return new Uint8Array(body);
     if (typeof body === "string") return Buffer.from(body, "base64");
   }

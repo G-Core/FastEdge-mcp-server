@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 
-import { decodeB64url, generateRecipient, open, recipientFromSeed, seal } from "../../src/auth/seal.js";
+import { decodeB64url, generateRecipient, open, recipientFromSeed, seal, sealForTest } from "../../src/auth/seal.js";
 
 const kat = JSON.parse(fs.readFileSync(new URL("./fixtures/seal-kat.json", import.meta.url), "utf8"));
 const recipient = recipientFromSeed(Buffer.from(kat.recipient_seed, "base64url"));
@@ -14,7 +14,7 @@ test("KAT: the recipient public key matches the independent implementation", () 
 });
 
 test("KAT: seal with the vector's randomness reproduces the envelope byte for byte", () => {
-  const env = seal(kat.envelope.recipient, kat.payload, {
+  const env = sealForTest(kat.envelope.recipient, kat.payload, {
     ephemeralSeed: Buffer.from(kat.sender_seed, "base64url"),
     salt: Buffer.from(kat.envelope.salt, "base64url"),
     nonce: Buffer.from(kat.envelope.nonce, "base64url"),

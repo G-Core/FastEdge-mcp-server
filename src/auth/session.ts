@@ -4,7 +4,6 @@ import fs from "node:fs";
 
 export const LOGIN_PORT = 47215;
 export const SESSION_DIR = "/run/fastedge";
-export const SESSION_FILE = `${SESSION_DIR}/session.json`;
 
 /** API origin → the portal that approves sessions for it. Other allowed origins have no session login. */
 export const PORTAL_ORIGINS: Readonly<Record<string, string>> = {
@@ -33,6 +32,10 @@ let forced = false;
 
 export function setSealTo(publicKey: string, forcedEphemeral = false): void {
   if (!SEAL_KEY_PATTERN.test(publicKey)) throw new Error("invalid seal key");
+  // Set once per process (review B3): commands built earlier and later must agree on the key.
+  if (sealTo !== null && (sealTo !== publicKey || forced !== forcedEphemeral)) {
+    throw new Error("the seal key is already set for this process");
+  }
   sealTo = publicKey;
   forced = forcedEphemeral;
 }

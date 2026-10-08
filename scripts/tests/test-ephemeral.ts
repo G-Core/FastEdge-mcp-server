@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFil
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { FrameReader, connectBroker, encodeFrame, serveBroker } from "../../src/auth/broker.js";
+import { FrameReader, connectBrokerForTest, encodeFrame, serveBroker } from "../../src/auth/broker.js";
 import { authRequiredResult, createEphemeralAuth } from "../../src/auth/credentials.js";
 import { LoginError, connectWithCode, startLogin } from "../../src/auth/login-server.js";
 import { generateRecipient, seal } from "../../src/auth/seal.js";
@@ -342,7 +342,7 @@ test("the broker's handshake carries its key; the server's login commands then s
   });
   await new Promise<void>((resolve) => listener.listen(socketPath, resolve));
   try {
-    await connectBroker({ socketPath, ownerUid: process.getuid!(), checkProcess: false });
+    await connectBrokerForTest({ socketPath, ownerUid: process.getuid!(), checkProcess: false });
     assert.equal(getSealTo(), recipient.publicKey);
     assert.equal(isForcedEphemeral(), true);
     assert.match(loginCommand(API)!, new RegExp(` -e FASTEDGE_SESSION=ephemeral .* login --seal-to ${recipient.publicKey}$`));
@@ -363,7 +363,7 @@ test("a malformed seal_to in the handshake is refused (broker_unavailable)", asy
   });
   await new Promise<void>((resolve) => listener.listen(socketPath, resolve));
   try {
-    const auth = await connectBroker({ socketPath, ownerUid: process.getuid!(), checkProcess: false });
+    const auth = await connectBrokerForTest({ socketPath, ownerUid: process.getuid!(), checkProcess: false });
     assert.deepEqual(await auth.call(get), { authRequired: "broker_unavailable" });
   } finally {
     listener.close();
@@ -381,7 +381,7 @@ test("a handshake with no key, an all-zero key, no forced flag, or unforced whil
     await new Promise<void>((resolve) => listener.listen(socketPath, resolve));
     try {
       process.env.FASTEDGE_SESSION = "ephemeral";
-      const auth = await connectBroker({ socketPath, ownerUid: process.getuid!(), checkProcess: false });
+      const auth = await connectBrokerForTest({ socketPath, ownerUid: process.getuid!(), checkProcess: false });
       delete process.env.FASTEDGE_SESSION;
       assert.deepEqual(await auth.call(get), { authRequired: "broker_unavailable" }, JSON.stringify(hello));
     } finally {

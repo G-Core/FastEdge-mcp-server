@@ -48,21 +48,52 @@ const writeSession = (dir: string, data: unknown, clientId = (data as { client_i
   return dir;
 };
 const authFor = (dir: string, key = "") => createAuth(key, { sessionDir: dir, apiOrigin: API });
+/**
+ * One real API call through `auth` (review B1: there is no (await resolve()) any more), with fetch stubbed:
+ * the account check answers the active account in `dir`. Returns the Authorization header that
+ * went out, or the auth_required reason.
+ */
+async function resolveOnce(auth: Auth, dir?: string, meId?: number): Promise<{ header: string } | { authRequired: string }> {
+  const original = globalThis.fetch;
+  let header: string | undefined;
+  const activeId = () => {
+    try {
+      return JSON.parse(readFileSync(activeFile(dir!), "utf8")).client_id;
+    } catch {
+      return 123;
+    }
+  };
+  globalThis.fetch = (async (url: string, init: RequestInit = {}) => {
+    const auth = (init.headers as Record<string, string>).Authorization;
+    if (String(url).endsWith("/iam/clients/me")) {
+      return new Response(JSON.stringify({ id: meId ?? (dir ? activeId() : 123) }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    header = auth;
+    return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+  try {
+    const r = await auth.call({ method: "GET", path: "/fastedge/v1/apps" });
+    return "authRequired" in r ? { authRequired: r.authRequired } : { header: header! };
+  } finally {
+    globalThis.fetch = original;
+  }
+}
 const resolverFor = (dir: string) => {
   const auth = authFor(dir);
-  return () => auth.resolve();
+  return () => resolveOnce(auth, dir);
 };
-const sessionHeader = (token = TOKEN) => ({ header: `APIKey ${token}`, source: "session" });
+const sessionHeader = (token = TOKEN) => ({ header: `APIKey ${token}` });
 
 // --- Resolver -----------------------------------------------------------------
 
-test("S1: an explicit key wins, even a wrong one, with a valid session present", () => {
+test("S1: an explicit key wins, even a wrong one, with a valid session present", async () => {
   const dir = writeSession(tmp(), session());
-  assert.deepEqual(authFor(dir, "wrong-key").resolve(), { header: "APIKey wrong-key", source: "explicit" });
+  assert.deepEqual(await resolveOnce(authFor(dir, "wrong-key")), { header: "APIKey wrong-key" });
 });
 
-test("a valid session yields the session token", () => {
-  assert.deepEqual(resolverFor(writeSession(tmp(), session()))(), sessionHeader());
+test("a valid session yields the session token", async () => {
+  const dir = writeSession(tmp(), session());
+  assert.deepEqual(await resolverFor(dir)(), sessionHeader());
 });
 
 const rejected: Array<[string, (dir: string) => string, AuthRequiredReason]> = [
@@ -94,27 +125,27 @@ const rejected: Array<[string, (dir: string) => string, AuthRequiredReason]> = [
   ],
 ];
 for (const [label, setup, reason] of rejected) {
-  test(`cache is ignored when ${label}`, () => {
-    assert.equal((resolverFor(setup(tmp()))() as { authRequired?: string }).authRequired, reason);
+  test(`cache is ignored when ${label}`, async () => {
+    assert.equal(((await resolverFor(setup(tmp()))()) as { authRequired?: string }).authRequired, reason);
   });
 }
 
-test("S5: renewal within the account carries on; a different client_id gives account_changed", () => {
+test("S5: renewal within the account carries on; a different client_id gives account_changed", async () => {
   const dir = tmp();
   writeSession(dir, session());
   const resolve = resolverFor(dir);
-  assert.ok("header" in resolve());
+  assert.ok("header" in (await resolve()));
   writeSession(dir, session({ token: "4243_renewed" }));
-  assert.deepEqual(resolve(), sessionHeader("4243_renewed"));
+  assert.deepEqual((await resolve()), sessionHeader("4243_renewed"));
   writeSession(dir, session({ client_id: 999 }));
-  assert.deepEqual(resolve(), { authRequired: "account_changed" });
+  assert.deepEqual((await resolve()), { authRequired: "account_changed" });
 });
 
-test("S15: a stray temp file from a crashed write leaves the old session in use", () => {
+test("S15: a stray temp file from a crashed write leaves the old session in use", async () => {
   const dir = tmp();
   writeSession(dir, session());
   writeFileSync(join(dir, "accounts", ".tmp-deadbeef"), '{"version":1,"token":"half');
-  assert.deepEqual(resolverFor(dir)(), sessionHeader());
+  assert.deepEqual((await resolverFor(dir)()), sessionHeader());
 });
 
 test("S3: auth_required results never contain the token", () => {
@@ -145,7 +176,7 @@ test("origins without a portal get no login command", () => {
 
 // --- Status tool view -------------------------------------------------------------
 
-test("status never pins, and shows pinned vs cached account after a switch", () => {
+test("status never pins, and shows pinned vs cached account after a switch", async () => {
   const dir = tmp();
   writeSession(dir, session());
   const auth = authFor(dir);
@@ -155,7 +186,7 @@ test("status never pins, and shows pinned vs cached account after a switch", () 
   assert.equal(before.pinned_client_id, null, "reading status must not pin");
 
   writeSession(dir, session({ client_id: 999 }));
-  assert.ok("header" in auth.resolve(), "first real use pins 999, not the account seen earlier");
+  assert.ok("header" in (await resolveOnce(auth, dir)), "first real use pins 999, not the account seen earlier");
   writeSession(dir, session({ client_id: 123 }));
 
   const after = auth.status();
@@ -174,7 +205,7 @@ test("status with an explicit key ignores the cache", () => {
   assert.ok(!JSON.stringify(status).includes(TOKEN));
 });
 
-test("status reports a missing session with the login command", () => {
+test("status reports a missing session with the login command", async () => {
   const status = authFor(tmp()).status();
   assert.equal(status.state, "no_session");
   assert.equal(status.active_session, null);
@@ -379,7 +410,7 @@ test("callback rejects bad requests and then accepts Origin: null with a valid s
   assert.equal(statSync(activeFile(l.sessionDir)).mode & 0o777, 0o600);
   assert.equal(JSON.parse(readFileSync(file, "utf8")).client_id, 123);
   assert.equal(JSON.parse(readFileSync(activeFile(l.sessionDir), "utf8")).client_id, 123);
-  assert.deepEqual(resolverFor(l.sessionDir)(), sessionHeader());
+  assert.deepEqual((await resolverFor(l.sessionDir)()), sessionHeader());
 
   // Replay after success: refused (400 on a kept-alive socket, or connection refused).
   assert.notEqual(await post(l.port, { body: good }).catch(() => 0), 303, "a replay is never redirected");
@@ -483,17 +514,17 @@ const usable = (overrides: Record<string, unknown> = {}) => session(overrides);
 const expiredSession = (overrides: Record<string, unknown> = {}) =>
   session({ expires_at: new Date(Date.now() - HOUR).toISOString(), ...overrides });
 
-test("a present but unreadable active pointer never falls back to legacy session.json (review A4)", () => {
+test("a present but unreadable active pointer never falls back to legacy session.json (review A4)", async () => {
   for (const pointer of ["{not json", JSON.stringify({ version: 2 }), "x".repeat(5000)]) {
     const dir = tmp();
     writeFileSync(join(dir, "session.json"), JSON.stringify(session()));
     writeFileSync(activeFile(dir), pointer);
-    assert.deepEqual(resolverFor(dir)(), { authRequired: "no_session" }, pointer.slice(0, 20));
+    assert.deepEqual((await resolverFor(dir)()), { authRequired: "no_session" }, pointer.slice(0, 20));
   }
   const linked = tmp();
   writeFileSync(join(linked, "session.json"), JSON.stringify(session()));
   symlinkSync(join(linked, "session.json"), activeFile(linked));
-  assert.deepEqual(resolverFor(linked)(), { authRequired: "no_session" }, "a symlinked pointer");
+  assert.deepEqual((await resolverFor(linked)()), { authRequired: "no_session" }, "a symlinked pointer");
 });
 
 test("ids must fit a JavaScript number exactly; sessions need their full stored shape (review A8)", async () => {
@@ -503,31 +534,31 @@ test("ids must fit a JavaScript number exactly; sessions need their full stored 
   for (const missing of ["token_id", "generation", "created_at"]) {
     const s = session() as Record<string, unknown>;
     delete s[missing];
-    assert.deepEqual(resolverFor(writeSession(tmp(), s, 123))(), { authRequired: "no_session" }, missing);
+    assert.deepEqual((await resolverFor(writeSession(tmp(), s, 123))()), { authRequired: "no_session" }, missing);
   }
 });
 
-test("legacy session.json is read until the first login migrates it", () => {
+test("legacy session.json is read until the first login migrates it", async () => {
   const dir = tmp();
   writeFileSync(join(dir, "session.json"), JSON.stringify(session()));
-  assert.deepEqual(resolverFor(dir)(), sessionHeader(), "reader falls back while there's no pointer");
+  assert.deepEqual((await resolverFor(dir)()), sessionHeader(), "reader falls back while there's no pointer");
 
   useCachedAccount({ apiOrigin: API, clientId: 123, sessionDir: dir }); // takes the lock → migrates
   assert.ok(!existsSync(join(dir, "session.json")));
   assert.ok(existsSync(accountFile(dir)));
   assert.equal(JSON.parse(readFileSync(activeFile(dir), "utf8")).client_id, 123);
-  assert.deepEqual(resolverFor(dir)(), sessionHeader());
+  assert.deepEqual((await resolverFor(dir)()), sessionHeader());
 });
 
-test("--use switches to a cached account without a new token, and refuses unusable ones (exit 7)", () => {
+test("--use switches to a cached account without a new token, and refuses unusable ones (exit 7)", async () => {
   const dir = tmp();
   writeSession(dir, usable({ client_id: 111, token: "111_a" }));
   writeSession(dir, usable({ client_id: 222, token: "222_b" }));
-  assert.deepEqual(resolverFor(dir)(), sessionHeader("222_b"));
+  assert.deepEqual((await resolverFor(dir)()), sessionHeader("222_b"));
 
   const switched = useCachedAccount({ apiOrigin: API, clientId: 111, sessionDir: dir });
   assert.equal(switched.client_id, 111);
-  assert.deepEqual(resolverFor(dir)(), sessionHeader("111_a"), "a fresh process uses the switched account");
+  assert.deepEqual((await resolverFor(dir)()), sessionHeader("111_a"), "a fresh process uses the switched account");
 
   const isExit7 = (err: unknown) => err instanceof LoginError && err.exitCode === 7;
   assert.throws(() => useCachedAccount({ apiOrigin: API, clientId: 999, sessionDir: dir }), isExit7);
@@ -536,14 +567,14 @@ test("--use switches to a cached account without a new token, and refuses unusab
   assert.throws(() => useCachedAccount({ apiOrigin: API, clientId: 333, sessionDir: dir }), isExit7);
 });
 
-test("a running server stays pinned when the active account switches (S5)", () => {
+test("a running server stays pinned when the active account switches (S5)", async () => {
   const dir = tmp();
   writeSession(dir, usable({ client_id: 111 }));
   writeSession(dir, usable({ client_id: 222 }));
   const resolve = resolverFor(dir);
-  assert.ok("header" in resolve());
+  assert.ok("header" in (await resolve()));
   useCachedAccount({ apiOrigin: API, clientId: 111, sessionDir: dir });
-  assert.deepEqual(resolve(), { authRequired: "account_changed" });
+  assert.deepEqual((await resolve()), { authRequired: "account_changed" });
 });
 
 test("expired accounts and dangling pointers are removed under the lock", () => {
@@ -557,16 +588,16 @@ test("expired accounts and dangling pointers are removed under the lock", () => 
   assert.ok(!existsSync(join(dir, "active-api.gcore.com.json")), "pointer to a missing account removed");
 });
 
-test("prod and preprod sessions don't affect each other", () => {
+test("prod and preprod sessions don't affect each other", async () => {
   const dir = tmp();
   writeSession(dir, usable({ client_id: 111, token: "111_pre" }));
   mkdirSync(join(dir, "accounts"), { recursive: true });
   writeFileSync(join(dir, "accounts", "api.gcore.com_777.json"), JSON.stringify(session({ client_id: 777, api_origin: PROD, token: "777_prod" })));
   writeFileSync(join(dir, "active-api.gcore.com.json"), JSON.stringify({ ...pointer(777), api_origin: PROD }));
 
-  assert.deepEqual(resolverFor(dir)(), sessionHeader("111_pre"));
+  assert.deepEqual((await resolverFor(dir)()), sessionHeader("111_pre"));
   const prod = createAuth("", { sessionDir: dir, apiOrigin: PROD });
-  assert.deepEqual(prod.resolve(), sessionHeader("777_prod"));
+  assert.deepEqual((await resolveOnce(prod, dir, 777)), sessionHeader("777_prod"));
   const listed = (authFor(dir).status().cached_accounts as Array<{ client_id: number }>).map((a) => a.client_id);
   assert.deepEqual(listed, [111], "status lists only this origin's accounts");
 });
@@ -622,9 +653,9 @@ test("--logout all: every account and pointer for prod and preprod, the legacy f
 test("after --logout, a running server's next call has no session (saved sessions are re-read)", async () => {
   const dir = writeSession(tmp(), usable({ client_id: 123 }));
   const auth = authFor(dir);
-  assert.ok("header" in auth.resolve());
+  assert.ok("header" in (await resolveOnce(auth, dir)));
   logoutSessions({ apiOrigin: API, target: "all", sessionDir: dir });
-  assert.deepEqual(auth.resolve(), { authRequired: "no_session" });
+  assert.deepEqual((await resolveOnce(auth, dir)), { authRequired: "no_session" });
 });
 
 test("status offers logout_command (client_id or all) and sign-out guidance", () => {
@@ -712,12 +743,12 @@ const codePayload = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-test("a valid connect code saves a session exactly like a browser login", () => {
+test("a valid connect code saves a session exactly like a browser login", async () => {
   const dir = tmp();
   const saved = connectWithCode(`  ${encode(codePayload())}\n`, { apiOrigin: API, sessionDir: dir });
   assert.equal(saved.client_id, 123);
   assert.equal(statSync(accountFile(dir)).mode & 0o777, 0o600);
-  assert.deepEqual(resolverFor(dir)(), sessionHeader());
+  assert.deepEqual((await resolverFor(dir)()), sessionHeader());
   assert.ok(!existsSync(join(dir, ".lock")), "lock released");
 });
 
@@ -785,7 +816,7 @@ test("every cache writer is owner-only: 0700 directories, 0600 files (lock and i
   assert.equal(statSync(accountFile(dir, 777)).mode & 0o777, 0o600);
 });
 
-test("an interrupted login (SIGINT/SIGTERM) releases the lock", () => {
+test("an interrupted login (SIGINT/SIGTERM) releases the lock", async () => {
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     const dir = tmp();
     const script = `

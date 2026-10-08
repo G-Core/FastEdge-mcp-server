@@ -132,14 +132,20 @@ function aad(e: Omit<Envelope, "ct">, R: Buffer, E: Buffer, salt: Buffer, nonce:
   ]);
 }
 
-/**
- * Seals `payload` to the recipient's raw public key (base64url). A fresh sender key, salt and
- * nonce every time; `random` is a test hook for known-answer vectors.
- */
-export function seal(
+/** Seals `payload` to the recipient's raw public key (base64url). A fresh sender key, salt and nonce every time. */
+export const seal = (recipient: string, payload: SealedPayload): Envelope => sealWith(recipient, payload, {});
+
+/** TESTS ONLY: seal with fixed randomness, for known-answer vectors. Never use in production. */
+export const sealForTest = (
   recipient: string,
   payload: SealedPayload,
-  random: { ephemeralSeed?: Buffer; salt?: Buffer; nonce?: Buffer } = {},
+  random: { ephemeralSeed: Buffer; salt: Buffer; nonce: Buffer },
+): Envelope => sealWith(recipient, payload, random);
+
+function sealWith(
+  recipient: string,
+  payload: SealedPayload,
+  random: { ephemeralSeed?: Buffer; salt?: Buffer; nonce?: Buffer },
 ): Envelope {
   const R = decodeB64url(recipient, KEY_BYTES);
   if (!R) throw new Error("invalid recipient key");

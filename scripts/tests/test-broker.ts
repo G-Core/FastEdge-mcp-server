@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { FrameReader, checkRequest, connectBroker, encodeFrame, readIdentity, serveBroker } from "../../src/auth/broker.js";
+import { FrameReader, checkRequest, connectBrokerForTest, encodeFrame, readIdentity, serveBroker } from "../../src/auth/broker.js";
 import { createAuth, type Auth } from "../../src/auth/credentials.js";
 
 const API = "https://api.preprod.world";
@@ -144,7 +144,7 @@ async function brokerPairIn(sessionDir: string) {
     serveBroker(conn, createAuth("", { sessionDir, apiOrigin: API }), API);
   });
   await new Promise<void>((resolve) => listener.listen(socketPath, resolve));
-  const client = await connectBroker({ socketPath, ownerUid: process.getuid!(), checkProcess: false, expectSeal: false });
+  const client = await connectBrokerForTest({ socketPath, ownerUid: process.getuid!(), checkProcess: false, expectSeal: false });
   const stop = () => {
     conns.forEach((c) => c.destroy());
     listener.close();
@@ -332,7 +332,7 @@ test("when the broker goes away, every call is broker_unavailable (no reconnect,
 test("the client refuses a socket owned by someone other than the broker", async () => {
   const { socketPath, stop } = await brokerPair();
   try {
-    const client = await connectBroker({ socketPath, ownerUid: 12345, checkProcess: false });
+    const client = await connectBrokerForTest({ socketPath, ownerUid: 12345, checkProcess: false });
     assert.deepEqual(await client.call({ method: "GET", path: "/fastedge/v1/apps" }), { authRequired: "broker_unavailable" });
   } finally {
     stop();
@@ -343,7 +343,7 @@ test("the client refuses to connect from an unhardened process", async () => {
   const { socketPath, stop } = await brokerPair();
   try {
     // This test process has no no_new_privs, so the real check fails.
-    const client = await connectBroker({ socketPath, ownerUid: process.getuid!() });
+    const client = await connectBrokerForTest({ socketPath, ownerUid: process.getuid!() });
     assert.equal(((await client.status()) as Record<string, unknown>).state, "broker_unavailable");
   } finally {
     stop();
