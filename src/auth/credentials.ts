@@ -155,7 +155,7 @@ const EPHEMERAL_NOTE =
  */
 export function createAuth(
   explicitKey: string,
-  opts: { sessionDir?: string; apiOrigin?: string; now?: () => number; recipient?: Recipient } = {},
+  opts: { sessionDir?: string; apiOrigin?: string; now?: () => number; recipient?: Recipient; forced?: boolean } = {},
 ): LocalAuth {
   const apiOrigin = opts.apiOrigin ?? GCORE_API_ORIGIN;
   const command = loginCommand(apiOrigin);
@@ -187,6 +187,9 @@ export function createAuth(
   // every call checks our sealed file first and falls back to plaintext only if it's absent (rule 2).
   // Once adopted, the run is ephemeral for good: no more disk reads; expiry or a 401 → restart.
   const recipient = opts.recipient;
+  // FASTEDGE_SESSION=ephemeral (task 10 v1): the sealed path only. An absent sealed file is
+  // no_session, and the plaintext cache is never read, not even for status.
+  const forced = opts.forced === true && recipient !== undefined;
   let sealed: Session | undefined;
   let sealedEnded = false;
   let sealing: Promise<"absent" | AuthRequiredReason | ApiResult | null> | undefined;
@@ -243,6 +246,7 @@ export function createAuth(
   const call = async (req: Omit<ApiCallOptions, "authHeader">): Promise<ApiResult> => {
     if (recipient && !sealed) {
       const r = await trySealed();
+      if (r === "absent" && forced) return { authRequired: "no_session" };
       if (r !== "absent" && r !== null) return typeof r === "string" ? { authRequired: r } : r;
     }
     if (sealed) {
@@ -280,17 +284,22 @@ export function createAuth(
     let session = sealed;
     let pending: AuthRequiredReason | undefined;
     if (!session) {
-      if (!recipient || !sealedPresent(sessionDir, recipient.publicKey)) return null;
-      const c = openSealed(recipient, sessionDir, apiOrigin, now());
-      if (typeof c === "string") pending = c;
-      else session = c;
+      if (!recipient) return null;
+      if (!sealedPresent(sessionDir, recipient.publicKey)) {
+        if (!forced) return null;
+        pending = "no_session";
+      } else {
+        const c = openSealed(recipient, sessionDir, apiOrigin, now());
+        if (typeof c === "string") pending = c;
+        else session = c;
+      }
     }
     const blocked = !sealed && session !== undefined && pinnedClientId !== undefined && session.client_id !== pinnedClientId;
     const state = sealed ? (sealedOver() ? "restart_required" : "available") : blocked ? "account_changed" : session ? "available" : pending!;
     return {
       credential: "session",
       mode: "ephemeral",
-      forced: false,
+      forced,
       state,
       active_session: session ? describeSession(session) : null,
       account_verified: sealed !== undefined,
@@ -356,81 +365,17 @@ export function createAuth(
 }
 
 /**
- * Ephemeral session mode (fastedge-coordinator tasks/10-ephemeral-session.md, v1). The broker holds
- * an X25519 key in memory; login seals the approved token to it. The broker adopts one token per
- * lifetime: it reads only its own sealed file, checks the account, and from then on never reads the
- * volume again. Expiry or a 401 means restart, never a re-read. It never reads the plaintext cache.
- * `sessionDir`, `apiOrigin` and `now` are test hooks.
+ * Ephemeral session mode (fastedge-coordinator tasks/10-ephemeral-session.md, v1): the same sealed
+ * path as choice mode (one implementation, review B2), with the plaintext cache switched off. The
+ * broker adopts one sealed token per lifetime, after the account check; expiry or a 401 means
+ * restart. `sessionDir`, `apiOrigin` and `now` are test hooks.
  */
-export function createEphemeralAuth(opts: {
-  recipient: { privateKey: KeyObject; publicKey: string };
+export const createEphemeralAuth = (opts: {
+  recipient: Recipient;
   sessionDir?: string;
   apiOrigin?: string;
   now?: () => number;
-}): LocalAuth {
-  const apiOrigin = opts.apiOrigin ?? GCORE_API_ORIGIN;
-  const sessionDir = opts.sessionDir ?? SESSION_DIR;
-  const now = opts.now ?? Date.now;
-  let adopted: Session | undefined;
-  let ended = false; // a 401 on the adopted token: nothing is sent with it again
-  let adopting: Promise<AuthRequiredReason | ApiResult | null> | undefined;
-  const over = () => ended || (adopted !== undefined && !isUsable(adopted, now()));
-
-  /** Reads and opens our sealed file. Not adopted until the account check passes. */
-  const candidate = () => openSealed(opts.recipient, sessionDir, apiOrigin, now());
-
-  /** Serialized: concurrent first calls share one adoption. */
-  const adopt = (): Promise<AuthRequiredReason | ApiResult | null> => {
-    adopting ??= (async () => {
-      const c = candidate();
-      if (typeof c === "string") return c;
-      const problem = await checkAccount(c.token, c.client_id);
-      if (problem) return problem;
-      adopted = c;
-      return null;
-    })().finally(() => (adopting = undefined));
-    return adopting;
-  };
-
-  const status = () => {
-    // Before adoption, look at the sealed file without adopting it: adoption needs the account
-    // check, which only an API call makes (as in normal mode, where status doesn't verify either).
-    const pending = adopted ? undefined : candidate();
-    const session = adopted ?? (typeof pending === "object" ? pending : undefined);
-    const state = adopted ? (over() ? "restart_required" : "available") : session ? "available" : (pending as AuthRequiredReason);
-    return {
-      credential: "session",
-      mode: "ephemeral",
-      forced: true,
-      state,
-      active_session: session ? describeSession(session) : null,
-      // Whether the API confirmed the token's account; for a sealed token, on the first API call.
-      account_verified: adopted !== undefined,
-      pinned_client_id: adopted?.client_id ?? null,
-      note: EPHEMERAL_NOTE,
-      ...(session ? {} : { sign_in: SIGN_IN_HINT, login_command: loginCommand(apiOrigin), code_command: codeCommand(apiOrigin), manual_login: manualFallback(apiOrigin) }),
-      ...(state === "restart_required" ? { next_step: EPHEMERAL_RESTART_HINT } : {}),
-      logout_command: logoutCommand(apiOrigin),
-      sign_out: SIGN_OUT_HINT,
-    };
-  };
-
-  return {
-    async call(call) {
-      if (!adopted) {
-        const problem = await adopt();
-        if (typeof problem === "string") return { authRequired: problem };
-        if (problem) return problem;
-      }
-      if (over()) return { authRequired: "restart_required" };
-      const result = await callWithToken(adopted!.token, call, "restart_required");
-      if ("authRequired" in result) ended = true;
-      return result;
-    },
-
-    status,
-  };
-}
+}): LocalAuth => createAuth("", { ...opts, forced: true });
 
 /** PROTOCOL.md §4. Metadata only: never the token or the file contents (S3). */
 export function authRequiredResult(
