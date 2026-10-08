@@ -11,7 +11,7 @@ import {
   useCachedAccount,
 } from "./auth/login-server.js";
 import { LOGIN_PORT, PORTAL_ORIGINS, RESTART_HINT } from "./auth/session.js";
-import { parseId, type Session } from "./auth/store.js";
+import { errorCode, parseId, type Session } from "./auth/store.js";
 
 const EXIT_CODES = { ok: 0, timeout: 5, denied: 6 } as const;
 const MESSAGES = {
@@ -154,8 +154,8 @@ async function main() {
       let code: string;
       try {
         code = await readHidden("Paste the connect code from the portal (it won't be shown), then press Enter: ");
-      } catch (err: any) {
-        console.error(err?.message ?? "Cancelled.");
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : "Cancelled.");
         process.exit(2);
       }
       const session = connectWithCode(code, { apiOrigin: GCORE_API_ORIGIN, sealTo, forced, account });
@@ -181,8 +181,17 @@ async function main() {
       console.error(err.message);
       process.exit(err.exitCode);
     }
-    throw err;
+    unexpected(err);
   }
+}
+
+/**
+ * Any other failure: a fixed message and exit 1, never an unhandled rejection. Only the error code
+ * is shown, not the message or stack, which could carry request data (review B7).
+ */
+function unexpected(err: unknown): never {
+  console.error(`login: unexpected error${errorCode(err) ? ` (${errorCode(err)})` : ""}. Try again; if it repeats, report it.`);
+  process.exit(1);
 }
 
 // Ctrl-C, or `docker stop` (node runs as PID 1, which ignores SIGTERM by default): exit normally
@@ -190,4 +199,4 @@ async function main() {
 process.on("SIGINT", () => process.exit(130));
 process.on("SIGTERM", () => process.exit(143));
 
-main();
+main().catch(unexpected);

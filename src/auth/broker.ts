@@ -6,7 +6,7 @@ import net from "node:net";
 
 import { GCORE_API_ORIGIN, serializeBody } from "../api-client.js";
 import { checkAllowed } from "../policy/enforce.js";
-import type { ApiResult, Auth, LocalAuth } from "./credentials.js";
+import type { ApiResult, Auth, AuthRequiredReason, LocalAuth } from "./credentials.js";
 import { isValidRecipient } from "./seal.js";
 import { getSealTo, isForcedEphemeral, setSealTo } from "./session.js";
 
@@ -38,12 +38,12 @@ export function encodeFrame(message: unknown): Buffer {
 export class FrameReader {
   private chunks: Buffer[] = [];
   private size = 0;
-  private pending: { message: any; bodyBytes: number } | null = null;
+  private pending: { message: unknown; bodyBytes: number } | null = null;
 
   constructor(
     private readonly maxFrame: number,
-    private readonly bodyLength: (message: any) => number,
-    private readonly onFrame: (message: any, body?: Buffer) => void,
+    private readonly bodyLength: (message: unknown) => number,
+    private readonly onFrame: (message: unknown, body?: Buffer) => void,
   ) {}
 
   push(chunk: Buffer): void {
@@ -118,10 +118,10 @@ const MAX_QUERY_CHARS = 2048;
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
 
-function bodyLengthOf(message: any): number {
+function bodyLengthOf(message: unknown): number {
   if (!isPlainObject(message) || message.body_bytes === undefined) return 0;
-  const n = message.body_bytes as number;
-  if (!Number.isSafeInteger(n) || n < 0 || n > MAX_BODY_BYTES) throw new Error("bad body length");
+  const n = message.body_bytes;
+  if (typeof n !== "number" || !Number.isSafeInteger(n) || n < 0 || n > MAX_BODY_BYTES) throw new Error("bad body length");
   return n;
 }
 
@@ -160,7 +160,7 @@ export function serveBroker(socket: net.Socket, auth: LocalAuth, apiOrigin = GCO
     if (!socket.destroyed) socket.write(encodeFrame(message));
   };
 
-  const onFrame = (m: any, body?: Buffer) => {
+  const onFrame = (m: unknown, body?: Buffer) => {
     if (!greeted) {
       if (!isPlainObject(m) || m.hello !== HELLO || Object.keys(m).length !== 1) return void socket.destroy();
       greeted = true;
@@ -196,7 +196,9 @@ export function serveBroker(socket: net.Socket, auth: LocalAuth, apiOrigin = GCO
               ? { id, auth_required: r.authRequired, ...(r.clientId !== undefined ? { client_id: r.clientId } : {}) }
               : { id, status: r.status, data: r.data },
           ),
-        () => send({ id, error: "request failed" }),
+        // A short category only, never the exception text (review B7).
+        (err: unknown) =>
+          send({ id, error: err instanceof SyntaxError ? "the API answered malformed JSON" : "the API could not be reached" }),
       )
       .finally(() => inFlight--);
   };
@@ -210,6 +212,33 @@ export function serveBroker(socket: net.Socket, auth: LocalAuth, apiOrigin = GCO
     }
   });
   socket.on("error", () => socket.destroy());
+}
+
+// --- Broker replies, as the MCP server sees them (review B6: parsed, not trusted as `any`) ---------
+
+const AUTH_REASONS: ReadonlySet<AuthRequiredReason> = new Set<AuthRequiredReason>([
+  "no_session", "expired", "account_changed", "origin_mismatch", "rejected",
+  "account_mismatch", "broker_unavailable", "restart_required",
+]);
+
+type BrokerReply =
+  | { kind: "auth"; reason: AuthRequiredReason; clientId?: number }
+  | { kind: "error"; error: string }
+  | { kind: "result"; status: number; data: unknown };
+
+/** One reply frame → a typed reply. Anything unexpected reads as the broker being unavailable. */
+function parseReply(m: Record<string, unknown>): BrokerReply {
+  if (typeof m.auth_required === "string") {
+    if (!AUTH_REASONS.has(m.auth_required as AuthRequiredReason)) return { kind: "auth", reason: "broker_unavailable" };
+    const reason = m.auth_required as AuthRequiredReason;
+    const id = m.client_id;
+    return typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? { kind: "auth", reason, clientId: id } : { kind: "auth", reason };
+  }
+  if (typeof m.error === "string") return { kind: "error", error: m.error };
+  if (typeof m.status === "number") return { kind: "result", status: m.status, data: m.data };
+  // A status reply carries only `data`.
+  if ("data" in m) return { kind: "result", status: 200, data: m.data };
+  return { kind: "auth", reason: "broker_unavailable" };
 }
 
 // --- MCP server side ------------------------------------------------------------------
@@ -275,20 +304,23 @@ async function connectBrokerImpl(
   if (!st.isSocket() || st.uid !== ownerUid) return fail("the broker socket is not owned by the broker.");
 
   const socket = net.connect(socketPath);
-  const pending = new Map<number, (r: any) => void>();
+  const pending = new Map<number, (r: BrokerReply) => void>();
   let nextId = 1;
   let closed = false;
   let greeted: (ok: boolean) => void = () => {};
   const handshake = new Promise<boolean>((resolve) => (greeted = resolve));
 
-  const reader = new FrameReader(MAX_RESPONSE_FRAME, () => 0, (m: any) => {
-    if (m?.ok === true && !Number.isSafeInteger(m?.id)) {
+  const reader = new FrameReader(MAX_RESPONSE_FRAME, () => 0, (raw: unknown) => {
+    if (!isPlainObject(raw)) return void socket.destroy();
+    const m = raw;
+    if (m.ok === true && m.id === undefined) {
       if (m.seal_to !== undefined) {
         // It goes into a shell command the agent runs: a valid X25519 key in base64url, or refuse.
         if (!isValidRecipient(m.seal_to) || typeof m.forced !== "boolean") return void socket.destroy();
+        const forcedThere = m.forced;
         // Our own config forcing ephemeral wins over a broker that says it isn't.
-        if (forcedHere && !m.forced) return void socket.destroy();
-        setSealTo(m.seal_to, m.forced);
+        if (forcedHere && !forcedThere) return void socket.destroy();
+        setSealTo(m.seal_to, forcedThere);
       } else if (expectSeal) {
         // Every session broker sends a key (task 10 v2); without one, login commands would
         // silently lose the "don't keep" choice. Never fall back.
@@ -296,9 +328,10 @@ async function connectBrokerImpl(
       }
       return greeted(true);
     }
-    const done = pending.get(m?.id);
-    pending.delete(m?.id);
-    done?.(m);
+    if (typeof m.id !== "number") return void socket.destroy();
+    const done = pending.get(m.id);
+    pending.delete(m.id);
+    done?.(parseReply(m));
   });
   socket.on("data", (chunk: Buffer) => {
     try {
@@ -311,7 +344,7 @@ async function connectBrokerImpl(
   socket.on("close", () => {
     closed = true;
     greeted(false);
-    for (const done of pending.values()) done({ auth_required: "broker_unavailable" });
+    for (const done of pending.values()) done({ kind: "auth", reason: "broker_unavailable" });
     pending.clear();
   });
 
@@ -322,8 +355,8 @@ async function connectBrokerImpl(
   if (!ok) return fail("the token broker did not answer.");
   socket.unref(); // the stdio transport keeps the process alive, not this socket
 
-  const send = (message: Record<string, unknown>, body?: Uint8Array): Promise<any> => {
-    if (closed) return Promise.resolve({ auth_required: "broker_unavailable" });
+  const send = (message: Record<string, unknown>, body?: Uint8Array): Promise<BrokerReply> => {
+    if (closed) return Promise.resolve({ kind: "auth", reason: "broker_unavailable" });
     const id = nextId++;
     return new Promise((resolve) => {
       pending.set(id, resolve);
@@ -352,18 +385,19 @@ async function connectBrokerImpl(
         },
         body,
       );
-      if (typeof r.auth_required === "string") {
-        return Number.isSafeInteger(r.client_id) && r.client_id > 0
-          ? { authRequired: r.auth_required, clientId: r.client_id }
-          : { authRequired: r.auth_required };
+      switch (r.kind) {
+        case "auth":
+          return r.clientId !== undefined ? { authRequired: r.reason, clientId: r.clientId } : { authRequired: r.reason };
+        case "error":
+          return { status: 0, data: { error: `Token broker: ${r.error}` } };
+        case "result":
+          return { status: r.status, data: r.data };
       }
-      if (typeof r.error === "string") return { status: 0, data: { error: `Token broker: ${r.error}` } };
-      return { status: r.status, data: r.data };
     },
 
     async status() {
       const r = await send({ op: "status" });
-      return isPlainObject(r.data) ? r.data : (unavailable.status() as Record<string, unknown>);
+      return r.kind === "result" && isPlainObject(r.data) ? r.data : (unavailable.status() as Record<string, unknown>);
     },
   };
 }

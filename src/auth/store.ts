@@ -60,13 +60,17 @@ function readJson(path: string): unknown {
   }
 }
 
+/** The `code` of a Node system error (ENOENT, EEXIST, …), or undefined. Never the message. */
+export const errorCode = (err: unknown): string | undefined =>
+  typeof err === "object" && err !== null && typeof (err as { code?: unknown }).code === "string" ? (err as { code: string }).code : undefined;
+
 /** True only if nothing at all is at `path` (ENOENT); any other state counts as present. */
 function absent(path: string): boolean {
   try {
     fs.lstatSync(path);
     return false;
-  } catch (err: any) {
-    return err?.code === "ENOENT";
+  } catch (err) {
+    return errorCode(err) === "ENOENT";
   }
 }
 
@@ -386,8 +390,8 @@ export function acquireLock(dir: string): (() => void) & { held: () => boolean }
       // Ownership check (not a guarantee): a login that has visibly lost its lock, e.g. after the
       // laptop slept past the stale window and another login took over, doesn't write.
       return Object.assign(release, { held: ours });
-    } catch (err: any) {
-      if (err?.code !== "EEXIST") throw err;
+    } catch (err) {
+      if (errorCode(err) !== "EEXIST") throw err;
       let age = 0;
       try {
         age = Date.now() - fs.lstatSync(path).mtimeMs;
@@ -462,8 +466,8 @@ export function ensureInstallationId(dir: string): string {
   try {
     try {
       fs.linkSync(tmp, file);
-    } catch (err: any) {
-      if (err?.code !== "EEXIST") throw err;
+    } catch (err) {
+      if (errorCode(err) !== "EEXIST") throw err;
       const raced = readInstallationId(file);
       if (raced) return raced;
       fs.renameSync(tmp, file);

@@ -279,7 +279,7 @@ test("Authorization canary: a failing request never returns the token", async ()
     },
     async (client) => {
       const r = await client.call({ method: "GET", path: "/fastedge/v1/apps" });
-      assert.deepEqual(r, { status: 0, data: { error: "Token broker: request failed" } });
+      assert.deepEqual(r, { status: 0, data: { error: "Token broker: the API could not be reached" } });
       assert.ok(!JSON.stringify(r).includes(TOKEN));
     },
   );
@@ -462,6 +462,17 @@ test("auth_required carries the failed session's account across the broker (reje
     async (client) => {
       const r = await client.call({ method: "GET", path: "/fastedge/v1/apps" });
       assert.deepEqual(r, { authRequired: "rejected", clientId: 123 });
+    },
+  );
+});
+
+test("a failed upstream request reaches the server as a short category, never the exception text (review B7)", async () => {
+  await withBroker(
+    () => new Response("{not json", { status: 200, headers: { "content-type": "application/json" } }),
+    async (client) => {
+      const r = (await client.call({ method: "GET", path: "/fastedge/v1/apps" })) as { status: number; data: { error: string } };
+      assert.equal(r.status, 0);
+      assert.equal(r.data.error, "Token broker: the API answered malformed JSON");
     },
   );
 });

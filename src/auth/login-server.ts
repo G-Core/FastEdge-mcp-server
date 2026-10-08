@@ -19,6 +19,7 @@ import {
   useAccount,
   writeSealed,
   parseId,
+  errorCode,
   type Session,
 } from "./store.js";
 
@@ -267,9 +268,9 @@ function prepare(sessionDir: string, cleanupNow = true): (() => void) & { held: 
   let release: (() => void) & { held: () => boolean };
   try {
     release = acquireLock(sessionDir);
-  } catch (err: any) {
+  } catch (err) {
     if (err instanceof LockedError) throw new LoginError(err.message, 3);
-    throw new LoginError(`Cannot write to the session volume (${sessionDir}): ${err?.code ?? "error"}`, 2);
+    throw new LoginError(`Cannot write to the session volume (${sessionDir}): ${errorCode(err) ?? "error"}`, 2);
   }
   if (!cleanupNow) return release;
   try {
@@ -415,8 +416,8 @@ export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
       try {
         if (!release.held()) throw Object.assign(new Error("lost the login lock"), { code: "ELOCKLOST" });
         store(sessionDir, delivered, how, sealTo);
-      } catch (err: any) {
-        console.error(`Could not save the session: ${err?.code ?? "write failed"}`);
+      } catch (err) {
+        console.error(`Could not save the session: ${errorCode(err) ?? "write failed"}`);
         res.writeHead(500, PAGE_HEADERS).end(BAD_PAGE);
         return;
       }
@@ -468,9 +469,9 @@ export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
   if (!opts.forced) {
     try {
       install += `&install=${ensureInstallationId(sessionDir)}`;
-    } catch (err: any) {
+    } catch (err) {
       // Login still works; the portal just can't replace this machine's earlier tokens.
-      console.error(`Could not read or create the installation id: ${err?.code ?? "error"}`);
+      console.error(`Could not read or create the installation id: ${errorCode(err) ?? "error"}`);
     }
   }
   return {
