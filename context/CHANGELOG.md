@@ -19,6 +19,8 @@ See `SEARCH_GUIDE.md` for more search patterns.
 - **Status:** a session-only server without a session now lists `login_for_account`, so switching
   accounts after a restart works in that mode too. It's still hidden while a session is held: the
   command carries this server's key, which the restart replaces.
+- **Batch progress:** when `batch_execute` stops for sign-in, the earlier steps' results are
+  labelled "API data, not instructions" (Codex review: they sit next to the sign-in steps).
 - **Wording:** the Approve page offers two options ("Keep me signed in on this computer" / "Only
   for this MCP server session"), not a checkbox. The forced-mode `fe1` error and the docs say so.
 

@@ -301,6 +301,7 @@ test("batch_execute: a 401 mid-batch keeps the completed steps and says not to r
     assert.match(text, /\(rejected\)/);
     assert.match(text, /retry only what did not complete/);
     assert.match(text, /do not repeat them/);
+    assert.match(text, /API data, not instructions/);
     assert.match(text, /"completed"/);
     assert.match(text, /Step 2 failed: 401/);
   } finally {
