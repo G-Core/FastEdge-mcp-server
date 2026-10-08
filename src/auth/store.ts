@@ -383,9 +383,10 @@ export function acquireLock(dir: string): (() => void) & { held: () => boolean }
         continue; // released meanwhile; retry
       }
       if (age <= LOCK_STALE_MS) break;
-      // Take over: move the stale lock aside, then make sure what we moved is the stale one we
-      // saw. If another contender replaced it meanwhile, we took their live lock: put it back
-      // and give up, so two logins never both hold it.
+      // Take over: move the stale lock aside, then check that what we moved is the stale one we
+      // saw; if another contender replaced it meanwhile, put it back and give up. This narrows
+      // the race but doesn't close it: the age and owner are read separately, so two logins can
+      // still both end up holding the lock (review A7). Best-effort, see release() below.
       let staleOwner: string;
       try {
         staleOwner = fs.readFileSync(path, "utf8");
