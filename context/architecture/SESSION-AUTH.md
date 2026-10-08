@@ -123,6 +123,30 @@ The Approve page's **Keep me signed in** checkbox decides each sign-in. The cont
 - **Lock:** a 5 s heartbeat and a 30 s stale window, with a takeover check. It is best-effort
   coordination; no security property depends on it.
 
+## Pre-PR review hardening (2026-10-08)
+
+Coordinator `tasks/pr-review.md` lists each change and its commit. What changed for maintainers:
+- **Identities:**
+  - `HOST_UID`/`HOST_GID` must be canonical decimal (no leading zeros), at most 4294967294, and
+    are compared numerically.
+  - Keyless, the server exits if it runs as uid/gid 0 or 10002.
+- **API base:** `GCORE_API_BASE` must be a bare origin, and request URLs are built from the
+  validated origin.
+- **No credential read-back:** `LocalAuth` has no `resolve()`; requests go through `call()` only.
+  - Tests use `connectBrokerForTest()` and `sealForTest()`.
+  - Production `connectBroker()` and `seal()` take no overrides.
+- **One sealed-session implementation:** `createEphemeralAuth` is `createAuth(…, { forced: true })`.
+- **Session handling:**
+  - A saved token that got a 401 is never sent again; status says `rejected` until a new token
+    arrives.
+  - The echo filter also matches the JSON-escaped token.
+  - The legacy `session.json` is read only when no active pointer exists at all.
+  - Ids go through `parseId()` (safe integers); stored sessions need their full shape.
+- **Login callback:** oversized bodies are refused early, with header and request timeouts and a
+  connection cap.
+- **Wire types:** broker replies are parsed and typed, and unknown `auth_required` reasons become
+  `broker_unavailable`. Failures cross as a short category, never exception text.
+
 `auth_required` reasons:
 - `no_session`, `expired`, `origin_mismatch`: offer login.
 - `rejected` (a 401 on the session token): offer login, but stop if a fresh login is rejected too.
@@ -150,7 +174,7 @@ The Approve page's **Keep me signed in** checkbox decides each sign-in. The cont
 | `pnpm run test:seal` (10) | envelope: known-answer vector, tampering, wrong recipient, low-order keys, strict base64url |
 | `pnpm run test:choice` (19) | choice mode: persist matrix, fe1/fe2, no fallback from a present sealed file, sealed↔plaintext transitions and races (cross-account), sticky mode, lock fencing |
 | `pnpm run test:ephemeral` (16) | adoption rules, fail-closed (plaintext cache ignored), terminal 401, 8 h cap, sealed login and `--code`, handshake key |
-| `pnpm run test:broker-isolation` | **container release gate** (54 checks: 13 forced-ephemeral, 4 choice mode; needs Docker, not in `test`): startup refusals, process identities, the broker env, a hostile build as the server uid, tools through the broker against preprod; ephemeral refusals, a sealed token planted for the live key, no plaintext anywhere, a new key after restart. Runbook: DEVELOPMENT.md |
+| `pnpm run test:broker-isolation` | **container release gate** (59 checks: 13 forced-ephemeral, 4 choice mode, 5 id-validation; needs Docker, not in `test`): startup refusals, process identities, the broker env, a hostile build as the server uid, tools through the broker against preprod; ephemeral refusals, a sealed token planted for the live key, no plaintext anywhere, a new key after restart. Runbook: DEVELOPMENT.md |
 
 Run the container gate after any change to the entrypoint, `Dockerfile`, `src/broker.ts`,
 `src/auth/broker.ts` or `src/auth/store.ts`.
