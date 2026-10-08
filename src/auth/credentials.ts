@@ -93,7 +93,9 @@ async function callWithToken(
   // A 403 is a permission problem, not a login problem: pass it through.
   if (result.status === 401) return clientId === undefined ? { authRequired: on401 } : { authRequired: on401, clientId };
   // Never hand the token across the broker boundary, even if an upstream echoes it.
-  if (JSON.stringify(result.data ?? null).includes(token)) {
+  // Check the JSON-escaped form too: a token may contain `"` or `\`, which the serialization escapes.
+  const json = JSON.stringify(result.data ?? null);
+  if (json.includes(token) || json.includes(JSON.stringify(token).slice(1, -1))) {
     return { status: 0, data: { error: "The API response was withheld because it contained the session token." } };
   }
   return result;
