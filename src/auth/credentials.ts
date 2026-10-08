@@ -28,7 +28,9 @@ export type AuthRequiredReason =
   | "restart_required";
 export type CredentialSource = "explicit" | "session";
 export type AuthResolution = { header: string; source: CredentialSource } | { authRequired: AuthRequiredReason };
-export type ApiResult = ApiCallResult | { authRequired: AuthRequiredReason };
+// `clientId`: the account the failed session was for (expired/rejected), so a renewal can be
+// pinned to it (`login --account`). Metadata only, never the token.
+export type ApiResult = ApiCallResult | { authRequired: AuthRequiredReason; clientId?: number };
 
 /** What the API tools use. They never see a credential. */
 export interface Auth {
@@ -85,10 +87,11 @@ async function callWithToken(
   token: string,
   call: Omit<ApiCallOptions, "authHeader">,
   on401: AuthRequiredReason,
+  clientId?: number,
 ): Promise<ApiResult> {
   const result = await callGcoreApi({ ...call, authHeader: `APIKey ${token}` }, SESSION_LIMITS);
   // A 403 is a permission problem, not a login problem: pass it through.
-  if (result.status === 401) return { authRequired: on401 };
+  if (result.status === 401) return clientId === undefined ? { authRequired: on401 } : { authRequired: on401, clientId };
   // Never hand the token across the broker boundary, even if an upstream echoes it.
   if (JSON.stringify(result.data ?? null).includes(token)) {
     return { status: 0, data: { error: "The API response was withheld because it contained the session token." } };
@@ -103,7 +106,7 @@ async function callWithToken(
  */
 async function checkAccount(token: string, clientId: number): Promise<ApiResult | null> {
   const me = await callGcoreApi({ method: "GET", path: "/iam/clients/me", authHeader: `APIKey ${token}` }, SESSION_LIMITS);
-  if (me.status === 401) return { authRequired: "rejected" };
+  if (me.status === 401) return { authRequired: "rejected", clientId };
   if (me.status !== 200) {
     return {
       status: me.status >= 400 ? me.status : 502,
@@ -204,9 +207,11 @@ export function createAuth(
   };
 
   /** The usable session, checked against the pin without setting it. */
-  const current = (): { session: Session } | { authRequired: AuthRequiredReason } => {
+  const current = (): { session: Session } | { authRequired: AuthRequiredReason; clientId?: number } => {
     const check = checkSession(sessionDir, apiOrigin, now());
-    if ("reason" in check) return { authRequired: check.reason };
+    if ("reason" in check) {
+      return check.reason === "expired" ? { authRequired: check.reason, clientId: check.session.client_id } : { authRequired: check.reason };
+    }
     if (pinnedClientId !== undefined && check.session.client_id !== pinnedClientId) {
       return { authRequired: "account_changed" };
     }
@@ -268,7 +273,7 @@ export function createAuth(
     if (session.client_id !== pinnedClientId) return { authRequired: "account_changed" };
 
     // A 401 here concerns this plaintext token only, never a sealed one adopted meanwhile.
-    return callWithToken(session.token, req, "rejected");
+    return callWithToken(session.token, req, "rejected", session.client_id);
   };
 
   /** Status for a run holding, or about to adopt, a sealed session. Null when there is none. */
@@ -329,6 +334,8 @@ export function createAuth(
         ...(state === "available" ? {} : { sign_in: SIGN_IN_HINT }),
         ...(changed ? { next_step: RESTART_HINT } : {}),
         login_command: command,
+        // The same login, accepting only one account: for switching to (or renewing) a known account.
+        login_for_account: loginCommand(apiOrigin, "<client_id>"),
         use_command: use,
         logout_command: logoutCommand(apiOrigin),
         sign_out: SIGN_OUT_HINT,
@@ -342,7 +349,7 @@ export function createAuth(
         // Restart first, then sign in: a "don't keep" approval is sealed to the server that's running
         // now, so approving before a restart would strand it.
         switch_account: command
-          ? `Only to use a different account: if it is in cached_accounts and usable, run use_command with its client_id, then: ${RESTART_HINT} Otherwise, in this order: 1) the user switches the portal (in the browser they'll approve in) to that account, because approval connects whichever account the portal is signed in to; 2) restart this MCP server; 3) sign in, and the user checks the account shown on the Approve page before approving.`
+          ? `Only to use a different account: if it is in cached_accounts and usable, run use_command with its client_id, then: ${RESTART_HINT} Otherwise, in this order: 1) tell the user which account you're signing in to and that they must switch the portal (in the browser they'll approve in) to it first, because approval connects whichever account the portal is signed in to; 2) restart this MCP server; 3) run login_for_account with that client_id: login and the Approve page then accept only that account, and the page warns if the portal is on another.`
           : "Session login is not available for this API origin; set GCORE_API_KEY instead.",
       };
     },
@@ -435,10 +442,12 @@ export function createEphemeralAuth(opts: {
 /** PROTOCOL.md §4. Metadata only: never the token or the file contents (S3). */
 export function authRequiredResult(
   reason: AuthRequiredReason,
-  opts: { apiOrigin?: string; detail?: string } = {},
+  opts: { apiOrigin?: string; detail?: string; clientId?: number } = {},
 ) {
   const apiOrigin = opts.apiOrigin ?? GCORE_API_ORIGIN;
-  const command = loginCommand(apiOrigin);
+  // A renewal of a known account: login and the Approve page accept only that account.
+  const account = (reason === "expired" || reason === "rejected") && Number.isSafeInteger(opts.clientId) ? opts.clientId : undefined;
+  const command = loginCommand(apiOrigin, account);
   const lines = [`FastEdge is not connected to a Gcore account (${reason}).`];
 
   if (reason === "restart_required") {
@@ -470,6 +479,13 @@ export function authRequiredResult(
         "If a fresh login is rejected too, stop and tell the user instead of logging in again.",
       );
     }
+    if (account !== undefined) {
+      lines.push(
+        `This session was for Gcore account ${account}. The commands below accept only that account. Before giving the user the link, tell them:`,
+        `"This signs in account ${account}. Make sure the portal is signed in to account ${account} before you open the link; the page shows the account and warns if it's a different one."`,
+        "If they want a different account instead, see switch_account in fastedge-auth-status.",
+      );
+    }
     lines.push(
       "Sign in through the Gcore portal for a time-limited session (or set GCORE_API_KEY instead).",
       "Ask the user how to sign in. If you can ask a multiple-choice question, offer these three",
@@ -484,7 +500,7 @@ export function authRequiredResult(
       `   ${command}`,
       // Same portal mapping as the login command, so it is never null here.
       "2. Remote (SSH, a Codespace, or a browser that can't reach this computer):",
-      manualFallback(apiOrigin)!,
+      manualFallback(apiOrigin, account)!,
       "3. Not now: stop, and don't retry the request.",
       opts.detail
         ? "After 1 or 2, retry only what did not complete; no restart is needed."

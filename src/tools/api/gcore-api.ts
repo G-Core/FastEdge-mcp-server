@@ -86,15 +86,16 @@ export function registerGcoreApiTool(server: McpServer, auth: Auth) {
     },
     async (input) => {
       let authRequired: AuthRequiredReason | undefined;
+      let clientId: number | undefined;
       const result = await gcoreApiHandler(input as GcoreApiInput, async (opts: ApiCallOptions) => {
         const response = await auth.call(opts);
         if ("authRequired" in response) {
-          authRequired = response.authRequired;
+          ({ authRequired, clientId } = response);
           return { status: 0, data: null };
         }
         return response;
       });
-      return authRequired ? authRequiredResult(authRequired) : result;
+      return authRequired ? authRequiredResult(authRequired, { clientId }) : result;
     },
   );
 }

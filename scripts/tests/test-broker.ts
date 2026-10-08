@@ -241,7 +241,7 @@ test("a 401 on the session token becomes rejected; a 403 passes through", async 
   await withBroker(
     () => json({ message: "Invalid API token" }, status),
     async (client) => {
-      assert.deepEqual(await client.call({ method: "GET", path: "/fastedge/v1/apps" }), { authRequired: "rejected" });
+      assert.deepEqual(await client.call({ method: "GET", path: "/fastedge/v1/apps" }), { authRequired: "rejected", clientId: 123 });
       status = 403;
       assert.equal(((await client.call({ method: "GET", path: "/fastedge/v1/apps" })) as { status: number }).status, 403);
     },
@@ -409,7 +409,7 @@ test("the account check: a 401 is rejected; an IAM outage or 403 is an error, no
   await withMe(
     () => json({ message: "Invalid API token" }, 401),
     async (client) => {
-      assert.deepEqual(await client.call({ method: "GET", path: "/fastedge/v1/apps" }), { authRequired: "rejected" });
+      assert.deepEqual(await client.call({ method: "GET", path: "/fastedge/v1/apps" }), { authRequired: "rejected", clientId: 123 });
     },
   );
   for (const status of [403, 429, 503]) {
@@ -453,4 +453,14 @@ test("after pinning, a replacement token claiming the same account but belonging
     stop();
     stub.restore();
   }
+});
+
+test("auth_required carries the failed session's account across the broker (rejected/expired), never the token", async () => {
+  await withBroker(
+    () => json({ error: "unauthorized" }, 401),
+    async (client) => {
+      const r = await client.call({ method: "GET", path: "/fastedge/v1/apps" });
+      assert.deepEqual(r, { authRequired: "rejected", clientId: 123 });
+    },
+  );
 });

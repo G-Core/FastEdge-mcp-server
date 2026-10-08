@@ -36,7 +36,7 @@ export function registerUploadBinaryTool(
     async (params) => {
       try {
         const result = await uploadBinary(auth, workspaceRoot, params.wasmFile);
-        if ("authRequired" in result) return authRequiredResult(result.authRequired);
+        if ("authRequired" in result) return authRequiredResult(result.authRequired, { clientId: result.clientId });
 
         const { status, data } = result;
         if (status < 200 || status >= 300) {

@@ -190,7 +190,12 @@ export function serveBroker(socket: net.Socket, auth: LocalAuth, apiOrigin = GCO
         contentType: m.content_type as string | undefined,
       })
       .then(
-        (r) => send("authRequired" in r ? { id, auth_required: r.authRequired } : { id, status: r.status, data: r.data }),
+        (r) =>
+          send(
+            "authRequired" in r
+              ? { id, auth_required: r.authRequired, ...(r.clientId !== undefined ? { client_id: r.clientId } : {}) }
+              : { id, status: r.status, data: r.data },
+          ),
         () => send({ id, error: "request failed" }),
       )
       .finally(() => inFlight--);
@@ -334,7 +339,11 @@ export async function connectBroker(
         },
         body,
       );
-      if (typeof r.auth_required === "string") return { authRequired: r.auth_required };
+      if (typeof r.auth_required === "string") {
+        return Number.isSafeInteger(r.client_id) && r.client_id > 0
+          ? { authRequired: r.auth_required, clientId: r.client_id }
+          : { authRequired: r.auth_required };
+      }
       if (typeof r.error === "string") return { status: 0, data: { error: `Token broker: ${r.error}` } };
       return { status: r.status, data: r.data };
     },

@@ -14,6 +14,18 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-08] - `--account`: sign in one specific account
+
+- **Why:** found in a Codex test. Renewing account 5724274 while the portal was on 4732724 silently
+  saved 4732724. Approval connects whichever account the portal is signed in to, and the user
+  wasn't told which one was meant.
+- **Login:** `login … --account <client_id>` puts `&account=` in the link and refuses any other
+  account (400; a code → exit 8).
+- **Renewals:** for `expired`/`rejected`, the broker reports the session's account. `auth_required`
+  names it, tells the agent what to tell the user, and pins both commands.
+- **Switches:** the status tool's `login_for_account` handles switching to a known account.
+- **Portal:** the page warns and disables Approve on a mismatch (frontend; PROTOCOL §7b).
+
 ## [2026-10-08] - logout by account, or everything
 
 - **New forms:**

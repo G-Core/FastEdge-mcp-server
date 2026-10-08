@@ -23,7 +23,7 @@ const MAX_CODE_CHARS = 8192;
 
 function usage(): never {
   console.error(
-    "Usage: login [--seal-to <key>] | login --code [--seal-to <key>] | login --use <client_id> | login --logout [<client_id> | all]",
+    "Usage: login [--seal-to <key>] [--account <client_id>] | login --code [--seal-to <key>] [--account <client_id>] | login --use <client_id> | login --logout [<client_id> | all]",
   );
   process.exit(2);
 }
@@ -68,6 +68,11 @@ async function main() {
   // `--seal-to <key>` (task 10) may follow the browser login or --code; take it out first.
   const at = args.indexOf("--seal-to");
   const sealArg = at >= 0 ? args.splice(at, 2)[1] ?? "" : undefined;
+  // `--account <client_id>`: accept only that Gcore account (browser login or --code).
+  const accAt = args.indexOf("--account");
+  const accountArg = accAt >= 0 ? args.splice(accAt, 2)[1] ?? "" : undefined;
+  if (accountArg !== undefined && !/^[1-9]\d{0,17}$/.test(accountArg)) usage();
+  const account = accountArg === undefined ? undefined : Number(accountArg);
   const [option, value, ...rest] = args;
   if (rest.length) usage();
   const mode = process.env.FASTEDGE_SESSION ?? "";
@@ -94,6 +99,8 @@ async function main() {
         2,
       );
     }
+
+    if (account !== undefined && (option === "--use" || option === "--logout")) usage();
 
     if (option === "--use") {
       if (!value || !/^[1-9]\d{0,17}$/.test(value)) usage();
@@ -152,7 +159,7 @@ async function main() {
         console.error(err?.message ?? "Cancelled.");
         process.exit(2);
       }
-      const session = connectWithCode(code, { apiOrigin: GCORE_API_ORIGIN, sealTo, forced });
+      const session = connectWithCode(code, { apiOrigin: GCORE_API_ORIGIN, sealTo, forced, account });
       console.error(`FastEdge is connected to account ${session.client_id} until ${session.expires_at}.`);
       // A sealed session belongs to the server that's running; a restart would strand it.
       if (!session.sealed) console.error(`If an MCP server is already running with another account: ${RESTART_HINT}`);
@@ -162,7 +169,10 @@ async function main() {
     if (option !== undefined) usage();
 
     // 0.0.0.0 inside the container; the host publishes it on 127.0.0.1 only.
-    const login = await startLogin({ apiOrigin: GCORE_API_ORIGIN, host: "0.0.0.0", port: LOGIN_PORT, sealTo, forced });
+    const login = await startLogin({ apiOrigin: GCORE_API_ORIGIN, host: "0.0.0.0", port: LOGIN_PORT, sealTo, forced, account });
+    if (account !== undefined) {
+      console.error(`This sign-in is for Gcore account ${account} only. Make sure the portal is signed in to it before you open the link.`);
+    }
     console.error(`Open this URL to approve FastEdge access: ${login.url}`);
     const outcome = await login.result;
     console.error(MESSAGES[outcome]);

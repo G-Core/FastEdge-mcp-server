@@ -42,15 +42,17 @@ export const isForcedEphemeral = () => forced;
 /** Extra `docker run` flags and login arguments: the key whenever there is one; the env only when forced. */
 const ephemeralEnv = () => (forced ? " -e FASTEDGE_SESSION=ephemeral" : "");
 const sealArg = () => (sealTo ? ` --seal-to ${sealTo}` : "");
+// `--account <id>`: login (and the page) accept only that account (a renewal, or a switch to a known account).
+const accountArg = (account?: number | string) => (account !== undefined ? ` --account ${account}` : "");
 
 /**
  * The canonical login command, or null when this API origin has no portal to approve it.
  * The origin is written out explicitly: a bare `-e GCORE_API_BASE` would take the agent shell's
  * value, which can differ from this server's. Origins come from the allowlist, so they need no quoting.
  */
-export function loginCommand(apiOrigin: string): string | null {
+export function loginCommand(apiOrigin: string, account?: number | string): string | null {
   if (!PORTAL_ORIGINS[apiOrigin]) return null;
-  return `docker run --rm -i -p 127.0.0.1:${LOGIN_PORT}:${LOGIN_PORT} -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin}${ephemeralEnv()} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login${sealArg()}`;
+  return `docker run --rm -i -p 127.0.0.1:${LOGIN_PORT}:${LOGIN_PORT} -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin}${ephemeralEnv()} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login${sealArg()}${accountArg(account)}`;
 }
 
 /** `login --use <client_id>` (PROTOCOL.md §3.6): switch to a cached account, no browser, no port. Not when forced ephemeral. */
@@ -70,18 +72,19 @@ export function logoutCommand(apiOrigin: string): string | null {
 }
 
 /** `login --code` (PROTOCOL.md §3.8): needs the user's own terminal (`-it`), so an agent can't run it. */
-export function codeCommand(apiOrigin: string): string | null {
+export function codeCommand(apiOrigin: string, account?: number | string): string | null {
   if (!PORTAL_ORIGINS[apiOrigin]) return null;
-  return `docker run --rm -it -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin}${ephemeralEnv()} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login --code${sealArg()}`;
+  return `docker run --rm -it -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin}${ephemeralEnv()} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login --code${sealArg()}${accountArg(account)}`;
 }
 
 /** Manual fallback text for `auth_required` and the status tool (PROTOCOL.md §4). */
-export function manualFallback(apiOrigin: string): string | null {
+export function manualFallback(apiOrigin: string, account?: number): string | null {
   const portal = PORTAL_ORIGINS[apiOrigin];
-  const command = codeCommand(apiOrigin);
+  const command = codeCommand(apiOrigin, account);
   if (!portal || !command) return null;
+  const query = [forced ? "ephemeral=1" : sealTo ? "seal=1" : "", account ? `account=${account}` : ""].filter(Boolean).join("&");
   return [
-    `Ask the user to open ${portal}/fastedge/agent-connect${forced ? "?ephemeral=1" : sealTo ? "?seal=1" : ""} themselves, choose the manual option, approve,`,
+    `Ask the user to open ${portal}/fastedge/agent-connect${query ? `?${query}` : ""} themselves, choose the manual option, approve,`,
     `and run this in their own terminal (not through you): ${command}`,
     "Never ask them to paste the connect code into this chat.",
   ].join("\n");

@@ -95,7 +95,7 @@ const rejected: Array<[string, (dir: string) => string, AuthRequiredReason]> = [
 ];
 for (const [label, setup, reason] of rejected) {
   test(`cache is ignored when ${label}`, () => {
-    assert.deepEqual(resolverFor(setup(tmp()))(), { authRequired: reason });
+    assert.equal((resolverFor(setup(tmp()))() as { authRequired?: string }).authRequired, reason);
   });
 }
 

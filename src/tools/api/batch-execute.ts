@@ -338,19 +338,21 @@ export function registerBatchExecuteTool(server: McpServer, auth: Auth) {
     },
     async ({ calls }) => {
       let authRequired: AuthRequiredReason | undefined;
+      let clientId: number | undefined;
       let step = 0;
       const result = await batchExecuteHandler({ calls: calls as BatchCall[] }, async (opts: ApiCallOptions) => {
         step++;
         const response = await auth.call(opts);
         if (!("authRequired" in response)) return response;
         // Stops the batch here (it stops at the first 4xx).
-        authRequired = response.authRequired;
+        ({ authRequired, clientId } = response);
         return { status: 401, data: { error: "auth_required", reason: authRequired } };
       });
       if (!authRequired) return result;
-      if (step === 1) return authRequiredResult(authRequired);
+      if (step === 1) return authRequiredResult(authRequired, { clientId });
       // Keep the progress: earlier steps may have written, and must not be replayed.
       return authRequiredResult(authRequired, {
+        clientId,
         detail: `Batch progress (steps in "completed" already ran; do not repeat them):\n${result.content[0].text}`,
       });
     },

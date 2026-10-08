@@ -43,6 +43,8 @@ export interface LoginOptions {
   sealTo?: string;
   /** FASTEDGE_SESSION=ephemeral: always seal, no choice (needs `sealTo`). */
   forced?: boolean;
+  /** `--account`: accept only this Gcore account (a renewal, or a switch to a known account). */
+  account?: number;
   /** Test hooks. */
   sessionDir?: string;
   timeoutMs?: number;
@@ -201,7 +203,7 @@ function store(sessionDir: string, delivered: Delivery, how: How, sealTo: string
 /** `login --code` (PROTOCOL.md §3.8): validate a pasted connect code and save it like a browser login. */
 export function connectWithCode(
   code: string,
-  opts: { apiOrigin: string; sealTo?: string; forced?: boolean; sessionDir?: string },
+  opts: { apiOrigin: string; sealTo?: string; forced?: boolean; account?: number; sessionDir?: string },
 ): Delivery & { sealed?: boolean } {
   requirePortal(opts.apiOrigin);
   if (opts.sealTo !== undefined || opts.forced) requireSealKey(opts.sealTo);
@@ -220,6 +222,12 @@ export function connectWithCode(
   }
   const how: How = decoded?.keep ? "keep" : "seal";
   const delivered = decoded && validateDelivery(decoded.fields, opts.apiOrigin, Date.now(), capFor(how));
+  if (delivered && opts.account !== undefined && delivered.client_id !== opts.account) {
+    throw new LoginError(
+      `This code is for account ${delivered.client_id}, but this login is for account ${opts.account}. Switch the portal to account ${opts.account}, approve again, and copy the new code.`,
+      8,
+    );
+  }
   if (!delivered) {
     throw new LoginError(
       `This connect code isn't valid for ${opts.apiOrigin}, or has expired. Approve again on the portal's agent-connect page and copy the new code.`,
@@ -388,6 +396,9 @@ export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
         capFor(how),
       );
       if (!delivered) return reject();
+      // `--account`: the portal was signed in to another account. Nothing is saved; the page
+      // should have warned before Approve (it gets `account=` in the link).
+      if (opts.account !== undefined && delivered.client_id !== opts.account) return reject();
 
       try {
         if (!release.held()) throw Object.assign(new Error("lost the login lock"), { code: "ELOCKLOST" });
@@ -436,7 +447,7 @@ export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
   // Task 10. Forced: `ephemeral=1` and no installation id (the page offers 4 h / 8 h, marks and
   // replaces nothing). Choice: `seal=1` plus the id; the page shows "Keep me signed in" and uses
   // the id only when it's checked. Legacy (no key): the id only.
-  let install = opts.forced ? "&ephemeral=1" : sealTo ? "&seal=1" : "";
+  let install = (opts.forced ? "&ephemeral=1" : sealTo ? "&seal=1" : "") + (opts.account !== undefined ? `&account=${opts.account}` : "");
   if (!opts.forced) {
     try {
       install += `&install=${ensureInstallationId(sessionDir)}`;

@@ -213,7 +213,7 @@ test("a present but unusable sealed file blocks plaintext (no fallback, MoM rule
 
 test("a sealed token rejected or unverifiable at the account check blocks plaintext too", async () => {
   for (const [me, want] of [
-    [() => json({}, 401), { authRequired: "rejected" }],
+    [() => json({}, 401), { authRequired: "rejected", clientId: 123 }],
     [() => json({ id: 999 }), { authRequired: "account_mismatch" }],
     [() => json({}, 503), null],
   ] as const) {
@@ -278,7 +278,7 @@ test("race: a late 401 for a plaintext request doesn't end a sealed session adop
     putSealed();
     assert.equal(((await auth.call(get)) as any).status, 200); // sealed adopted
     releasePlainApi();
-    assert.deepEqual(await first, { authRequired: "rejected" });
+    assert.deepEqual(await first, { authRequired: "rejected", clientId: 123 });
     assert.equal(((await auth.call(get)) as any).status, 200, "the sealed session still works");
     assert.equal((auth.status() as any).state, "available");
   } finally { s.restore(); }
@@ -454,4 +454,41 @@ test("outcome redirect: every rejection is a static 400, never a redirect", asyn
   }
   assert.equal((await postRaw(l.port, new URLSearchParams({ state, denied: "1" }).toString())).status, 303); // end it
   await l.result;
+});
+
+// --- `--account`: renewals and known switches accept only that account ------------------------------
+
+test("auth_required for an expired/rejected session names the account and pins the commands to it", async () => {
+  const { authRequiredResult } = await import("../../src/auth/credentials.js");
+  for (const reason of ["expired", "rejected"] as const) {
+    const text = authRequiredResult(reason, { apiOrigin: API, clientId: 5724274 }).content[0].text;
+    assert.match(text, /This session was for Gcore account 5724274/);
+    assert.match(text, /login --seal-to \S+ --account 5724274\n/);
+    assert.match(text, /login --code --seal-to \S+ --account 5724274/);
+    assert.match(text, /agent-connect\?seal=1&account=5724274 /);
+  }
+  const fresh = authRequiredResult("no_session", { apiOrigin: API, clientId: 5724274 }).content[0].text;
+  assert.doesNotMatch(fresh, /--account/, "only renewals are pinned");
+});
+
+test("login --account: the link carries account=; another account's approval is refused and nothing is saved", async () => {
+  const dir = tmp();
+  const l = await startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir: dir, account: 777 });
+  assert.equal(new URL(l.url).searchParams.get("account"), "777");
+  const state = new URL(l.url).searchParams.get("state")!;
+  assert.equal(await post(l.port, fields(state, 4 * HOUR, [])), 400, "client_id 123 ≠ 777");
+  assert.ok(!existsSync(join(dir, "accounts")), "nothing saved");
+  const ok = new URLSearchParams({ state, token: SEALED, token_id: "4242", client_id: "777", api_origin: API, expires_at: new Date(Date.now() + 4 * HOUR).toISOString() }).toString();
+  assert.equal(await post(l.port, ok), 303);
+  assert.ok(existsSync(join(dir, "accounts", "api.preprod.world_777.json")));
+});
+
+test("login --code --account: a code for another account is refused", () => {
+  assert.throws(() => connectWithCode(code(1), { apiOrigin: API, sessionDir: tmp(), account: 777 }), (e: unknown) => e instanceof LoginError && e.exitCode === 8 && /for account 123, but this login is for account 777/.test((e as Error).message));
+});
+
+test("status offers login_for_account for switching to a known account", () => {
+  const status = createAuth("", { sessionDir: tmp(), apiOrigin: API }).status() as Record<string, unknown>;
+  assert.match(String(status.login_for_account), / --account <client_id>$/);
+  assert.match(String(status.switch_account), /login_for_account/);
 });
