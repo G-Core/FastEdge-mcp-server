@@ -14,6 +14,14 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-09] - login lock message says how to clear an abandoned login
+
+- **Why:** in a test, an abandoned browser login (still waiting for approval) held the lock, so
+  `login --use … --set-default-origin` failed; the agent first asked the user to approve the old
+  link, then killed it.
+- **Change:** exit 3's message names the likely cause and says to stop one's own waiting login,
+  never to approve an old link just to clear it.
+
 ## [2026-10-09] - status tool description: switch only through its commands
 
 - **Why:** in a test the agent never called `fastedge-auth-status` before switching to preprod:

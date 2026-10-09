@@ -459,7 +459,10 @@ export function acquireLock(dir: string): (() => void) & { held: () => boolean }
       fs.rmSync(aside, { force: true });
     }
   }
-  throw new LockedError("Another FastEdge login is in progress. Finish or close it, then try again.");
+  // An agent once told the user to approve an abandoned link just to free the lock: say what to do.
+  throw new LockedError(
+    "Another FastEdge login is in progress, usually a browser login still waiting for approval (up to 5 minutes). If it's one you started and no longer need, stop it (its background task, or docker ps, then docker stop its container), then try again. Don't ask the user to approve an old link just to clear it.",
+  );
 }
 
 // --- Installation id (task 05) ------------------------------------------------------
