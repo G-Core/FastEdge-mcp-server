@@ -17,7 +17,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import { authRequiredResult, createAuth, createKeyAuth, type Auth, type AuthRequiredReason } from "../../src/auth/credentials.js";
 import { LoginError, connectWithCode, ensureInstallationId, logoutActive, logoutSessions, startLogin, useCachedAccount } from "../../src/auth/login-server.js";
-import { readDefaultOrigin } from "../../src/auth/store.js";
+import { readDefaultOrigin, saveSession } from "../../src/auth/store.js";
 import { ALLOWED_API_ORIGINS } from "../../src/api-client.js";
 import { PORTAL_ORIGINS } from "../../src/auth/session.js";
 import { registerApiTools } from "../../src/tools/api/index.js";
@@ -408,11 +408,33 @@ test("fastedge-auth-status tool returns metadata and never the token", async () 
   assert.equal(status.environments.filter((e: { current: boolean }) => e.current).length, 1);
 });
 
+test("an environment with a usable saved session offers a no-browser switch, not a new sign-in", async () => {
+  const dir = writeSession(tmp(), session());
+  const ORANGE = "https://api.cdb-staging.cdn.orange.com";
+  saveSession(dir, { token: TOKEN, token_id: 77, client_id: 555, api_origin: ORANGE, expires_at: new Date(Date.now() + 8 * HOUR).toISOString() });
+  saveSession(dir, { token: TOKEN, token_id: 78, client_id: 556, api_origin: ORANGE, expires_at: new Date(Date.now() + 60_000).toISOString() });
+  const call = await toolsWith(authFor(dir));
+  const result = await call("fastedge-auth-status", {});
+  const status = JSON.parse(result.content[0].text);
+  const orange = status.environments.find((e: { api_origin: string }) => e.api_origin === ORANGE);
+  assert.equal(orange.sign_in_and_make_default, undefined);
+  assert.deepEqual(orange.switch_to_saved.map((a: { client_id: number }) => a.client_id), [555], "usable accounts only");
+  assert.match(orange.switch_to_saved[0].command, /-e GCORE_API_BASE=https:\/\/api\.cdb-staging\.cdn\.orange\.com .* login --use 555 --set-default-origin$/);
+  assert.match(status.switch_environment, /Never edit MCP configuration/);
+  assert.equal(status.other_environments, undefined, "merged into environments");
+  assert.ok(!result.content[0].text.includes(TOKEN));
+});
+
 test("switch_environment says which setting decides", async () => {
   const { switchEnvironmentHint } = await import("../../src/tools/api/auth-status.js");
   assert.match(switchEnvironmentHint(true, "env", false), /key from that environment's portal/);
   assert.match(switchEnvironmentHint(false, "env", false), /GCORE_API_BASE is set in this server's configuration/);
-  assert.match(switchEnvironmentHint(false, "baked_default", false), /Don't edit the MCP config: .*sign_in_and_make_default/);
+  assert.match(switchEnvironmentHint(false, "baked_default", false), /switch_to_saved command \(no browser.*sign_in_and_make_default/);
+  assert.match(switchEnvironmentHint(false, "env", false), /tell the user to change or remove it/);
+  for (const hint of [switchEnvironmentHint(true, "env", false), switchEnvironmentHint(false, "baked_default", false)]) {
+    assert.match(hint, /Never edit MCP configuration/);
+    assert.match(hint, /make no API calls until they have/);
+  }
   assert.doesNotMatch(switchEnvironmentHint(false, "saved_default", true), /sign_in_and_make_default/);
 });
 

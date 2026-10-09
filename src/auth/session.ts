@@ -71,6 +71,12 @@ export function defaultOriginCommand(apiOrigin: string): string | null {
   return `docker run --rm -i -p 127.0.0.1:${LOGIN_PORT}:${LOGIN_PORT} -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login --set-default-origin`;
 }
 
+/** Switch to a saved account in another environment and make that environment the default: no browser. */
+export function useDefaultOriginCommand(apiOrigin: string, clientId: number): string | null {
+  if (!PORTAL_ORIGINS[apiOrigin] || forced || !Number.isSafeInteger(clientId)) return null;
+  return `docker run --rm -i -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login --use ${clientId} --set-default-origin`;
+}
+
 /** `login --use <client_id>` (PROTOCOL.md §3.6): switch to a cached account, no browser, no port. Not when forced ephemeral. */
 export function useCommand(apiOrigin: string): string | null {
   if (!PORTAL_ORIGINS[apiOrigin] || forced) return null;

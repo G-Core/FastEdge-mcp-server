@@ -14,6 +14,16 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-09] - switch back to a saved environment without a new approval
+
+- **Why:** in a test the agent switched prod → preprod fine, but going back asked for a new
+  approval although a prod session was saved, and then the agent edited `.mcp.json` itself.
+- **Status:** each other environment offers `switch_to_saved` (`login --use <id>
+  --set-default-origin`, no browser) when it has usable saved sessions, else
+  `sign_in_and_make_default`. The broker reports other environments' saved sessions as metadata.
+- **Rules** in `switch_environment` (only fetched when switching, so no standing context): never
+  edit MCP configs or agent settings, tell the user; restart after a switch, no API calls until.
+
 ## [2026-10-09] - status lists environments and how to switch
 
 - **Why:** asked to "restart pointed at preprod", an agent guessed `api.preprod.gcore.com` and

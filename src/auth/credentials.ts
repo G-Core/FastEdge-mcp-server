@@ -385,6 +385,18 @@ export function createAuth(
           ...describeSession(s),
           usable: isUsable(s, at),
         })),
+        // Saved sessions in the other environments (metadata only), so the status tool can offer a
+        // switch back without a new approval (login --use … --set-default-origin).
+        other_environments: Object.keys(PORTAL_ORIGINS)
+          .filter((origin) => origin !== apiOrigin)
+          .map((origin) => ({
+            api_origin: origin,
+            cached_accounts: listAccounts(sessionDir, origin).map((s) => ({
+              client_id: s.client_id,
+              expires_at: new Date(Date.parse(s.expires_at)).toISOString(),
+              usable: isUsable(s, at),
+            })),
+          })),
         note: "Accounts and expiry come from the local cache; account_verified says whether the API confirmed the active token's account. Tokens can still have been revoked in the portal.",
         ...(state === "available" ? {} : { sign_in: SIGN_IN_HINT }),
         ...(changed ? { next_step: RESTART_HINT } : {}),
