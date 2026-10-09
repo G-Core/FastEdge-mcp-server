@@ -14,6 +14,15 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-09] - status tool description: switch only through its commands
+
+- **Why:** in a test the agent never called `fastedge-auth-status` before switching to preprod:
+  it created its own volume (`fastedge-session-preprod`), ran a hand-built login, and edited
+  `.mcp.json` both ways. The rules were only in the status result, which it never fetched.
+- **Change:** the tool description now says: before switching account or environment, call this
+  and use only the commands it returns; never edit MCP configs, create volumes, or build your own
+  login commands. (About 30 tokens; no other standing context.)
+
 ## [2026-10-09] - API key setup steps in the status tool
 
 - **Why:** choosing "Use an existing API key", an agent told the user to write the key into the
