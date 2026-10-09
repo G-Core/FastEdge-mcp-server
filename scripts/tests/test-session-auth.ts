@@ -398,6 +398,22 @@ test("fastedge-auth-status tool returns metadata and never the token", async () 
   assert.equal(status.state, "available");
   assert.equal(status.active_session.client_id, 123);
   assert.ok(!result.content[0].text.includes(TOKEN));
+  // Environments: the valid ones, so an agent never guesses a host (it once tried api.preprod.gcore.com).
+  const preprod = status.environments.find((e: { api_origin: string }) => e.api_origin === "https://api.preprod.world");
+  assert.equal(preprod.portal, "https://portal.preprod.world");
+  assert.match(String(status.switch_environment), /never guess another host/);
+  const others = status.environments.filter((e: { current: boolean }) => !e.current);
+  assert.ok(others.length > 0 && others.every((e: { sign_in_and_make_default?: string }) =>
+    / -e GCORE_API_BASE=https:\/\/\S+ \S+ login --set-default-origin$/.test(String(e.sign_in_and_make_default))));
+  assert.equal(status.environments.filter((e: { current: boolean }) => e.current).length, 1);
+});
+
+test("switch_environment says which setting decides", async () => {
+  const { switchEnvironmentHint } = await import("../../src/tools/api/auth-status.js");
+  assert.match(switchEnvironmentHint(true, "env", false), /key from that environment's portal/);
+  assert.match(switchEnvironmentHint(false, "env", false), /GCORE_API_BASE is set in this server's configuration/);
+  assert.match(switchEnvironmentHint(false, "baked_default", false), /Don't edit the MCP config: .*sign_in_and_make_default/);
+  assert.doesNotMatch(switchEnvironmentHint(false, "saved_default", true), /sign_in_and_make_default/);
 });
 
 // --- Login listener -------------------------------------------------------------

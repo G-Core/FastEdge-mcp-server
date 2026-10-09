@@ -14,6 +14,16 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-09] - status lists environments and how to switch
+
+- **Why:** asked to "restart pointed at preprod", an agent guessed `api.preprod.gcore.com` and
+  added it to the project's `.mcp.json` (the server would refuse to start). Nothing told it the
+  valid origins, or that task 11's saved default makes a config edit unnecessary.
+- **Status:** `environments` (`api_origin`, `portal`, `current`, and `sign_in_and_make_default`
+  on the others: `login --set-default-origin` for that origin) and `switch_environment` (which
+  setting decides; saved default first, `GCORE_API_BASE` per project only if wanted; a key
+  belongs to one environment). Tool description mentions environments.
+
 ## [2026-10-09] - an explicit key's account; "use an existing API key" choice
 
 - **Why:** new users only see the portal sign-in and may never learn a key is an option; and a key

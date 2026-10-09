@@ -61,6 +61,16 @@ export function loginCommand(apiOrigin: string, account?: number | string): stri
   return `docker run --rm -i -p 127.0.0.1:${LOGIN_PORT}:${LOGIN_PORT} -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin}${ephemeralEnv()} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login${sealArg()}${accountArg(account)}`;
 }
 
+/**
+ * Sign in to another environment and save it as the default (task 11, `--set-default-origin`)
+ * for servers started without GCORE_API_BASE. A kept session only, so no `--seal-to`; null when
+ * forced ephemeral, which can't save a default.
+ */
+export function defaultOriginCommand(apiOrigin: string): string | null {
+  if (!PORTAL_ORIGINS[apiOrigin] || forced) return null;
+  return `docker run --rm -i -p 127.0.0.1:${LOGIN_PORT}:${LOGIN_PORT} -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login --set-default-origin`;
+}
+
 /** `login --use <client_id>` (PROTOCOL.md §3.6): switch to a cached account, no browser, no port. Not when forced ephemeral. */
 export function useCommand(apiOrigin: string): string | null {
   if (!PORTAL_ORIGINS[apiOrigin] || forced) return null;
