@@ -422,6 +422,10 @@ test("an environment with a usable saved session offers a no-browser switch, not
   assert.match(orange.switch_to_saved[0].command, /-e GCORE_API_BASE=https:\/\/api\.cdb-staging\.cdn\.orange\.com .* login --use 555 --set-default-origin$/);
   assert.match(status.switch_environment, /Never edit MCP configuration/);
   assert.equal(status.other_environments, undefined, "merged into environments");
+  // Choice 4: the key goes in by name in the MCP config, its value in the agent's environment.
+  assert.match(status.api_key_setup, /"-e", "GCORE_API_KEY" \(no value\)/);
+  assert.match(status.api_key_setup, /\.claude\/settings\.local\.json/);
+  assert.match(status.api_key_setup, /Never put the key in this chat, in an MCP config/);
   assert.ok(!result.content[0].text.includes(TOKEN));
 });
 
@@ -950,8 +954,8 @@ test("auth_required offers four choices: browser here, remote with a code, not n
   assert.match(text, /1\. Browser on this computer \(recommended\)/);
   assert.match(text, /2\. Remote .*\n.*agent-connect.*\n.*login --code/);
   assert.match(text, /3\. Not now/);
-  assert.match(text, /4\. Use an existing API key instead: .*GCORE_API_KEY/);
-  assert.match(text, /platform-sign-in docs/);
+  assert.match(text, /4\. Use an existing API key instead: call fastedge-auth-status/);
+  assert.match(text, /follow its api_key_setup/);
   assert.match(text, /never ask them to paste the connect code/);
   assert.match(text, /After 1 or 2, retry this request/);
   // Copilot opened the manual link in its own browser once: both links are the user's to open.

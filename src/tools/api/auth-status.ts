@@ -24,6 +24,20 @@ export function switchEnvironmentHint(keyMode: boolean, source: string, forced: 
   return `${RULES} With the user's OK, run the target environment's switch_to_saved command (no browser; pick the account with them if there are several) or, if it has none, its sign_in_and_make_default command as a background task, like login_command (the user approves in that environment's portal). Either makes that environment the default for every MCP server started without GCORE_API_BASE, on this computer. Only if they want it for one project instead: ${project}`;
 }
 
+/**
+ * Sign-in choice 4. Here, not in the docs index, so it works with any image, and only on demand.
+ * In a test an agent told the user to write the key into .mcp.json.
+ */
+export const API_KEY_SETUP =
+  "Tell the user these steps; they make the edits. Never put the key in this chat, in an MCP config, or in any file git tracks. " +
+  "1. The MCP config's docker args must pass the variable by name only: \"-e\", \"GCORE_API_KEY\" (no value). The FastEdge plugin's config already does; a hand-written config (e.g. a project's .mcp.json) may need that line added. " +
+  "2. Give it a value where the agent starts. Claude Code, one project: \"env\": { \"GCORE_API_KEY\": \"<key>\" } in .claude/settings.local.json (git-ignored; never .claude/settings.json); every project: the same block in ~/.claude/settings.json. " +
+  "Codex: export GCORE_API_KEY in the shell that starts codex (one project: direnv .envrc, git-ignored). Cursor: export it in the shell that starts Cursor (macOS app: launchctl setenv GCORE_API_KEY …), then restart Cursor. " +
+  "VS Code: an input with \"password\": true, referenced as ${input:<id>} in the server's env. Or, in any agent: export it in the shell before starting the agent, with no file at all. " +
+  "For another environment, also set GCORE_API_BASE the same way, with a key from that environment's portal. " +
+  "3. Restart the MCP server. fastedge-auth-status then shows credential explicit_key and the key's account. " +
+  "Keys come from the portal's API tokens page (prod https://portal.gcore.com, preprod https://portal.preprod.world).";
+
 type Saved = { client_id: number; expires_at: string; usable: boolean };
 
 export function registerAuthStatusTool(server: McpServer, auth: Auth) {
@@ -65,6 +79,7 @@ export function registerAuthStatusTool(server: McpServer, auth: Auth) {
         api_origin: GCORE_API_ORIGIN,
         api_origin_source: GCORE_API_ORIGIN_SOURCE,
         ...auth_status,
+        ...(keyMode ? {} : { api_key_setup: API_KEY_SETUP }),
         environments,
         switch_environment: switchEnvironmentHint(keyMode, GCORE_API_ORIGIN_SOURCE, forced),
       };

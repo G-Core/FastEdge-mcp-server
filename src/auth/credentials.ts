@@ -68,7 +68,7 @@ function checkSession(dir: string, apiOrigin: string, now: number): SessionCheck
 
 /** Status guidance, so an agent offers the same choices as `auth_required` (§4) instead of picking one. */
 const SIGN_IN_HINT =
-  "To sign in, ask the user which way: 1. Browser on this computer (recommended): with their OK, run login_command yourself as a background task with your tool's own background option (Claude Code: run_in_background, not a shell `&`), and give them the URL as soon as it's printed (the command then waits for their approval). If you can't read the command's output, tell them the URL is in the terminal where it runs. Never open a portal link yourself (no built-in or simple browser, no browser automation): only the user opens it, in their own browser. The page connects whichever account the portal is signed in to and shows it before Approve; tell the user to check it. 2. Remote (SSH, Codespaces): give them manual_login. 3. Not now. 4. Use an existing API key instead: the user sets GCORE_API_KEY where this agent starts (for one project or all of them), then restarts this MCP server. For the steps in their agent, read the platform-sign-in docs (fastedge-docs). Never ask them to paste a token, key or code into this chat.";
+  "To sign in, ask the user which way: 1. Browser on this computer (recommended): with their OK, run login_command yourself as a background task with your tool's own background option (Claude Code: run_in_background, not a shell `&`), and give them the URL as soon as it's printed (the command then waits for their approval). If you can't read the command's output, tell them the URL is in the terminal where it runs. Never open a portal link yourself (no built-in or simple browser, no browser automation): only the user opens it, in their own browser. The page connects whichever account the portal is signed in to and shows it before Approve; tell the user to check it. 2. Remote (SSH, Codespaces): give them manual_login. 3. Not now. 4. Use an existing API key instead: follow api_key_setup in this status. Never ask them to paste a token, key or code into this chat.";
 
 /** Status guidance for "log me out" requests (PROTOCOL §3.7). */
 const SIGN_OUT_HINT =
@@ -501,9 +501,8 @@ export function authRequiredResult(
       "2. Remote (SSH, a Codespace, or a browser that can't reach this computer):",
       manualFallback(apiOrigin, account)!,
       "3. Not now: stop, and don't retry the request.",
-      "4. Use an existing API key instead: they set GCORE_API_KEY where this agent starts (for one",
-      "   project or all of them), then restart this MCP server. For the steps in their agent, read the",
-      "   platform-sign-in docs (fastedge-docs). Never ask them to paste the key into this chat.",
+      "4. Use an existing API key instead: call fastedge-auth-status and follow its api_key_setup.",
+      "   Never ask them to paste the key into this chat.",
       opts.detail
         ? "After 1 or 2, retry only what did not complete; no restart is needed."
         : "After 1 or 2, retry this request; no restart is needed.",

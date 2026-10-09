@@ -14,6 +14,16 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-09] - API key setup steps in the status tool
+
+- **Why:** choosing "Use an existing API key", an agent told the user to write the key into the
+  project's `.mcp.json`. The `platform-sign-in` docs it was pointed to aren't in the image's docs
+  index until the next plugin release.
+- **Change:** status (session mode) has `api_key_setup`: the MCP config passes
+  `"-e", "GCORE_API_KEY"` by name only; the value goes in the agent's environment (Claude Code
+  `.claude/settings.local.json` `env`, Codex/Cursor shell or direnv, VS Code password input),
+  never in an MCP config or tracked file. Choice 4 now just points there (shorter).
+
 ## [2026-10-09] - switch back to a saved environment without a new approval
 
 - **Why:** in a test the agent switched prod → preprod fine, but going back asked for a new
