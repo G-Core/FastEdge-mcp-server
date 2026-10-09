@@ -15,6 +15,7 @@ import {
   logoutAll,
   migrateLegacy,
   removeExpired,
+  saveDefaultOrigin,
   saveSession,
   useAccount,
   writeSealed,
@@ -47,6 +48,8 @@ export interface LoginOptions {
   forced?: boolean;
   /** `--account`: accept only this Gcore account (a renewal, or a switch to a known account). */
   account?: number;
+  /** `--set-default-origin` (task 11): also save this origin as the default. Keep-only logins. */
+  setDefaultOrigin?: boolean;
   /** Test hooks. */
   sessionDir?: string;
   timeoutMs?: number;
@@ -191,23 +194,39 @@ const capFor = (how: How) => (how === "seal" ? EPHEMERAL_MAX_LIFETIME_MS : MAX_L
 
 /**
  * Saves a validated delivery: sealed to the broker, or plaintext. Plaintext housekeeping (POC
- * migration, expired accounts) runs only now, once a "keep" delivery is known (MoM rule 6).
+ * migration, expired accounts) runs only now, once a "keep" delivery is known (MoM rule 6). The
+ * saved default origin (task 11) is written last, so a failed save leaves it unchanged.
  */
-function store(sessionDir: string, delivered: Delivery, how: How, sealTo: string | undefined): void {
+function store(sessionDir: string, delivered: Delivery, how: How, sealTo: string | undefined, setDefault = false): void {
   if (how === "seal") {
     writeSealed(sessionDir, sealTo!, seal(sealTo!, { ...delivered, created_at: new Date().toISOString() }));
     return;
   }
   cleanup(sessionDir);
   saveSession(sessionDir, delivered);
+  if (setDefault) saveDefaultOrigin(sessionDir, delivered.api_origin);
+}
+
+/**
+ * Task 11: a saved default is a deliberate choice that only a kept session can back. A sealed
+ * ("don't keep") token belongs to one running server, which already has its origin.
+ */
+function refuseDefaultWithSeal(opts: { setDefaultOrigin?: boolean; sealTo?: string; forced?: boolean }): void {
+  if (opts.setDefaultOrigin && (opts.sealTo !== undefined || opts.forced)) {
+    throw new LoginError(
+      "--set-default-origin needs a session kept on this computer, so it can't be combined with --seal-to or FASTEDGE_SESSION=ephemeral.",
+      2,
+    );
+  }
 }
 
 /** `login --code` (PROTOCOL.md §3.8): validate a pasted connect code and save it like a browser login. */
 export function connectWithCode(
   code: string,
-  opts: { apiOrigin: string; sealTo?: string; forced?: boolean; account?: number; sessionDir?: string },
+  opts: { apiOrigin: string; sealTo?: string; forced?: boolean; account?: number; setDefaultOrigin?: boolean; sessionDir?: string },
 ): Delivery & { sealed?: boolean } {
   requirePortal(opts.apiOrigin);
+  refuseDefaultWithSeal(opts);
   if (opts.sealTo !== undefined || opts.forced) requireSealKey(opts.sealTo);
   const decoded = decodeConnectCode(code);
   if (decoded && decoded.keep && opts.forced) {
@@ -239,7 +258,7 @@ export function connectWithCode(
   const sessionDir = opts.sessionDir ?? SESSION_DIR;
   const release = prepare(sessionDir, false);
   try {
-    store(sessionDir, delivered, how, opts.sealTo);
+    store(sessionDir, delivered, how, opts.sealTo, opts.setDefaultOrigin);
     return { ...delivered, sealed: how === "seal" };
   } finally {
     release();
@@ -282,8 +301,13 @@ function prepare(sessionDir: string, cleanupNow = true): (() => void) & { held: 
   return release;
 }
 
-/** `login --use <client_id>` (PROTOCOL.md §3.6). */
-export function useCachedAccount(opts: { apiOrigin: string; clientId: number; sessionDir?: string }): Session {
+/** `login --use <client_id>` (PROTOCOL.md §3.6). `setDefaultOrigin` only after a successful switch (task 11). */
+export function useCachedAccount(opts: {
+  apiOrigin: string;
+  clientId: number;
+  setDefaultOrigin?: boolean;
+  sessionDir?: string;
+}): Session {
   requirePortal(opts.apiOrigin);
   const sessionDir = opts.sessionDir ?? SESSION_DIR;
   const release = prepare(sessionDir);
@@ -295,6 +319,7 @@ export function useCachedAccount(opts: { apiOrigin: string; clientId: number; se
         7,
       );
     }
+    if (opts.setDefaultOrigin) saveDefaultOrigin(sessionDir, opts.apiOrigin);
     return session;
   } finally {
     release();
@@ -342,6 +367,7 @@ export function logoutActive(opts: { apiOrigin: string; sessionDir?: string }): 
  */
 export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
   const portalOrigin = requirePortal(opts.apiOrigin);
+  refuseDefaultWithSeal(opts);
   const sessionDir = opts.sessionDir ?? SESSION_DIR;
   const sealTo = opts.sealTo === undefined && !opts.forced ? undefined : requireSealKey(opts.sealTo);
   const mode = { sealTo, forced: opts.forced };
@@ -415,7 +441,7 @@ export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
 
       try {
         if (!release.held()) throw Object.assign(new Error("lost the login lock"), { code: "ELOCKLOST" });
-        store(sessionDir, delivered, how, sealTo);
+        store(sessionDir, delivered, how, sealTo, opts.setDefaultOrigin);
       } catch (err) {
         console.error(`Could not save the session: ${errorCode(err) ?? "write failed"}`);
         res.writeHead(500, PAGE_HEADERS).end(BAD_PAGE);

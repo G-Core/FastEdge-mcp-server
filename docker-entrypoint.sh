@@ -129,6 +129,25 @@ if [ -z "${GCORE_API_KEY:-${FASTEDGE_API_KEY:-}}" ]; then
   bad="$(printf '%s\n' "$found" | head -1)"
   [ -z "$bad" ] || fail "the session cache is readable by other users ($bad). Run the login command once to upgrade it."
 
+  # Task 11: with no GCORE_API_BASE, a default saved by `login --set-default-origin` picks the
+  # environment. Resolved once here and passed to both the broker and the server, so they can't
+  # disagree. Parsed like the broker runs (clean env, uid 10002, trusted cwd), never as root with
+  # launch-supplied NODE_OPTIONS. Absent: the baked default. Present but invalid: refuse to start.
+  if [ -n "${GCORE_API_BASE:-}" ]; then
+    FASTEDGE_ORIGIN_SOURCE=env
+  else
+    saved="$(cd /app && env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp \
+      setpriv --reuid="$BROKER_ID" --regid="$BROKER_ID" $DROP \
+      /usr/local/bin/node /app/build/default-origin.js)" ||
+      fail "the saved default environment is invalid. Sign in again with --set-default-origin, or run the login command with --logout all."
+    case "$saved" in
+      '') FASTEDGE_ORIGIN_SOURCE=baked_default ;;
+      https://*) GCORE_API_BASE="$saved"; FASTEDGE_ORIGIN_SOURCE=saved_default ;;
+      *) fail "the saved default environment is invalid." ;;
+    esac
+  fi
+  export GCORE_API_BASE FASTEDGE_ORIGIN_SOURCE
+
   mkdir -p /run/fastedge-broker /tmp/broker-home /run/fastedge-launch
   chown "$BROKER_ID:$BROKER_ID" /run/fastedge-broker /tmp/broker-home
   chmod 0755 /run/fastedge-broker

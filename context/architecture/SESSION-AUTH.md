@@ -31,6 +31,9 @@ cached account's token (risk R1).
   - **Every mode:** `HOST_UID`/`HOST_GID` must be numeric and must not be 10002.
   - **Session mode:**
     - Requires root (no `--user`), and refuses a cache that isn't broker-only.
+    - With no `GCORE_API_BASE`, runs `build/default-origin.js` (as 10002, `env -i`) to read a saved
+      default (task 11). Absent → baked default; invalid → exit 2. Exports `GCORE_API_BASE` and
+      `FASTEDGE_ORIGIN_SOURCE` for the broker and server.
     - Starts `build/broker.js` as 10002 (`env -i` with `PATH`, `HOME`, `GCORE_API_BASE`; core
       dumps off), and waits ≤5 s on a ready FIFO.
     - Then execs the server with the full drop.
@@ -59,11 +62,14 @@ cached account's token (risk R1).
 - **`src/auth/store.ts`:** the volume layout and writers (all `0700`/`0600`), lock and installation id:
   - `accounts/<api host>_<client_id>.json`
   - `active-<api host>.json`
+  - `default-origin.json` (task 11: written only by `--set-default-origin`; cleanup keeps it,
+    `--logout all` removes it)
   - `installation_id`
   - `.lock`
 - **`src/auth/login-server.ts` + `src/login.ts`** (`login` subcommand):
   - Loopback callback on 47215 for the portal's form POST (`state` check, 7-day cap).
   - `--use <client_id>`, `--logout` (local only), `--code` (hidden TTY prompt; manual connect code).
+  - `--set-default-origin` on a kept login, `--code` or `--use` (refused with `--seal-to` or ephemeral).
 - **`src/auth/session.ts`:**
   - Login, `--use` and `--code` command builders. The image tag comes from `package.json`
     `version`, so the build must set it.

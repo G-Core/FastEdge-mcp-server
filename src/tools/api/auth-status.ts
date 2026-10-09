@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
+import { GCORE_API_ORIGIN, GCORE_API_ORIGIN_SOURCE } from "../../api-client.js";
 import type { Auth } from "../../auth/credentials.js";
 
 export function registerAuthStatusTool(server: McpServer, auth: Auth) {
@@ -12,6 +13,10 @@ export function registerAuthStatusTool(server: McpServer, auth: Auth) {
       inputSchema: {},
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async () => ({ content: [{ type: "text", text: JSON.stringify(await auth.status(), null, 2) }] }),
+    async () => {
+      // Which environment, and why (task 11): env, a default saved by `login --set-default-origin`, or the image's own.
+      const status = { api_origin: GCORE_API_ORIGIN, api_origin_source: GCORE_API_ORIGIN_SOURCE, ...(await auth.status()) };
+      return { content: [{ type: "text", text: JSON.stringify(status, null, 2) }] };
+    },
   );
 }

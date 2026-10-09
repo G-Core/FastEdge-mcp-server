@@ -16,6 +16,8 @@ VOL_LEGACY="fe-gate-legacy-$$"
 VOL_LINK="fe-gate-link-$$"
 VOL_EPH="fe-gate-eph-$$"
 VOL_CHOICE="fe-gate-choice-$$"
+VOL_DEF="fe-gate-default-$$"
+VOL_DEF_BAD="fe-gate-default-bad-$$"
 CHOICE_NAME="fe-gate-choice-server-$$"
 EPH_NAME="fe-gate-eph-server-$$"
 EPH_DIR=""
@@ -38,7 +40,7 @@ check() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1 (expected '$3', got 
 cleanup() {
   [ -n "$CONTAINER" ] && docker rm -f "$CONTAINER" >/dev/null 2>&1
   docker rm -f "$EPH_NAME" "$CHOICE_NAME" >/dev/null 2>&1
-  docker volume rm -f "$VOL_GOOD" "$VOL_LEGACY" "$VOL_LINK" "$VOL_EPH" "$VOL_CHOICE" >/dev/null 2>&1
+  docker volume rm -f "$VOL_GOOD" "$VOL_LEGACY" "$VOL_LINK" "$VOL_EPH" "$VOL_CHOICE" "$VOL_DEF" "$VOL_DEF_BAD" >/dev/null 2>&1
   rm -rf "$WS" ${EPH_DIR:+"$EPH_DIR"}
 }
 trap cleanup EXIT
@@ -59,6 +61,8 @@ seed "$VOL_LEGACY" 10001:10001 0755 0644
 seed "$VOL_LINK" 10002:10002 0700 0600 "ln -s /etc/passwd /run/fastedge/accounts/link"
 seed "$VOL_EPH" 10002:10002 0700 0600
 seed "$VOL_CHOICE" 10002:10002 0700 0600
+seed "$VOL_DEF" 10002:10002 0700 0600 "printf '%s' '{\"version\":1,\"api_origin\":\"$API\"}' > /run/fastedge/default-origin.json && chown 10002:10002 /run/fastedge/default-origin.json && chmod 0600 /run/fastedge/default-origin.json"
+seed "$VOL_DEF_BAD" 10002:10002 0700 0600 "printf '%s' '{\"version\":1,\"api_origin\":\"https://evil.example\"}' > /run/fastedge/default-origin.json && chown 10002:10002 /run/fastedge/default-origin.json && chmod 0600 /run/fastedge/default-origin.json"
 
 RUN=(docker run --rm -i -v "$WS:/workspace" -e GCORE_API_BASE=$API)
 
@@ -273,6 +277,39 @@ grep -q '\\"mode\\": \\"ephemeral\\"' <<<"$(creply 4)" && grep -q '\\"client_id\
 check "no plaintext \"don't keep\" token in the volume" \
   "$(docker run --rm -v "$VOL_CHOICE:/v:ro" --entrypoint sh "$IMAGE" -c "grep -rlF '$CANARY_EPH-choice' /v" 2>/dev/null)" ""
 exec 5>&-
+
+# --- 7. Saved default origin (task 11) ------------------------------------------------------
+echo "Saved default origin"
+# The status tool only, launched without GCORE_API_BASE unless the caller passes one.
+status_rpc() { # volume [docker args...]
+  local vol=$1; shift
+  printf '%s\n' \
+    '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"gate","version":"0"}}}' \
+    '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+    '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"fastedge-auth-status","arguments":{}}}' |
+    { cat; sleep 5; } | t_out 60 docker run --rm -i -v "$WS:/workspace" -v "$vol:/run/fastedge:ro" "$@" "$IMAGE" 2>&1 | grep '"id":2}'
+}
+S="$(status_rpc "$VOL_DEF")"
+grep -q '\\"api_origin_source\\": \\"saved_default\\"' <<<"$S" && grep -q '\\"api_origin\\": \\"'"$API"'\\"' <<<"$S" &&
+  grep -q '\\"client_id\\": 123' <<<"$S" &&
+  pass "no GCORE_API_BASE: the saved default picks preprod and its session" || fail "saved default: $(head -c 300 <<<"$S")"
+S="$(status_rpc "$VOL_DEF" -e GCORE_API_BASE=https://api.gcore.com)"
+grep -q '\\"api_origin_source\\": \\"env\\"' <<<"$S" && grep -q '\\"api_origin\\": \\"https://api.gcore.com\\"' <<<"$S" &&
+  pass "an explicit GCORE_API_BASE wins over the saved default" || fail "env wins: $(head -c 300 <<<"$S")"
+S="$(status_rpc "$VOL_GOOD")"
+grep -q '\\"api_origin_source\\": \\"baked_default\\"' <<<"$S" &&
+  pass "no saved default and no GCORE_API_BASE: the baked default" || fail "baked default: $(head -c 300 <<<"$S")"
+out="$(t_out 60 docker run --rm -i -v "$WS:/workspace" -v "$VOL_DEF_BAD:/run/fastedge:ro" "$IMAGE" </dev/null 2>&1)"; code=$?
+if [ "$code" = 2 ] && grep -q "saved default environment is invalid" <<<"$out" && ! grep -q "evil.example" <<<"$out"; then
+  pass "an invalid saved default stops startup, without echoing the file"
+else fail "invalid default (exit $code: $(tail -1 <<<"$out"))"; fi
+S="$(status_rpc "$VOL_DEF_BAD" -e GCORE_API_BASE=$API)"
+grep -q '\\"api_origin_source\\": \\"env\\"' <<<"$S" &&
+  pass "with GCORE_API_BASE set, the saved default isn't read (an invalid one doesn't stop startup)" || fail "env skips the saved default: $(head -c 300 <<<"$S")"
+out="$(t_out 60 docker run --rm -i -v "$WS:/workspace" -v "$VOL_DEF:/run/fastedge:ro" -e NODE_OPTIONS="--require /workspace/evil.cjs" "$IMAGE" </dev/null 2>&1)"
+check "NODE_OPTIONS from the launch config did not reach the default-origin resolver" "$(grep -c 'PRELOAD RAN in uid 10002\|PRELOAD RAN in uid 0' <<<"$out")" "0"
+out="$(t_out 60 docker run --rm -i -v "$VOL_DEF:/run/fastedge" -e GCORE_API_BASE=$API "$IMAGE" login --set-default-origin --seal-to B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9_AsrhtHHw </dev/null 2>&1)"; code=$?
+if [ "$code" = 2 ] && grep -q "needs a session kept on this computer" <<<"$out"; then pass "login --set-default-origin with --seal-to is refused"; else fail "set-default with seal (exit $code: $(tail -1 <<<"$out"))"; fi
 
 echo
 if [ "$failures" = 0 ]; then echo "All broker isolation checks passed."; else echo "$failures check(s) FAILED."; fi

@@ -17,6 +17,9 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import { authRequiredResult, createAuth, type Auth, type AuthRequiredReason } from "../../src/auth/credentials.js";
 import { LoginError, connectWithCode, ensureInstallationId, logoutActive, logoutSessions, startLogin, useCachedAccount } from "../../src/auth/login-server.js";
+import { readDefaultOrigin } from "../../src/auth/store.js";
+import { ALLOWED_API_ORIGINS } from "../../src/api-client.js";
+import { PORTAL_ORIGINS } from "../../src/auth/session.js";
 import { registerApiTools } from "../../src/tools/api/index.js";
 
 const API = "https://api.preprod.world";
@@ -168,8 +171,17 @@ test("account_changed says restart, and offers no login", () => {
   assert.doesNotMatch(text, /docker run/);
 });
 
-test("origins without a portal get no login command", () => {
+test("reseller origins log in through their own portal", () => {
   const text = authRequiredResult("no_session", { apiOrigin: "https://api.cdb-staging.cdn.orange.com" }).content[0].text;
+  assert.match(text, /-e GCORE_API_BASE=https:\/\/api\.cdb-staging\.cdn\.orange\.com /);
+  assert.match(text, /https:\/\/portal\.cdb-staging\.cdn\.orange\.com\/fastedge\/agent-connect/);
+});
+
+// Every allowed origin has a portal today; an unmapped one stands in for a future API-key-only origin.
+const UNMAPPED = "https://api.example.com";
+
+test("origins without a portal get no login command", () => {
+  const text = authRequiredResult("no_session", { apiOrigin: UNMAPPED }).content[0].text;
   assert.doesNotMatch(text, /docker run/);
   assert.match(text, /Set GCORE_API_KEY/);
 });
@@ -451,7 +463,7 @@ test("S12: a port already in use fails with exit code 4", async () => {
 
 test("origins with no portal mapping refuse session login with exit code 2", async () => {
   await assert.rejects(
-    startLogin({ apiOrigin: "https://api.cdb-staging.cdn.orange.com", port: 0, host: "127.0.0.1" }),
+    startLogin({ apiOrigin: UNMAPPED, port: 0, host: "127.0.0.1" }),
     (err: unknown) => err instanceof LoginError && err.exitCode === 2,
   );
 });
@@ -850,4 +862,96 @@ test("auth_required offers three choices: browser here, remote with a code, not 
   assert.match(text, /Never open a portal link yourself/);
   assert.match(text, /Never open this link yourself/);
   assert.match(text, /the URL is in the terminal/);
+});
+
+// --- Saved default origin (task 11) -------------------------------------------------
+
+const defaultFile = (dir: string) => join(dir, "default-origin.json");
+const savedDefault = (dir: string) => JSON.parse(readFileSync(defaultFile(dir), "utf8"));
+// The resolver's own rule (src/default-origin.ts): allowlisted and has a portal.
+const acceptOrigin = (o: string) => ALLOWED_API_ORIGINS.has(o) && o in PORTAL_ORIGINS;
+const isExit2 = (err: unknown) => err instanceof LoginError && err.exitCode === 2;
+
+test("a plain browser login never writes the saved default", async () => {
+  const l = await login();
+  assert.equal(await post(l.port, { body: form(goodFields(l.state)) }), 303);
+  assert.equal(await l.result, "ok");
+  assert.ok(!existsSync(defaultFile(l.sessionDir)));
+});
+
+test("--set-default-origin saves the origin after a kept browser login", async () => {
+  const sessionDir = tmp();
+  const handle = await startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir, timeoutMs: 10_000, setDefaultOrigin: true });
+  assert.ok(!existsSync(defaultFile(sessionDir)), "nothing before approval");
+  assert.equal(await post(handle.port, { body: form(goodFields(stateOf(handle.url))) }), 303);
+  assert.equal(await handle.result, "ok");
+  assert.deepEqual(savedDefault(sessionDir), { version: 1, api_origin: API });
+  assert.equal(statSync(defaultFile(sessionDir)).mode & 0o777, 0o600);
+});
+
+test("--set-default-origin saves the origin after a connect code, and not after a bad one", () => {
+  const dir = tmp();
+  assert.throws(() => connectWithCode("fe1.@@@", { apiOrigin: API, sessionDir: dir, setDefaultOrigin: true }));
+  assert.ok(!existsSync(defaultFile(dir)));
+  connectWithCode(encode(codePayload()), { apiOrigin: API, sessionDir: dir, setDefaultOrigin: true });
+  assert.equal(savedDefault(dir).api_origin, API);
+});
+
+test("--set-default-origin is refused with a sealed or forced ephemeral login", async () => {
+  await assert.rejects(
+    startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir: tmp(), sealTo: "key", setDefaultOrigin: true }),
+    isExit2,
+  );
+  assert.throws(() => connectWithCode(encode(codePayload()), { apiOrigin: API, sessionDir: tmp(), forced: true, setDefaultOrigin: true }), isExit2);
+});
+
+test("--use saves the default only after a successful switch", () => {
+  const dir = writeSession(tmp(), session());
+  writeFileSync(accountFile(dir, 111), JSON.stringify(session({ client_id: 111 })));
+  assert.throws(() => useCachedAccount({ apiOrigin: API, clientId: 999, sessionDir: dir, setDefaultOrigin: true }));
+  assert.ok(!existsSync(defaultFile(dir)), "a failed --use leaves it unchanged");
+  useCachedAccount({ apiOrigin: API, clientId: 111, sessionDir: dir });
+  assert.ok(!existsSync(defaultFile(dir)), "a plain --use never writes it");
+  useCachedAccount({ apiOrigin: API, clientId: 123, sessionDir: dir, setDefaultOrigin: true });
+  assert.equal(savedDefault(dir).api_origin, API);
+});
+
+test("cleanup and --logout keep the saved default; --logout all removes it", () => {
+  const dir = writeSession(tmp(), session());
+  writeFileSync(accountFile(dir, 111), JSON.stringify(session({ client_id: 111, expires_at: new Date(Date.now() - HOUR).toISOString() })));
+  writeFileSync(defaultFile(dir), JSON.stringify({ version: 1, api_origin: API }));
+  useCachedAccount({ apiOrigin: API, clientId: 123, sessionDir: dir }); // runs expiry cleanup
+  assert.ok(!existsSync(accountFile(dir, 111)), "cleanup ran");
+  logoutActive({ apiOrigin: API, sessionDir: dir });
+  assert.ok(existsSync(defaultFile(dir)), "--logout keeps it");
+  logoutSessions({ apiOrigin: API, target: "all", sessionDir: dir });
+  assert.ok(!existsSync(defaultFile(dir)), "--logout all removes it");
+});
+
+test("the saved default reads as absent, an accepted origin, or invalid; never a fallback", () => {
+  const dir = tmp();
+  assert.equal(readDefaultOrigin(dir, acceptOrigin), null);
+  const cases: Array<[string, string, string]> = [
+    ["valid preprod", JSON.stringify({ version: 1, api_origin: API }), API],
+    ["valid Orange", JSON.stringify({ version: 1, api_origin: "https://api.cdb-staging.cdn.orange.com" }), "https://api.cdb-staging.cdn.orange.com"],
+    ["malformed", "{not json", "invalid"],
+    ["wrong version", JSON.stringify({ version: 2, api_origin: API }), "invalid"],
+    ["not an object", JSON.stringify(API), "invalid"],
+    ["off the allowlist", JSON.stringify({ version: 1, api_origin: "https://evil.example" }), "invalid"],
+    ["allowlisted path, not a bare origin", JSON.stringify({ version: 1, api_origin: `${API}/` }), "invalid"],
+    ["oversized", JSON.stringify({ version: 1, api_origin: API, pad: "x".repeat(5000) }), "invalid"],
+  ];
+  for (const [label, text, expected] of cases) {
+    writeFileSync(defaultFile(dir), text);
+    assert.equal(readDefaultOrigin(dir, acceptOrigin), expected, label);
+  }
+  rmSync(defaultFile(dir));
+  symlinkSync(join(dir, "elsewhere.json"), defaultFile(dir));
+  assert.equal(readDefaultOrigin(dir, acceptOrigin), "invalid", "a dangling symlink is present, not absent");
+});
+
+test("an allowlisted origin without a portal isn't accepted as the default", () => {
+  // Every allowed origin has a portal today; this pins the rule for a future key-only origin.
+  assert.equal(acceptOrigin("https://api.example.com"), false);
+  for (const origin of ALLOWED_API_ORIGINS) assert.equal(acceptOrigin(origin), origin in PORTAL_ORIGINS);
 });

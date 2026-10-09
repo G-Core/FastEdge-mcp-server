@@ -54,6 +54,16 @@ if (!resolvedOrigin) {
 }
 export const GCORE_API_ORIGIN: string = resolvedOrigin;
 
+/**
+ * Where GCORE_API_ORIGIN came from (task 11), for the status tool. The session-mode entrypoint
+ * sets FASTEDGE_ORIGIN_SOURCE after resolving a saved default; otherwise it follows the env.
+ */
+export type ApiOriginSource = "env" | "saved_default" | "baked_default";
+const ORIGIN_SOURCES: readonly ApiOriginSource[] = ["env", "saved_default", "baked_default"];
+const declaredSource = ORIGIN_SOURCES.find((s) => s === process.env.FASTEDGE_ORIGIN_SOURCE);
+export const GCORE_API_ORIGIN_SOURCE: ApiOriginSource =
+  declaredSource ?? (process.env.GCORE_API_BASE ? "env" : "baked_default");
+
 export const DEFAULT_TIMEOUT_MS = 60_000;
 
 /**

@@ -1,4 +1,4 @@
-// `docker run … <image> login [--use <client_id> | --logout | --code]` (PROTOCOL.md §3).
+// `docker run … <image> login [--use <client_id> | --logout | --code] [--set-default-origin]` (PROTOCOL.md §3).
 // No workspace mount, no GCORE_API_KEY (S16). Never prints the token (S3).
 import { GCORE_API_ORIGIN } from "./api-client.js";
 import {
@@ -20,10 +20,11 @@ const MESSAGES = {
   denied: "Access was denied in the portal.",
 } as const;
 const MAX_CODE_CHARS = 8192;
+const DEFAULT_SAVED = `${GCORE_API_ORIGIN} is now the default for MCP servers started without GCORE_API_BASE. Restart a running one to switch it.`;
 
 function usage(): never {
   console.error(
-    "Usage: login [--seal-to <key>] [--account <client_id>] | login --code [--seal-to <key>] [--account <client_id>] | login --use <client_id> | login --logout [<client_id> | all]",
+    "Usage: login [--seal-to <key>] [--account <client_id>] [--set-default-origin] | login --code [--seal-to <key>] [--account <client_id>] [--set-default-origin] | login --use <client_id> [--set-default-origin] | login --logout [<client_id> | all]",
   );
   process.exit(2);
 }
@@ -72,6 +73,11 @@ async function main() {
   const accAt = args.indexOf("--account");
   const accountArg = accAt >= 0 ? args.splice(accAt, 2)[1] ?? "" : undefined;
   const account = accountArg === undefined ? undefined : (parseId(accountArg) ?? usage());
+  // `--set-default-origin` (task 11): also make this origin the default for servers started
+  // without GCORE_API_BASE. Only this flag writes it; renewals and generated commands never pass it.
+  const defAt = args.indexOf("--set-default-origin");
+  const setDefaultOrigin = defAt >= 0;
+  if (setDefaultOrigin) args.splice(defAt, 1);
   const [option, value, ...rest] = args;
   if (rest.length) usage();
   const mode = process.env.FASTEDGE_SESSION ?? "";
@@ -100,11 +106,13 @@ async function main() {
     }
 
     if (account !== undefined && (option === "--use" || option === "--logout")) usage();
+    if (setDefaultOrigin && option === "--logout") usage();
 
     if (option === "--use") {
       const clientId = parseId(value) ?? usage();
-      const session = useCachedAccount({ apiOrigin: GCORE_API_ORIGIN, clientId });
+      const session = useCachedAccount({ apiOrigin: GCORE_API_ORIGIN, clientId, setDefaultOrigin });
       console.error(`The saved session now points at account ${session.client_id} (expires ${session.expires_at}).`);
+      if (setDefaultOrigin) console.error(DEFAULT_SAVED);
       console.error(`If an MCP server is running on another account: ${RESTART_HINT}`);
       console.error('A server holding a "don\'t keep" session ignores saved sessions until it is restarted.');
       process.exit(0);
@@ -158,8 +166,9 @@ async function main() {
         console.error(err instanceof Error ? err.message : "Cancelled.");
         process.exit(2);
       }
-      const session = connectWithCode(code, { apiOrigin: GCORE_API_ORIGIN, sealTo, forced, account });
+      const session = connectWithCode(code, { apiOrigin: GCORE_API_ORIGIN, sealTo, forced, account, setDefaultOrigin });
       console.error(`FastEdge is connected to account ${session.client_id} until ${session.expires_at}.`);
+      if (setDefaultOrigin) console.error(DEFAULT_SAVED);
       // A sealed session belongs to the server that's running; a restart would strand it.
       if (!session.sealed) console.error(`If an MCP server is already running with another account: ${RESTART_HINT}`);
       process.exit(0);
@@ -168,13 +177,22 @@ async function main() {
     if (option !== undefined) usage();
 
     // 0.0.0.0 inside the container; the host publishes it on 127.0.0.1 only.
-    const login = await startLogin({ apiOrigin: GCORE_API_ORIGIN, host: "0.0.0.0", port: LOGIN_PORT, sealTo, forced, account });
+    const login = await startLogin({
+      apiOrigin: GCORE_API_ORIGIN,
+      host: "0.0.0.0",
+      port: LOGIN_PORT,
+      sealTo,
+      forced,
+      account,
+      setDefaultOrigin,
+    });
     if (account !== undefined) {
       console.error(`This sign-in is for Gcore account ${account} only. Make sure the portal is signed in to it before you open the link.`);
     }
     console.error(`Open this URL to approve FastEdge access: ${login.url}`);
     const outcome = await login.result;
     console.error(MESSAGES[outcome]);
+    if (outcome === "ok" && setDefaultOrigin) console.error(DEFAULT_SAVED);
     process.exit(EXIT_CODES[outcome]);
   } catch (err) {
     if (err instanceof LoginError) {

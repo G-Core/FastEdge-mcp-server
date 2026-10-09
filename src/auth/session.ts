@@ -9,6 +9,9 @@ export const SESSION_DIR = "/run/fastedge";
 export const PORTAL_ORIGINS: Readonly<Record<string, string>> = {
   "https://api.gcore.com": "https://portal.gcore.com",
   "https://api.preprod.world": "https://portal.preprod.world",
+  "https://api.cdb-staging.cdn.orange.com": "https://portal.cdb-staging.cdn.orange.com",
+  "https://api.controlcenter.internationalcarriers.orange.com":
+    "https://portal.controlcenter.internationalcarriers.orange.com",
 };
 
 // Docker tag grammar. The tag is pasted into a shell command the agent runs, so nothing else gets through.

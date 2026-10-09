@@ -115,6 +115,14 @@ Logout is local: it prints each removed account's **token id** and expiry, and t
 
 - **Switching accounts.** A running MCP server stays on the account it started with. After switching, restart it (Claude Code: `/mcp`, then reconnect).
 - **Checking your account.** The `fastedge-auth-status` tool shows which account you're on and when the session expires. It never shows the token.
+- **Another environment (preprod, Orange) without editing your shell.** Sign in once with that environment's API base and `--set-default-origin`, then restart the agent. Every MCP server started without `GCORE_API_BASE` now uses it:
+
+  ```bash
+  docker run --rm -i -p 127.0.0.1:47215:47215 -v fastedge-session:/run/fastedge \
+    -e GCORE_API_BASE=https://api.preprod.world ghcr.io/g-core/fastedge-mcp-server:latest login --set-default-origin
+  ```
+
+  Only that flag changes the default (it also works with `--use <client_id>` and `--code`); ordinary sign-ins and renewals never do, and `--logout all` clears it. A `GCORE_API_BASE` in the MCP configuration still wins. It needs a session kept on this computer, so it can't be used with `FASTEDGE_SESSION=ephemeral`; set `GCORE_API_BASE` in the configuration instead. `fastedge-auth-status` shows the environment and why (`api_origin_source`). If the saved default is ever damaged, the server refuses to start rather than quietly using prod: sign in again with the flag, or run `… login --logout all`.
 - **An explicit key always wins.** If `GCORE_API_KEY` is set, the session is not used.
 - **Root required.** Session mode needs the container's default root start, so don't add `--user`. It drops to an unprivileged user itself.
 - **Reserved id.** uid/gid `10002` is reserved for the token broker, so don't use it as `HOST_UID`/`HOST_GID`.

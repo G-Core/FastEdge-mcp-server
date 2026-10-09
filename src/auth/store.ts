@@ -36,6 +36,8 @@ const accountPath = (dir: string, origin: string, clientId: number) =>
   join(accountsDir(dir), `${hostOf(origin)}_${clientId}.json`);
 const activePath = (dir: string, origin: string) => join(dir, `active-${hostOf(origin)}.json`);
 const legacyPath = (dir: string) => join(dir, "session.json");
+// Task 11. Deliberately not `active-*.json`: cleanup removes any of those that isn't an account pointer.
+const defaultOriginPath = (dir: string) => join(dir, "default-origin.json");
 
 // --- Reading -------------------------------------------------------------------
 
@@ -245,9 +247,10 @@ export function logoutAccount(dir: string, origin: string, clientId: number): Se
 
 /**
  * Removes every saved session on this volume, for every API origin (prod and preprod): account
- * files, active pointers, the legacy POC file, and sealed files (so a server that hasn't adopted
- * its "don't keep" token yet can't). File names are listed from fixed directories, never built
- * from input. Returns the readable sessions removed and how many sealed files went.
+ * files, active pointers, the saved default origin, the legacy POC file, and sealed files (so a
+ * server that hasn't adopted its "don't keep" token yet can't). File names are listed from fixed
+ * directories, never built from input. Returns the readable sessions removed and how many sealed
+ * files went.
  */
 export function logoutAll(dir: string): { sessions: Session[]; sealed: number } {
   const sessions: Session[] = [];
@@ -267,6 +270,7 @@ export function logoutAll(dir: string): { sessions: Session[]; sealed: number } 
   for (const name of list(dir)) {
     if (/^active-.+\.json$/.test(name)) fs.rmSync(join(dir, name), { force: true });
   }
+  fs.rmSync(defaultOriginPath(dir), { force: true });
   const legacy = readSession(legacyPath(dir));
   if (legacy) sessions.push(legacy);
   fs.rmSync(legacyPath(dir), { force: true });
@@ -277,6 +281,28 @@ export function logoutAll(dir: string): { sessions: Session[]; sealed: number } 
     sealed++;
   }
   return { sessions, sealed };
+}
+
+// --- Saved default origin (task 11) ---------------------------------------------------
+
+/** `login --set-default-origin`: the environment a server started without GCORE_API_BASE uses. */
+export function saveDefaultOrigin(dir: string, origin: string): void {
+  writeAtomic(defaultOriginPath(dir), { version: 1, api_origin: origin });
+}
+
+/**
+ * The saved default origin: null when there's no file, "invalid" when there is one that isn't a
+ * `version: 1` file naming an origin `accept` allows. A present but bad file never reads as absent,
+ * so a damaged preprod default can't quietly turn into prod (PROTOCOL.md §2a).
+ */
+export function readDefaultOrigin(dir: string, accept: (origin: string) => boolean): string | null | "invalid" {
+  const path = defaultOriginPath(dir);
+  if (absent(path)) return null;
+  const raw = readJson(path);
+  if (typeof raw !== "object" || raw === null) return "invalid";
+  const d = raw as Record<string, unknown>;
+  if (d.version !== 1 || typeof d.api_origin !== "string" || !accept(d.api_origin)) return "invalid";
+  return d.api_origin;
 }
 
 /** Moves a POC `session.json` into the per-account layout (once). */
