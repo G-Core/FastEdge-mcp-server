@@ -348,7 +348,10 @@ export function registerBatchExecuteTool(server: McpServer, auth: Auth) {
         ({ authRequired, clientId } = response);
         return { status: 401, data: { error: "auth_required", reason: authRequired } };
       });
-      if (!authRequired) return result;
+      if (!authRequired) {
+        const notice = await auth.takeNotice?.();
+        return notice ? { ...result, content: [...result.content, { type: "text" as const, text: notice }] } : result;
+      }
       if (step === 1) return authRequiredResult(authRequired, { clientId });
       // Keep the progress: earlier steps may have written, and must not be replayed.
       return authRequiredResult(authRequired, {

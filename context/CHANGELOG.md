@@ -14,6 +14,18 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-09] - an explicit key's account; "use an existing API key" choice
+
+- **Why:** new users only see the portal sign-in and may never learn a key is an option; and a key
+  from a project's or teammate's config was used silently, so work could land in an account the
+  user didn't expect.
+- **Key mode** (`createKeyAuth`, `createAuth` is now session-only): `GET /iam/clients/me` once;
+  status shows `account` (`client_id`, company or person name, never the email) and
+  `switch_account`; the first `gcore_api`/`batch_execute` result after each start ends with one
+  line naming the account (`Auth.takeNotice`).
+- **`auth_required`:** a fourth choice, "Use an existing API key instead", pointing to the
+  per-agent steps in the `platform-sign-in` docs.
+
 ## [2026-10-09] - sign-in text: only the user opens portal links
 
 - **Why:** in a Copilot test the agent couldn't read the login's background output, then opened the

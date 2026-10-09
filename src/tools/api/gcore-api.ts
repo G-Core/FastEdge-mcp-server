@@ -95,7 +95,9 @@ export function registerGcoreApiTool(server: McpServer, auth: Auth) {
         }
         return response;
       });
-      return authRequired ? authRequiredResult(authRequired, { clientId }) : result;
+      if (authRequired) return authRequiredResult(authRequired, { clientId });
+      const notice = await auth.takeNotice?.();
+      return notice ? { ...result, content: [...result.content, { type: "text" as const, text: notice }] } : result;
     },
   );
 }

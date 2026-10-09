@@ -58,7 +58,7 @@ cached account's token (risk R1).
       `client_id`. Only then does it pin the account (one per process, S5).
     - Uses manual redirects and a 16 MiB response cap.
     - A 401 maps to `rejected`; a response containing the token is withheld.
-  - `authRequiredResult()` builds the agent-facing text, which offers sign-in as three choices.
+  - `authRequiredResult()` builds the agent-facing text, which offers sign-in as four choices (the fourth: use an existing API key).
 - **`src/auth/store.ts`:** the volume layout and writers (all `0700`/`0600`), lock and installation id:
   - `accounts/<api host>_<client_id>.json`
   - `active-<api host>.json`

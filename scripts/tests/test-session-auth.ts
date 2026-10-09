@@ -15,7 +15,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
-import { authRequiredResult, createAuth, type Auth, type AuthRequiredReason } from "../../src/auth/credentials.js";
+import { authRequiredResult, createAuth, createKeyAuth, type Auth, type AuthRequiredReason } from "../../src/auth/credentials.js";
 import { LoginError, connectWithCode, ensureInstallationId, logoutActive, logoutSessions, startLogin, useCachedAccount } from "../../src/auth/login-server.js";
 import { readDefaultOrigin } from "../../src/auth/store.js";
 import { ALLOWED_API_ORIGINS } from "../../src/api-client.js";
@@ -50,7 +50,7 @@ const writeSession = (dir: string, data: unknown, clientId = (data as { client_i
   writeFileSync(activeFile(dir), JSON.stringify(pointer(clientId)));
   return dir;
 };
-const authFor = (dir: string, key = "") => createAuth(key, { sessionDir: dir, apiOrigin: API });
+const authFor = (dir: string) => createAuth({ sessionDir: dir, apiOrigin: API });
 /**
  * One real API call through `auth` (review B1: there is no (await resolve()) any more), with fetch stubbed:
  * the account check answers the active account in `dir`. Returns the Authorization header that
@@ -91,7 +91,55 @@ const sessionHeader = (token = TOKEN) => ({ header: `APIKey ${token}` });
 
 test("S1: an explicit key wins, even a wrong one, with a valid session present", async () => {
   const dir = writeSession(tmp(), session());
-  assert.deepEqual(await resolveOnce(authFor(dir, "wrong-key")), { header: "APIKey wrong-key" });
+  assert.deepEqual(await resolveOnce(createKeyAuth("wrong-key"), dir), { header: "APIKey wrong-key" });
+});
+
+/** Stubs fetch: /iam/clients/me answers `me` (status, body); counts the lookups. */
+function stubMe(status: number, body: unknown) {
+  const original = globalThis.fetch;
+  const calls = { me: 0, api: 0 };
+  globalThis.fetch = (async (url: string) => {
+    if (String(url).endsWith("/iam/clients/me")) {
+      calls.me++;
+      return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+    }
+    calls.api++;
+    return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+  return { calls, restore: () => (globalThis.fetch = original) };
+}
+
+test("an explicit key's account is shown in status and announced once, never the email or key", async () => {
+  const stub = stubMe(200, { id: 1234567, companyName: "Acme Ltd", name: "Ann Example", email: "ann@example.com" });
+  try {
+    const auth = createKeyAuth("the-key");
+    const status = await auth.status();
+    assert.equal(status.credential, "explicit_key");
+    assert.deepEqual(status.account, { client_id: 1234567, name: "Acme Ltd" });
+    assert.match(String(status.switch_account), /removes or changes GCORE_API_KEY/);
+    await auth.call({ method: "GET", path: "/fastedge/v1/apps" });
+    const notice = await auth.takeNotice!();
+    assert.match(String(notice), /GCORE_API_KEY from its environment, Gcore account 1234567 \(Acme Ltd\)/);
+    assert.equal(await auth.takeNotice!(), undefined, "once per server start");
+    const all = JSON.stringify(status) + notice;
+    assert.ok(!all.includes("the-key") && !all.includes("ann@example.com"));
+    assert.equal(stub.calls.me, 1, "looked up once");
+  } finally {
+    stub.restore();
+  }
+});
+
+test("an explicit key whose account the API won't say: no notice, account null", async () => {
+  const stub = stubMe(403, { error: "forbidden" });
+  try {
+    const auth = createKeyAuth("the-key");
+    assert.equal(await auth.takeNotice!(), undefined);
+    const status = await auth.status();
+    assert.equal(status.account, null);
+    assert.match(String(status.note), /didn't say which account/);
+  } finally {
+    stub.restore();
+  }
 });
 
 test("a valid session yields the session token", async () => {
@@ -211,12 +259,6 @@ test("status never pins, and shows pinned vs cached account after a switch", asy
   assert.ok(!JSON.stringify(after).includes(TOKEN));
 });
 
-test("status with an explicit key ignores the cache", () => {
-  const status = authFor(writeSession(tmp(), session()), "a-key").status();
-  assert.equal(status.credential, "explicit_key");
-  assert.ok(!JSON.stringify(status).includes(TOKEN));
-});
-
 test("status reports a missing session with the login command", async () => {
   const status = authFor(tmp()).status();
   assert.equal(status.state, "no_session");
@@ -277,12 +319,26 @@ test("gcore_api: a session token rejected with 401 becomes auth_required (reject
 test("gcore_api: an explicit key keeps the raw 401 (S1)", async () => {
   const restore = stubFetch([401]);
   try {
-    const call = await toolsWith(authFor(writeSession(tmp(), session()), "a-key"));
+    const call = await toolsWith(createKeyAuth("a-key"));
     const result = await call("gcore_api", { method: "GET", path: "/fastedge/v1/apps" });
     assert.notEqual(result.isError, true);
     assert.match(result.content[0].text, /"status": 401/);
   } finally {
     restore();
+  }
+});
+
+test("gcore_api: the key's account is added to the first result only", async () => {
+  const stub = stubMe(200, { id: 1234567, companyName: "Acme Ltd" });
+  try {
+    const call = await toolsWith(createKeyAuth("a-key"));
+    const first = await call("gcore_api", { method: "GET", path: "/fastedge/v1/apps" });
+    assert.equal(first.content.length, 2);
+    assert.match(first.content[1].text, /Gcore account 1234567 \(Acme Ltd\)/);
+    const second = await call("gcore_api", { method: "GET", path: "/fastedge/v1/apps" });
+    assert.equal(second.content.length, 1);
+  } finally {
+    stub.restore();
   }
 });
 
@@ -609,7 +665,7 @@ test("prod and preprod sessions don't affect each other", async () => {
   writeFileSync(join(dir, "active-api.gcore.com.json"), JSON.stringify({ ...pointer(777), api_origin: PROD }));
 
   assert.deepEqual((await resolverFor(dir)()), sessionHeader("111_pre"));
-  const prod = createAuth("", { sessionDir: dir, apiOrigin: PROD });
+  const prod = createAuth({ sessionDir: dir, apiOrigin: PROD });
   assert.deepEqual((await resolveOnce(prod, dir, 777)), sessionHeader("777_prod"));
   const listed = (authFor(dir).status().cached_accounts as Array<{ client_id: number }>).map((a) => a.client_id);
   assert.deepEqual(listed, [111], "status lists only this origin's accounts");
@@ -850,12 +906,14 @@ test("an interrupted login (SIGINT/SIGTERM) releases the lock", async () => {
   }
 });
 
-test("auth_required offers three choices: browser here, remote with a code, not now", () => {
+test("auth_required offers four choices: browser here, remote with a code, not now, an existing key", () => {
   const text = authRequiredResult("no_session", { apiOrigin: API }).content[0].text;
   assert.match(text, /multiple-choice question/);
   assert.match(text, /1\. Browser on this computer \(recommended\)/);
   assert.match(text, /2\. Remote .*\n.*agent-connect.*\n.*login --code/);
   assert.match(text, /3\. Not now/);
+  assert.match(text, /4\. Use an existing API key instead: .*GCORE_API_KEY/);
+  assert.match(text, /platform-sign-in docs/);
   assert.match(text, /never ask them to paste the connect code/);
   assert.match(text, /After 1 or 2, retry this request/);
   // Copilot opened the manual link in its own browser once: both links are the user's to open.

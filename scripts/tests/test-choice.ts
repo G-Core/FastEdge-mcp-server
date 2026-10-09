@@ -141,7 +141,7 @@ function plaintext(dir: string, clientId = 123) {
 function setup() {
   const recipient = generateRecipient();
   const dir = tmp();
-  const auth = createAuth("", { sessionDir: dir, apiOrigin: API, recipient });
+  const auth = createAuth({ sessionDir: dir, apiOrigin: API, recipient });
   const putSealed = (overrides: Record<string, unknown> = {}, to = recipient.publicKey) =>
     writeSealed(dir, recipient.publicKey, seal(to, { token: SEALED, api_origin: API, client_id: 123, token_id: 9, created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 4 * HOUR).toISOString(), ...overrides } as any));
   return { recipient, dir, auth, putSealed };
@@ -488,7 +488,7 @@ test("login --code --account: a code for another account is refused", () => {
 });
 
 test("status offers login_for_account for switching to a known account", () => {
-  const status = createAuth("", { sessionDir: tmp(), apiOrigin: API }).status() as Record<string, unknown>;
+  const status = createAuth({ sessionDir: tmp(), apiOrigin: API }).status() as Record<string, unknown>;
   assert.match(String(status.login_for_account), / --account <client_id>$/);
   assert.match(String(status.switch_account), /login_for_account/);
 });
@@ -502,7 +502,7 @@ test("a response echoing a token with quotes or backslashes is withheld", async 
     const s = { version: 1, generation: "g", token, token_id: 1, client_id: 123, api_origin: API, expires_at: new Date(Date.now() + HOUR).toISOString(), created_at: new Date().toISOString() };
     writeFileSync(join(dir, "accounts", "api.preprod.world_123.json"), JSON.stringify(s));
     writeFileSync(join(dir, "active-api.preprod.world.json"), JSON.stringify({ version: 1, api_origin: API, client_id: 123, generation: "g" }));
-    const auth = createAuth("", { sessionDir: dir, apiOrigin: API });
+    const auth = createAuth({ sessionDir: dir, apiOrigin: API });
     const st = stub(() => json({ id: 123 }), () => json({ echoed: token, nested: [{ k: `x${token}y` }] }));
     try {
       const r = (await auth.call(get)) as { status: number; data: { error?: string } };

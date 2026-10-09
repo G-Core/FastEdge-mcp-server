@@ -141,7 +141,7 @@ async function brokerPairIn(sessionDir: string) {
   const conns: net.Socket[] = [];
   const listener = net.createServer((conn) => {
     conns.push(conn);
-    serveBroker(conn, createAuth("", { sessionDir, apiOrigin: API }), API);
+    serveBroker(conn, createAuth({ sessionDir, apiOrigin: API }), API);
   });
   await new Promise<void>((resolve) => listener.listen(socketPath, resolve));
   const client = await connectBrokerForTest({ socketPath, ownerUid: process.getuid!(), checkProcess: false, expectSeal: false });
@@ -352,7 +352,7 @@ test("the client refuses to connect from an unhardened process", async () => {
 
 test("the broker drops a connection that skips the handshake", async () => {
   const socketPath = join(tmp(), "sock");
-  const listener = net.createServer((conn) => serveBroker(conn, createAuth("", { sessionDir: tmp(), apiOrigin: API }), API));
+  const listener = net.createServer((conn) => serveBroker(conn, createAuth({ sessionDir: tmp(), apiOrigin: API }), API));
   await new Promise<void>((resolve) => listener.listen(socketPath, resolve));
   try {
     const closed = await new Promise<boolean>((resolve) => {

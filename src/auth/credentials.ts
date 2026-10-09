@@ -36,6 +36,8 @@ export interface Auth {
   call(opts: Omit<ApiCallOptions, "authHeader">): Promise<ApiResult>;
   /** Read-only view for the status tool. Never pins, never includes the token. */
   status(): Record<string, unknown> | Promise<Record<string, unknown>>;
+  /** A line for the user, returned once per server start (key mode: which account the key is for). */
+  takeNotice?(): Promise<string | undefined>;
 }
 
 /**
@@ -66,7 +68,7 @@ function checkSession(dir: string, apiOrigin: string, now: number): SessionCheck
 
 /** Status guidance, so an agent offers the same choices as `auth_required` (§4) instead of picking one. */
 const SIGN_IN_HINT =
-  "To sign in, ask the user which way: 1. Browser on this computer (recommended): with their OK, run login_command yourself as a background task with your tool's own background option (Claude Code: run_in_background, not a shell `&`), and give them the URL as soon as it's printed (the command then waits for their approval). If you can't read the command's output, tell them the URL is in the terminal where it runs. Never open a portal link yourself (no built-in or simple browser, no browser automation): only the user opens it, in their own browser. The page connects whichever account the portal is signed in to and shows it before Approve; tell the user to check it. 2. Remote (SSH, Codespaces): give them manual_login. 3. Not now. Never ask them to paste a token or code into this chat.";
+  "To sign in, ask the user which way: 1. Browser on this computer (recommended): with their OK, run login_command yourself as a background task with your tool's own background option (Claude Code: run_in_background, not a shell `&`), and give them the URL as soon as it's printed (the command then waits for their approval). If you can't read the command's output, tell them the URL is in the terminal where it runs. Never open a portal link yourself (no built-in or simple browser, no browser automation): only the user opens it, in their own browser. The page connects whichever account the portal is signed in to and shows it before Approve; tell the user to check it. 2. Remote (SSH, Codespaces): give them manual_login. 3. Not now. 4. Use an existing API key instead: the user sets GCORE_API_KEY where this agent starts (for one project or all of them), then restarts this MCP server. For the steps in their agent, read the platform-sign-in docs (fastedge-docs). Never ask them to paste a token, key or code into this chat.";
 
 /** Status guidance for "log me out" requests (PROTOCOL §3.7). */
 const SIGN_OUT_HINT =
@@ -144,9 +146,55 @@ function openSealed(recipient: Recipient, sessionDir: string, apiOrigin: string,
 const EPHEMERAL_NOTE =
   "Ephemeral session: the token is sealed to this server's in-memory key and is never stored in a usable form. It ends when the MCP server stops. While it runs, switching accounts or renewing means restarting the server first, then approving again.";
 
+/** The account a key belongs to, from GET /iam/clients/me: id and company (or person) name, never the email. */
+function accountOf(me: ApiCallResult): { client_id: number; name: string | null } | null {
+  const d = me.data as { id?: unknown; companyName?: unknown; name?: unknown } | null;
+  if (me.status !== 200 || !Number.isSafeInteger(d?.id)) return null;
+  const name = [d!.companyName, d!.name].find((n): n is string => typeof n === "string" && n.trim() !== "");
+  return { client_id: d!.id as number, name: name?.trim().slice(0, 200) ?? null };
+}
+
+const KEY_SWITCH =
+  "To use a different account, the user removes or changes GCORE_API_KEY where this agent starts (for this project or globally), then restarts the MCP server.";
+
 /**
- * An explicit key always wins and the session cache is never read (S1). Without one, the
- * active session is re-read and validated on every call, and the first accepted account is
+ * An explicit key (S1): the session cache is never read. The key's account is looked up once
+ * (GET /iam/clients/me), shown in status, and announced once with the first API result, so a key
+ * from a project's or a teammate's config is never used unnoticed.
+ */
+export function createKeyAuth(key: string): Auth {
+  const header = `APIKey ${key}`;
+  let account: Promise<ReturnType<typeof accountOf>> | undefined;
+  const lookup = () =>
+    (account ??= callGcoreApi({ method: "GET", path: "/iam/clients/me", authHeader: header }).then(accountOf, () => null));
+  let announced = false;
+  const label = (a: NonNullable<ReturnType<typeof accountOf>>) => `Gcore account ${a.client_id}${a.name ? ` (${a.name})` : ""}`;
+  return {
+    call: (call) => callGcoreApi({ ...call, authHeader: header }),
+    async status() {
+      const a = await lookup();
+      return {
+        credential: "explicit_key",
+        account: a,
+        note: a
+          ? `GCORE_API_KEY is set, so the session cache is not used. The key belongs to ${label(a)}.`
+          : "GCORE_API_KEY is set, so the session cache is not used. The API didn't say which account the key belongs to.",
+        switch_account: KEY_SWITCH,
+      };
+    },
+    async takeNotice() {
+      if (announced) return undefined;
+      announced = true;
+      const a = await lookup();
+      return a
+        ? `Note for the user (once): this MCP server uses GCORE_API_KEY from its environment, ${label(a)}. ${KEY_SWITCH}`
+        : undefined;
+    },
+  };
+}
+
+/**
+ * Session mode. The active session is re-read and validated on every call, and the first accepted account is
  * pinned for the life of the process (S5); a 401 on the session token becomes `rejected`.
  *
  * Session mode reads the token cache, so only the token broker runs it. The MCP server
@@ -154,23 +202,11 @@ const EPHEMERAL_NOTE =
  * `now` are test hooks.
  */
 export function createAuth(
-  explicitKey: string,
   opts: { sessionDir?: string; apiOrigin?: string; now?: () => number; recipient?: Recipient; forced?: boolean } = {},
 ): LocalAuth {
   const apiOrigin = opts.apiOrigin ?? GCORE_API_ORIGIN;
   const command = loginCommand(apiOrigin);
   const use = useCommand(apiOrigin);
-
-  if (explicitKey) {
-    const header = `APIKey ${explicitKey}`;
-    return {
-      call: (call) => callGcoreApi({ ...call, authHeader: header }),
-      status: () => ({
-        credential: "explicit_key",
-        note: "GCORE_API_KEY is set, so the session cache is not used. The account is not known locally.",
-      }),
-    };
-  }
 
   const sessionDir = opts.sessionDir ?? SESSION_DIR;
   const now = opts.now ?? Date.now;
@@ -386,7 +422,7 @@ export const createEphemeralAuth = (opts: {
   sessionDir?: string;
   apiOrigin?: string;
   now?: () => number;
-}): LocalAuth => createAuth("", { ...opts, forced: true });
+}): LocalAuth => createAuth({ ...opts, forced: true });
 
 /** PROTOCOL.md §4. Metadata only: never the token or the file contents (S3). */
 export function authRequiredResult(
@@ -437,7 +473,7 @@ export function authRequiredResult(
     }
     lines.push(
       "Sign in through the Gcore portal for a time-limited session (or set GCORE_API_KEY instead).",
-      "Ask the user how to sign in. If you can ask a multiple-choice question, offer these three",
+      "Ask the user how to sign in. If you can ask a multiple-choice question, offer these four",
       "choices; otherwise list them:",
       "1. Browser on this computer (recommended): with their OK, run this command yourself as a",
       "   background task, using your tool's own background option (Claude Code: run_in_background),",
@@ -447,13 +483,15 @@ export function authRequiredResult(
       "   where it runs. Never open a portal link yourself (no built-in or simple browser, no browser",
       "   automation): only the user opens it, in their own browser. The page connects whichever Gcore",
       "   account the portal is signed in to, and shows it before Approve: if it's the wrong one, they",
-      "   switch accounts in the portal",
-      "   first, then open the link:",
+      "   switch accounts in the portal first, then open the link:",
       `   ${command}`,
       // Same portal mapping as the login command, so it is never null here.
       "2. Remote (SSH, a Codespace, or a browser that can't reach this computer):",
       manualFallback(apiOrigin, account)!,
       "3. Not now: stop, and don't retry the request.",
+      "4. Use an existing API key instead: they set GCORE_API_KEY where this agent starts (for one",
+      "   project or all of them), then restart this MCP server. For the steps in their agent, read the",
+      "   platform-sign-in docs (fastedge-docs). Never ask them to paste the key into this chat.",
       opts.detail
         ? "After 1 or 2, retry only what did not complete; no restart is needed."
         : "After 1 or 2, retry this request; no restart is needed.",

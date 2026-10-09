@@ -5,7 +5,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { registerAllPrompts } from "./prompts/index.js";
 import { registerAllTools } from "./tools/index.js";
 import { registerAllResources } from "./resources/index.js";
-import { createAuth } from "./auth/credentials.js";
+import { createKeyAuth } from "./auth/credentials.js";
 import { BROKER_ID, connectBroker, readIdentity } from "./auth/broker.js";
 
 function readApiKey(): string | undefined {
@@ -55,7 +55,7 @@ async function main() {
   if (!GCORE_API_KEY) refuseUnsafeIdentity();
   // Session mode: connect to the token broker before any tool (and so any build) can run.
   // This process never reads the session cache itself.
-  const auth = GCORE_API_KEY ? createAuth(GCORE_API_KEY) : await connectBroker();
+  const auth = GCORE_API_KEY ? createKeyAuth(GCORE_API_KEY) : await connectBroker();
   if (!GCORE_API_KEY) {
     console.error(
       "No GCORE_API_KEY set: local tools work, and API tools will ask you to sign in through the Gcore portal.",
