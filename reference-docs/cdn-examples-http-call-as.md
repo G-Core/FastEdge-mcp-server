@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: proxy-wasm-sdk-as
-      ref: master
-      commit: ddb8d2e76e8f4fab30de6bce8dd0150231cd7d31
-      updated: 2026-09-22
+      ref: v1.2.4
+      commit: 073f583217448aaf25cb98f5d336a0fda26273ba
+      updated: 2026-09-29
 -->
 
 ## Overview
@@ -83,7 +83,9 @@ Reads response headers inside the HTTP call callback.
 stream_context.headers.http_callback.get(name: string): string
 ```
 
-Returns empty string if the header is not present. Import path: `@gcoredev/proxy-wasm-sdk-as/assembly`
+Returns empty string if the header is not present.
+
+Import path: `@gcoredev/proxy-wasm-sdk-as/assembly`
 
 ---
 

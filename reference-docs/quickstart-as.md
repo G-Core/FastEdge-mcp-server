@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: proxy-wasm-sdk-as
-      ref: master
-      commit: ddb8d2e76e8f4fab30de6bce8dd0150231cd7d31
-      updated: 2026-09-22
+      ref: v1.2.4
+      commit: 073f583217448aaf25cb98f5d336a0fda26273ba
+      updated: 2026-09-29
 -->
 
 # Quickstart: AssemblyScript CDN Apps on FastEdge
@@ -31,7 +31,7 @@ npm init -y
 ### Install dependencies
 
 ```bash
-npm install @gcoredev/proxy-wasm-sdk-as@1.2.3
+npm install @gcoredev/proxy-wasm-sdk-as@1.2.4
 npm install --save-dev assemblyscript@^0.28.9 @assemblyscript/wasi-shim@^0.1.0
 ```
 
