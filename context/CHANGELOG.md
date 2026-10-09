@@ -14,6 +14,16 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-09] - sign-in text: only the user opens portal links
+
+- **Why:** in a Copilot test the agent couldn't read the login's background output, then opened the
+  manual-mode link in VS Code's Simple Browser itself (a blank page; the user had already approved
+  from the URL in the terminal). An agent with browser automation could approve there and read the
+  connect code, which contains the token.
+- **Change:** `auth_required`, status `sign_in` and `manual_login` say never to open a portal link
+  yourself (no built-in or simple browser, no automation), and to tell the user the URL is in the
+  terminal when the output can't be read. Tests.
+
 ## [2026-10-08] - plugin review: sealed-mode switching, Approve page wording
 
 - **Status:** a session-only server without a session now lists `login_for_account`, so switching

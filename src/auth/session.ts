@@ -89,7 +89,7 @@ export function manualFallback(apiOrigin: string, account?: number): string | nu
   return [
     `Ask the user to open ${portal}/fastedge/agent-connect${query ? `?${query}` : ""} themselves, choose the manual option, approve,`,
     `and run this in their own terminal (not through you): ${command}`,
-    "Never ask them to paste the connect code into this chat.",
+    "Never open this link yourself (no built-in or simple browser, no browser automation), and never ask them to paste the connect code into this chat.",
   ].join("\n");
 }
 

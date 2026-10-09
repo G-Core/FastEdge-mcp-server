@@ -791,7 +791,7 @@ test("auth_required and status offer the manual fallback, and warn against pasti
   const text = authRequiredResult("no_session", { apiOrigin: API }).content[0].text;
   assert.match(text, /https:\/\/portal\.preprod\.world\/fastedge\/agent-connect/);
   assert.match(text, /docker run --rm -it .* login --code/);
-  assert.match(text, /Never ask them to paste the connect code into this chat/);
+  assert.match(text, /never ask them to paste the connect code into this chat/);
   const status = authFor(tmp()).status();
   assert.match(String(status.code_command), / -it .* login --code$/);
 });
@@ -844,6 +844,10 @@ test("auth_required offers three choices: browser here, remote with a code, not 
   assert.match(text, /1\. Browser on this computer \(recommended\)/);
   assert.match(text, /2\. Remote .*\n.*agent-connect.*\n.*login --code/);
   assert.match(text, /3\. Not now/);
-  assert.match(text, /Never ask them to paste the connect code/);
+  assert.match(text, /never ask them to paste the connect code/);
   assert.match(text, /After 1 or 2, retry this request/);
+  // Copilot opened the manual link in its own browser once: both links are the user's to open.
+  assert.match(text, /Never open a portal link yourself/);
+  assert.match(text, /Never open this link yourself/);
+  assert.match(text, /the URL is in the terminal/);
 });

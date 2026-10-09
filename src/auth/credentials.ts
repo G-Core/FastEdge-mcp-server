@@ -66,7 +66,7 @@ function checkSession(dir: string, apiOrigin: string, now: number): SessionCheck
 
 /** Status guidance, so an agent offers the same choices as `auth_required` (§4) instead of picking one. */
 const SIGN_IN_HINT =
-  "To sign in, ask the user which way: 1. Browser on this computer (recommended): with their OK, run login_command yourself as a background task with your tool's own background option (Claude Code: run_in_background, not a shell `&`), and give them the URL as soon as it's printed (the command then waits for their approval). The page connects whichever account the portal is signed in to and shows it before Approve; tell the user to check it. 2. Remote (SSH, Codespaces): give them manual_login. 3. Not now. Never ask them to paste a token or code into this chat.";
+  "To sign in, ask the user which way: 1. Browser on this computer (recommended): with their OK, run login_command yourself as a background task with your tool's own background option (Claude Code: run_in_background, not a shell `&`), and give them the URL as soon as it's printed (the command then waits for their approval). If you can't read the command's output, tell them the URL is in the terminal where it runs. Never open a portal link yourself (no built-in or simple browser, no browser automation): only the user opens it, in their own browser. The page connects whichever account the portal is signed in to and shows it before Approve; tell the user to check it. 2. Remote (SSH, Codespaces): give them manual_login. 3. Not now. Never ask them to paste a token or code into this chat.";
 
 /** Status guidance for "log me out" requests (PROTOCOL §3.7). */
 const SIGN_OUT_HINT =
@@ -443,8 +443,11 @@ export function authRequiredResult(
       "   background task, using your tool's own background option (Claude Code: run_in_background),",
       "   not a shell `&`. It prints a URL, then waits up to 5 minutes on a local port for their",
       "   approval in the portal (a one-time handoff, not OAuth). Read its output and give them the URL",
-      "   as soon as it's printed. The page connects whichever Gcore account the portal is signed in",
-      "   to, and shows it before Approve: if it's the wrong one, they switch accounts in the portal",
+      "   as soon as it's printed; if you can't read its output, tell them the URL is in the terminal",
+      "   where it runs. Never open a portal link yourself (no built-in or simple browser, no browser",
+      "   automation): only the user opens it, in their own browser. The page connects whichever Gcore",
+      "   account the portal is signed in to, and shows it before Approve: if it's the wrong one, they",
+      "   switch accounts in the portal",
       "   first, then open the link:",
       `   ${command}`,
       // Same portal mapping as the login command, so it is never null here.
