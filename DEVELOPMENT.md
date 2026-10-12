@@ -97,7 +97,7 @@ pnpm run test:session-auth   # session cache, login callback, connect codes
 pnpm run test:broker         # token broker: frames, request policy, client/broker pair
 ```
 
-### Token broker container gate (needs Docker; not part of `test`)
+### Token broker container gate (needs Docker and jq; not part of `test`)
 
 ```sh
 docker build -t fastedge-mcp-server:session-poc .

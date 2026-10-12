@@ -5,7 +5,7 @@
 #
 # Usage: scripts/tests/test-broker-isolation.sh [image]   (default: fastedge-mcp-server:session-poc)
 # Platform sign-off runbook (macOS, Windows, rootless, arm64): DEVELOPMENT.md.
-# Needs Docker. The gcore_api row calls api.preprod.world with the fake token (expects a 401).
+# Needs Docker and jq. The gcore_api row calls api.preprod.world with the fake token (expects a 401).
 set -Euo pipefail
 IMAGE="${1:-fastedge-mcp-server:session-poc}"
 API=https://api.preprod.world
@@ -36,6 +36,14 @@ fi
 pass() { printf '  ok    %s\n' "$1"; }
 fail() { printf '  FAIL  %s\n' "$1"; failures=$((failures + 1)); }
 check() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1 (expected '$3', got '$2')"; fi; }
+
+command -v jq >/dev/null 2>&1 || { echo "test-broker-isolation.sh needs jq" >&2; exit 2; }
+# MCP server output on stdin: the text of the JSON-RPC reply with this id (non-JSON lines skipped).
+reply_text() { jq -Rr --argjson id "$1" 'fromjson? | select(.id? == $id) | .result.content[0].text // empty'; }
+# True when the JSON text $2 (a status or API result) passes the jq filter $1.
+json_has() { jq -e "$1" >/dev/null 2>&1 <<<"$2"; }
+# The broker's public key, from any --seal-to in a status's commands.
+seal_key_of() { jq -r 'first(.. | strings | capture("seal-to (?<k>[A-Za-z0-9_-]{43})").k) // empty' <<<"$1" 2>/dev/null; }
 
 cleanup() {
   [ -n "$CONTAINER" ] && docker rm -f "$CONTAINER" >/dev/null 2>&1
@@ -172,10 +180,10 @@ rpc() {
   sleep 8
 }
 OUT="$(rpc | t_out 60 "${RUN[@]}" -v "$VOL_GOOD:/run/fastedge:ro" "$IMAGE" 2>/dev/null)"
-line() { grep "\"id\":$1}" <<<"$OUT"; }
-grep -q '\\"client_id\\": 123' <<<"$(line 2)" && pass "fastedge-auth-status reads the account through the broker" || fail "auth status: $(line 2 | head -c 200)"
+line() { reply_text "$1" <<<"$OUT"; }
+json_has '.active_session.client_id == 123' "$(line 2)" && pass "fastedge-auth-status reads the account through the broker" || fail "auth status: $(line 2 | head -c 200)"
 grep -q '(rejected)' <<<"$(line 3)" && pass "gcore_api reaches the API through the broker (fake token → rejected)" || fail "gcore_api: $(line 3 | head -c 200)"
-grep -q 'policy_denied' <<<"$(line 4)" && pass "a path outside the policy is denied" || fail "policy: $(line 4 | head -c 200)"
+json_has '.error == "policy_denied"' "$(line 4)" && pass "a path outside the policy is denied" || fail "policy: $(line 4 | head -c 200)"
 check "no tool output contains the canary" "$(grep -c "$CANARY" <<<"$OUT")" "0"
 
 # --- 5. Ephemeral mode: sealed to the broker's in-memory key ------------------------
@@ -202,13 +210,13 @@ docker run --rm -i --name "$EPH_NAME" -v "$WS:/workspace" -v "$VOL_EPH:/run/fast
   -e FASTEDGE_SESSION=ephemeral "$IMAGE" <"$EPH_DIR/in" >"$EPH_DIR/out" 2>"$EPH_DIR/err" &
 exec 4>"$EPH_DIR/in"
 send() { printf '%s\n' "$1" >&4; }
-reply() { for _ in $(seq 1 150); do grep "\"id\":$1}" "$EPH_DIR/out" && return; sleep 0.2; done; }
+reply() { local r; for _ in $(seq 1 150); do r="$(reply_text "$1" <"$EPH_DIR/out")"; [ -n "$r" ] && { printf '%s\n' "$r"; return; }; sleep 0.2; done; }
 send '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"gate","version":"0"}}}'
 send '{"jsonrpc":"2.0","method":"notifications/initialized"}'
 send '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"fastedge-auth-status","arguments":{}}}'
 STATUS="$(reply 2)"
-SEAL_KEY="$(grep -oE 'seal-to [A-Za-z0-9_-]{43}' <<<"$STATUS" | head -1 | cut -d' ' -f2)"
-grep -q '\\"mode\\": \\"ephemeral\\"' <<<"$STATUS" && grep -q '\\"state\\": \\"no_session\\"' <<<"$STATUS" &&
+SEAL_KEY="$(seal_key_of "$STATUS")"
+json_has '.mode == "ephemeral" and .state == "no_session"' "$STATUS" &&
   pass "ephemeral status: no session, the plaintext account in the volume is ignored" || fail "ephemeral status: $(head -c 300 <<<"$STATUS")"
 [ -n "$SEAL_KEY" ] && pass "the login command carries the broker's public key" || fail "no --seal-to key in the status"
 
@@ -240,8 +248,8 @@ AFTER="$(printf '%s\n' \
   '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
   '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"gcore_api","arguments":{"method":"GET","path":"/fastedge/v1/apps"}}}' |
   { cat; sleep 6; } | t_out 60 "${RUN[@]}" -v "$VOL_EPH:/run/fastedge:ro" -e FASTEDGE_SESSION=ephemeral "$IMAGE" 2>/dev/null)"
-grep -q '(no_session)' <<<"$(grep '"id":2}' <<<"$AFTER")" && pass "after a restart the old sealed token can't be opened (new key)" ||
-  fail "restart: $(grep '"id":2}' <<<"$AFTER" | head -c 200)"
+grep -q '(no_session)' <<<"$(reply_text 2 <<<"$AFTER")" && pass "after a restart the old sealed token can't be opened (new key)" ||
+  fail "restart: $(reply_text 2 <<<"$AFTER" | head -c 200)"
 
 # --- 6. Choice mode: no config, the page decides per login ----------------------
 echo "Choice mode"
@@ -250,13 +258,13 @@ docker run --rm -i --name "$CHOICE_NAME" -v "$WS:/workspace" -v "$VOL_CHOICE:/ru
   "$IMAGE" <"$EPH_DIR/cin" >"$EPH_DIR/cout" 2>"$EPH_DIR/cerr" &
 exec 5>"$EPH_DIR/cin"
 csend() { printf '%s\n' "$1" >&5; }
-creply() { for _ in $(seq 1 150); do grep "\"id\":$1}" "$EPH_DIR/cout" && return; sleep 0.2; done; }
+creply() { local r; for _ in $(seq 1 150); do r="$(reply_text "$1" <"$EPH_DIR/cout")"; [ -n "$r" ] && { printf '%s\n' "$r"; return; }; sleep 0.2; done; }
 csend '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"gate","version":"0"}}}'
 csend '{"jsonrpc":"2.0","method":"notifications/initialized"}'
 csend '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"fastedge-auth-status","arguments":{}}}'
 CSTATUS="$(creply 2)"
-CKEY="$(grep -oE 'seal-to [A-Za-z0-9_-]{43}' <<<"$CSTATUS" | head -1 | cut -d' ' -f2)"
-grep -q '\\"mode\\": \\"persistent\\"' <<<"$CSTATUS" && [ -n "$CKEY" ] && ! grep -q 'FASTEDGE_SESSION' <<<"$CSTATUS" &&
+CKEY="$(seal_key_of "$CSTATUS")"
+json_has '.mode == "persistent" and ([.. | strings | select(contains("FASTEDGE_SESSION"))] | length == 0)' "$CSTATUS" && [ -n "$CKEY" ] &&
   pass "normal mode: persistent, and the login command carries the key without forcing" || fail "choice status: $(head -c 300 <<<"$CSTATUS")"
 plant_choice() { # client_id | "corrupt"
   docker run --rm -v "$VOL_CHOICE:/run/fastedge" --entrypoint sh "$IMAGE" -c "cd /app && node --input-type=module -e '
@@ -272,7 +280,7 @@ csend '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"gcore_api
 grep -q '(no_session)' <<<"$(creply 3)" && pass "a corrupt sealed file blocks the plaintext session (no fallback)" || fail "corrupt sealed: $(creply 3 | head -c 200)"
 plant_choice 456
 csend '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"fastedge-auth-status","arguments":{}}}'
-grep -q '\\"mode\\": \\"ephemeral\\"' <<<"$(creply 4)" && grep -q '\\"client_id\\": 456' <<<"$(creply 4)" &&
+json_has '.mode == "ephemeral" and .active_session.client_id == 456' "$(creply 4)" &&
   pass "a \"don't keep\" login wins over the saved plaintext session" || fail "sealed over plaintext: $(creply 4 | head -c 300)"
 check "no plaintext \"don't keep\" token in the volume" \
   "$(docker run --rm -v "$VOL_CHOICE:/v:ro" --entrypoint sh "$IMAGE" -c "grep -rlF '$CANARY_EPH-choice' /v" 2>/dev/null)" ""
@@ -287,24 +295,23 @@ status_rpc() { # volume [docker args...]
     '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"gate","version":"0"}}}' \
     '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
     '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"fastedge-auth-status","arguments":{}}}' |
-    { cat; sleep 5; } | t_out 60 docker run --rm -i -v "$WS:/workspace" -v "$vol:/run/fastedge:ro" "$@" "$IMAGE" 2>&1 | grep '"id":2}'
+    { cat; sleep 5; } | t_out 60 docker run --rm -i -v "$WS:/workspace" -v "$vol:/run/fastedge:ro" "$@" "$IMAGE" 2>&1 | reply_text 2
 }
 S="$(status_rpc "$VOL_DEF")"
-grep -q '\\"api_origin_source\\": \\"saved_default\\"' <<<"$S" && grep -q '\\"api_origin\\": \\"'"$API"'\\"' <<<"$S" &&
-  grep -q '\\"client_id\\": 123' <<<"$S" &&
+json_has ".api_origin_source == \"saved_default\" and .api_origin == \"$API\" and .active_session.client_id == 123" "$S" &&
   pass "no GCORE_API_BASE: the saved default picks preprod and its session" || fail "saved default: $(head -c 300 <<<"$S")"
 S="$(status_rpc "$VOL_DEF" -e GCORE_API_BASE=https://api.gcore.com)"
-grep -q '\\"api_origin_source\\": \\"env\\"' <<<"$S" && grep -q '\\"api_origin\\": \\"https://api.gcore.com\\"' <<<"$S" &&
+json_has '.api_origin_source == "env" and .api_origin == "https://api.gcore.com"' "$S" &&
   pass "an explicit GCORE_API_BASE wins over the saved default" || fail "env wins: $(head -c 300 <<<"$S")"
 S="$(status_rpc "$VOL_GOOD")"
-grep -q '\\"api_origin_source\\": \\"baked_default\\"' <<<"$S" &&
+json_has '.api_origin_source == "baked_default"' "$S" &&
   pass "no saved default and no GCORE_API_BASE: the baked default" || fail "baked default: $(head -c 300 <<<"$S")"
 out="$(t_out 60 docker run --rm -i -v "$WS:/workspace" -v "$VOL_DEF_BAD:/run/fastedge:ro" "$IMAGE" </dev/null 2>&1)"; code=$?
 if [ "$code" = 2 ] && grep -q "saved default environment is invalid" <<<"$out" && ! grep -q "evil.example" <<<"$out"; then
   pass "an invalid saved default stops startup, without echoing the file"
 else fail "invalid default (exit $code: $(tail -1 <<<"$out"))"; fi
 S="$(status_rpc "$VOL_DEF_BAD" -e GCORE_API_BASE=$API)"
-grep -q '\\"api_origin_source\\": \\"env\\"' <<<"$S" &&
+json_has '.api_origin_source == "env"' "$S" &&
   pass "with GCORE_API_BASE set, the saved default isn't read (an invalid one doesn't stop startup)" || fail "env skips the saved default: $(head -c 300 <<<"$S")"
 out="$(t_out 60 docker run --rm -i -v "$WS:/workspace" -v "$VOL_DEF:/run/fastedge:ro" -e NODE_OPTIONS="--require /workspace/evil.cjs" "$IMAGE" </dev/null 2>&1)"
 check "NODE_OPTIONS from the launch config did not reach the default-origin resolver" "$(grep -c 'PRELOAD RAN in uid 10002\|PRELOAD RAN in uid 0' <<<"$out")" "0"
