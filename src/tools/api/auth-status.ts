@@ -48,7 +48,8 @@ export function registerAuthStatusTool(server: McpServer, auth: Auth) {
       description:
         "Show which Gcore account and environment (API origin) this server uses: explicit API key, or portal session (account id, API origin, expiry, and the account this server is locked to). Returns the login command to sign in or switch accounts, the valid environments and how to switch environment. Never returns the token. Use it when the user asks which account or environment they are on. Before switching account or environment, call this and use only the commands it returns: never edit MCP configs, create volumes, or build your own login commands.",
       inputSchema: {},
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      // With an explicit key it asks the API which account the key belongs to.
+      annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async () => {
       const { other_environments, ...auth_status } = await auth.status();

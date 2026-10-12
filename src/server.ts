@@ -59,7 +59,7 @@ async function main() {
   const auth = GCORE_API_KEY ? createKeyAuth(GCORE_API_KEY) : await connectBroker();
   if (!GCORE_API_KEY) {
     console.error(
-      "No GCORE_API_KEY set: local tools work, and API tools will ask you to sign in through the Gcore portal.",
+      "No GCORE_API_KEY set: local tools work. API tools use portal sign-in, which needs the token broker of the Docker image; elsewhere, set GCORE_API_KEY.",
     );
   }
 
