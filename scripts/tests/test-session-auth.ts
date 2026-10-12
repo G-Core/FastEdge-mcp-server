@@ -17,7 +17,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import { authRequiredResult, createAuth, createKeyAuth, type Auth, type AuthRequiredReason } from "../../src/auth/credentials.js";
 import { LoginError, connectWithCode, ensureInstallationId, logoutActive, logoutSessions, startLogin, useCachedAccount } from "../../src/auth/login-server.js";
-import { readDefaultOrigin, saveSession } from "../../src/auth/store.js";
+import { readDefaultOrigin, removeExpired, saveSession } from "../../src/auth/store.js";
 import { ALLOWED_API_ORIGINS } from "../../src/api-client.js";
 import { PORTAL_ORIGINS } from "../../src/auth/session.js";
 import { registerApiTools } from "../../src/tools/api/index.js";
@@ -1084,4 +1084,12 @@ test("an allowlisted origin without a portal isn't accepted as the default", () 
   // Every allowed origin has a portal today; this pins the rule for a future key-only origin.
   assert.equal(acceptOrigin("https://api.example.com"), false);
   for (const origin of ALLOWED_API_ORIGINS) assert.equal(acceptOrigin(origin), origin in PORTAL_ORIGINS);
+});
+
+test("a pointer with a malformed api_origin is removed by cleanup instead of breaking it", () => {
+  const dir = tmp();
+  const bad = join(dir, "active-broken.json");
+  writeFileSync(bad, JSON.stringify({ version: 1, api_origin: "not a url", client_id: 123, generation: "p" }));
+  assert.doesNotThrow(() => removeExpired(dir, Date.now()));
+  assert.equal(existsSync(bad), false);
 });

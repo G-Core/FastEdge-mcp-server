@@ -106,11 +106,20 @@ function parseSession(raw: unknown): Session | null {
   return s as unknown as Session;
 }
 
+/** A bare origin, as every writer stores it. Anything else would make the file-name helpers throw. */
+function isOrigin(text: string): boolean {
+  try {
+    return new URL(text).origin === text;
+  } catch {
+    return false;
+  }
+}
+
 function parsePointer(raw: unknown): ActivePointer | null {
   if (typeof raw !== "object" || raw === null) return null;
   const p = raw as Record<string, unknown>;
   if (p.version !== 1 || typeof p.api_origin !== "string" || !isId(p.client_id)) return null;
-  if (typeof p.generation !== "string") return null;
+  if (typeof p.generation !== "string" || !isOrigin(p.api_origin)) return null;
   return p as unknown as ActivePointer;
 }
 
