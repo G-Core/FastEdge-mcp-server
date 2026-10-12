@@ -7,6 +7,7 @@ import { registerAllTools } from "./tools/index.js";
 import { registerAllResources } from "./resources/index.js";
 import { createKeyAuth } from "./auth/credentials.js";
 import { BROKER_ID, connectBroker, readIdentity } from "./auth/broker.js";
+import { FORCED_EPHEMERAL } from "./config/session-mode.js";
 
 function readApiKey(): string | undefined {
   try {
@@ -32,7 +33,7 @@ const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT || process.cwd();
 const GCORE_API_KEY = readApiKey() ?? "";
 
 // Forced ephemeral mode wins; never run it with a key (the entrypoint checks too).
-if (process.env.FASTEDGE_SESSION === "ephemeral" && GCORE_API_KEY) {
+if (FORCED_EPHEMERAL && GCORE_API_KEY) {
   console.error("FASTEDGE_SESSION=ephemeral can't be combined with GCORE_API_KEY. Remove one of them.");
   process.exit(2);
 }

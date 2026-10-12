@@ -182,22 +182,31 @@ test("expiry or a 401 after adoption means restart, never a re-read", async () =
   }
 });
 
-test("an envelope beyond the 8 h cap, expired, for another origin, or for another key isn't adopted", async () => {
-  const cases: Array<[string, Record<string, unknown>, string]> = [
-    ["over 8 h", { expires_at: new Date(Date.now() + 9 * HOUR).toISOString() }, "no_session"],
-    ["expired", { expires_at: new Date(Date.now() - HOUR).toISOString() }, "expired"],
-    ["other origin", { api_origin: "https://api.gcore.com" }, "origin_mismatch"],
-  ];
+const notAdopted: Array<[string, () => Record<string, unknown>, string]> = [
+  ["beyond the 8 h cap", () => ({ expires_at: new Date(Date.now() + 9 * HOUR).toISOString() }), "no_session"],
+  ["that has expired", () => ({ expires_at: new Date(Date.now() - HOUR).toISOString() }), "expired"],
+  ["for another origin", () => ({ api_origin: "https://api.gcore.com" }), "origin_mismatch"],
+];
+for (const [label, overrides, reason] of notAdopted) {
+  test(`an envelope ${label} isn't adopted and nothing is sent`, async () => {
+    const stub = stubFetch();
+    try {
+      const { auth, put } = setup();
+      put(payload(overrides()));
+      assert.deepEqual(await auth.call(get), { authRequired: reason });
+      assert.equal(stub.calls.me + stub.calls.api, 0);
+    } finally {
+      stub.restore();
+    }
+  });
+}
+
+test("an envelope at our path but sealed to another key isn't adopted and nothing is sent", async () => {
   const stub = stubFetch();
   try {
-    for (const [label, overrides, reason] of cases) {
-      const { auth, put } = setup();
-      put(payload(overrides));
-      assert.deepEqual(await auth.call(get), { authRequired: reason }, label);
-    }
     const { auth, put } = setup();
-    put(payload(), generateRecipient().publicKey); // at our path, sealed to someone else
-    assert.deepEqual(await auth.call(get), { authRequired: "no_session" }, "wrong key");
+    put(payload(), generateRecipient().publicKey);
+    assert.deepEqual(await auth.call(get), { authRequired: "no_session" });
     assert.equal(stub.calls.me + stub.calls.api, 0);
   } finally {
     stub.restore();
@@ -373,22 +382,25 @@ test("a malformed seal_to in the handshake is refused (broker_unavailable)", asy
   }
 });
 
-test("a handshake with no key, an all-zero key, no forced flag, or unforced while we're forced is refused", async () => {
-  const valid = generateRecipient().publicKey;
-  for (const hello of [{ ok: true }, { ok: true, seal_to: "A".repeat(43), forced: true }, { ok: true, seal_to: valid }, { ok: true, seal_to: valid, forced: false }]) {
+const badHellos: Array<[string, () => object]> = [
+  ["no key", () => ({ ok: true })],
+  ["an all-zero key", () => ({ ok: true, seal_to: "A".repeat(43), forced: true })],
+  ["no forced flag", () => ({ ok: true, seal_to: generateRecipient().publicKey })],
+  ["unforced while we're forced", () => ({ ok: true, seal_to: generateRecipient().publicKey, forced: false })],
+];
+for (const [label, hello] of badHellos) {
+  test(`a broker handshake with ${label} is refused`, async () => {
     const socketPath = join(tmp(), "sock");
     const listener = net.createServer((c) => {
-      const reader = new FrameReader(1024, () => 0, () => c.write(encodeFrame(hello)));
+      const reader = new FrameReader(1024, () => 0, () => c.write(encodeFrame(hello())));
       c.on("data", (chunk: Buffer) => reader.push(chunk));
     });
     await new Promise<void>((resolve) => listener.listen(socketPath, resolve));
     try {
-      process.env.FASTEDGE_SESSION = "ephemeral";
-      const auth = await connectBrokerForTest({ socketPath, ownerUid: process.getuid!(), checkProcess: false });
-      delete process.env.FASTEDGE_SESSION;
-      assert.deepEqual(await auth.call(get), { authRequired: "broker_unavailable" }, JSON.stringify(hello));
+      const auth = await connectBrokerForTest({ socketPath, ownerUid: process.getuid!(), checkProcess: false, forced: true });
+      assert.deepEqual(await auth.call(get), { authRequired: "broker_unavailable" });
     } finally {
       listener.close();
     }
-  }
-});
+  });
+}

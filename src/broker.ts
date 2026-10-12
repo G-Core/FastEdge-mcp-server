@@ -9,6 +9,7 @@ import { createAuth, createEphemeralAuth } from "./auth/credentials.js";
 import { generateRecipient } from "./auth/seal.js";
 import { setSealTo } from "./auth/session.js";
 import { BROKER_ID, BROKER_READY_FIFO, BROKER_SOCKET, readIdentity, serveBroker } from "./auth/broker.js";
+import { FORCED_EPHEMERAL, SESSION_MODE_ERROR, SESSION_MODE_VALID } from "./config/session-mode.js";
 
 const CONNECT_DEADLINE_MS = 30_000;
 
@@ -23,12 +24,11 @@ if (!all(me.uids) || !all(me.gids) || !me.dropped) fail("not running as the brok
 
 // The session mode is fixed here, at start. Ephemeral: a fresh key pair whose
 // private half never leaves this process, and no plaintext cache reads at all.
-const mode = process.env.FASTEDGE_SESSION ?? "";
-if (mode !== "" && mode !== "ephemeral") fail("FASTEDGE_SESSION must be unset or \"ephemeral\"");
+if (!SESSION_MODE_VALID) fail(SESSION_MODE_ERROR);
 // Always a key pair: a normal-mode login can then seal a "don't keep" token to it.
 const recipient = generateRecipient();
-setSealTo(recipient.publicKey, mode === "ephemeral");
-const auth = mode === "ephemeral" ? createEphemeralAuth({ recipient }) : createAuth({ recipient });
+setSealTo(recipient.publicKey, FORCED_EPHEMERAL);
+const auth = FORCED_EPHEMERAL ? createEphemeralAuth({ recipient }) : createAuth({ recipient });
 let connected = false;
 
 const listener = net.createServer((conn) => {

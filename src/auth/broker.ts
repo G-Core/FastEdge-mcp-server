@@ -9,6 +9,7 @@ import { checkAllowed } from "../policy/enforce.js";
 import type { ApiResult, Auth, AuthRequiredReason, LocalAuth } from "./credentials.js";
 import { isValidRecipient } from "./seal.js";
 import { getSealTo, isForcedEphemeral, setSealTo } from "./session.js";
+import { FORCED_EPHEMERAL } from "../config/session-mode.js";
 
 export const BROKER_ID = 10002;
 export const BROKER_SOCKET = "/run/fastedge-broker/sock";
@@ -268,20 +269,21 @@ export const connectBroker = (): Promise<Auth> => connectBrokerImpl({});
 
 /**
  * TESTS ONLY: the same, with the socket path, the expected socket owner, the process-identity
- * check and the handshake-key requirement overridable. Production code must use connectBroker().
+ * check, the handshake-key requirement and the forced-ephemeral setting overridable. Production code must use connectBroker().
  */
 export const connectBrokerForTest = (opts: {
   socketPath: string;
   ownerUid: number;
   checkProcess?: boolean;
   expectSeal?: boolean;
+  forced?: boolean;
 }): Promise<Auth> => connectBrokerImpl(opts);
 
 async function connectBrokerImpl(
-  opts: { socketPath?: string; ownerUid?: number; checkProcess?: boolean; expectSeal?: boolean },
+  opts: { socketPath?: string; ownerUid?: number; checkProcess?: boolean; expectSeal?: boolean; forced?: boolean },
 ): Promise<Auth> {
   const socketPath = opts.socketPath ?? BROKER_SOCKET;
-  const forcedHere = process.env.FASTEDGE_SESSION === "ephemeral";
+  const forcedHere = opts.forced ?? FORCED_EPHEMERAL;
   const expectSeal = opts.expectSeal ?? true;
   const ownerUid = opts.ownerUid ?? BROKER_ID;
   const fail = (why: string) => {

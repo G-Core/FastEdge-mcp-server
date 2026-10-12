@@ -12,6 +12,7 @@ import {
 } from "./auth/login-server.js";
 import { LOGIN_PORT, PORTAL_ORIGINS, RESTART_HINT } from "./auth/session.js";
 import { errorCode, parseId, type Session } from "./auth/store.js";
+import { FORCED_EPHEMERAL, SESSION_MODE_ERROR, SESSION_MODE_VALID } from "./config/session-mode.js";
 
 const EXIT_CODES = { ok: 0, timeout: 5, denied: 6 } as const;
 const MESSAGES = {
@@ -80,13 +81,12 @@ async function main() {
   if (setDefaultOrigin) args.splice(defAt, 1);
   const [option, value, ...rest] = args;
   if (rest.length) usage();
-  const mode = process.env.FASTEDGE_SESSION ?? "";
-  if (mode !== "" && mode !== "ephemeral") {
-    console.error('login: FASTEDGE_SESSION must be unset or "ephemeral"');
+  if (!SESSION_MODE_VALID) {
+    console.error(`login: ${SESSION_MODE_ERROR}`);
     process.exit(2);
   }
   // Only the config forces ephemeral; `--seal-to` alone lets the page offer "Keep me signed in".
-  const forced = mode === "ephemeral";
+  const forced = FORCED_EPHEMERAL;
 
   try {
     // A key, when given or required, must be valid before any browser or file work.
