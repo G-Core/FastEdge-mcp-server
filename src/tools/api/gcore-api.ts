@@ -7,7 +7,7 @@ import {
   type ApiCallResult,
 } from "../../api-client.js";
 import { checkAllowed } from "../../policy/enforce.js";
-import { authRequiredResult, type Auth, type AuthRequiredReason } from "../../auth/credentials.js";
+import { authRequiredResult, withNotice, type Auth, type AuthRequiredReason } from "../../auth/credentials.js";
 
 export interface GcoreApiInput {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -96,8 +96,7 @@ export function registerGcoreApiTool(server: McpServer, auth: Auth) {
         return response;
       });
       if (authRequired) return authRequiredResult(authRequired, { clientId });
-      const notice = await auth.takeNotice?.();
-      return notice ? { ...result, content: [...result.content, { type: "text" as const, text: notice }] } : result;
+      return withNotice(auth, result);
     },
   );
 }

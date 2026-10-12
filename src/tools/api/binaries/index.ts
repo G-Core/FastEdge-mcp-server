@@ -3,7 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { uploadBinary } from "./api.js";
 import type { UploadBinaryResponse } from "./types.js";
-import { authRequiredResult, type Auth } from "../../../auth/credentials.js";
+import { authRequiredResult, withNotice, type Auth } from "../../../auth/credentials.js";
 
 /**
  * Register the upload-binary tool to the MCP server.
@@ -48,25 +48,25 @@ export function registerUploadBinaryTool(
           throw new Error("Failed to upload binary: No ID returned");
         }
 
-        return {
+        return withNotice(auth, {
           content: [
             {
-              type: "text",
+              type: "text" as const,
               text: `Successfully uploaded the WASM binary! { id: ${binary.id} }`,
             },
           ],
-        };
+        });
       } catch (error: any) {
-        return {
+        return withNotice(auth, {
           content: [
             {
-              type: "text",
+              type: "text" as const,
               text: `Failed to upload the WASM binary: ${
                 error?.message || String(error)
               }`,
             },
           ],
-        };
+        });
       }
     },
   );

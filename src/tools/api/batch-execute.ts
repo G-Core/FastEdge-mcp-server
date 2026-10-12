@@ -8,7 +8,7 @@ import {
   type ApiCallResult,
 } from "../../api-client.js";
 import { checkAllowed } from "../../policy/enforce.js";
-import { authRequiredResult, type Auth, type AuthRequiredReason } from "../../auth/credentials.js";
+import { authRequiredResult, withNotice, type Auth, type AuthRequiredReason } from "../../auth/credentials.js";
 
 export const BATCH_TOTAL_CAP_MS = 180_000;
 export const BATCH_MAX_CALLS_DEFAULT = 5;
@@ -348,10 +348,7 @@ export function registerBatchExecuteTool(server: McpServer, auth: Auth) {
         ({ authRequired, clientId } = response);
         return { status: 401, data: { error: "auth_required", reason: authRequired } };
       });
-      if (!authRequired) {
-        const notice = await auth.takeNotice?.();
-        return notice ? { ...result, content: [...result.content, { type: "text" as const, text: notice }] } : result;
-      }
+      if (!authRequired) return withNotice(auth, result);
       if (step === 1) return authRequiredResult(authRequired, { clientId });
       // Keep the progress: earlier steps may have written, and must not be replayed.
       return authRequiredResult(authRequired, {
