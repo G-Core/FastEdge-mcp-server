@@ -221,13 +221,14 @@ json_has '.mode == "ephemeral" and .state == "no_session"' "$STATUS" &&
 [ -n "$SEAL_KEY" ] && pass "the login command carries the broker's public key" || fail "no --seal-to key in the status"
 
 # Plant a token sealed to that key, as a volume writer would (root in another container).
+# `--` ends node's options: a base64url key can start with '-'.
 docker run --rm -v "$VOL_EPH:/run/fastedge" --entrypoint sh "$IMAGE" -c "cd /app && node --input-type=module -e '
   import { seal } from \"/app/build/auth/seal.js\";
   import { writeSealed } from \"/app/build/auth/store.js\";
   const [k, token] = process.argv.slice(1), now = Date.now();
   writeSealed(\"/run/fastedge\", k, seal(k, { token, api_origin: \"$API\", client_id: 123, token_id: 4242,
     created_at: new Date(now).toISOString(), expires_at: new Date(now + 4 * 3600e3).toISOString() }));
-' '$SEAL_KEY' '$CANARY_EPH' && chown -R 10002:10002 /run/fastedge"
+' -- '$SEAL_KEY' '$CANARY_EPH' && chown -R 10002:10002 /run/fastedge"
 send '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"gcore_api","arguments":{"method":"GET","path":"/fastedge/v1/apps"}}}'
 grep -q '(rejected)' <<<"$(reply 3)" && pass "the broker opens the sealed token and uses it (fake token → rejected)" || fail "sealed adoption: $(reply 3 | head -c 200)"
 
@@ -273,7 +274,7 @@ plant_choice() { # client_id | "corrupt"
     const [k, token, id] = process.argv.slice(1), now = Date.now();
     writeSealed(\"/run/fastedge\", k, id === \"corrupt\" ? { not: \"an envelope\" } : seal(k, { token, api_origin: \"$API\", client_id: Number(id), token_id: 4242,
       created_at: new Date(now).toISOString(), expires_at: new Date(now + 4 * 3600e3).toISOString() }));
-  ' '$CKEY' '$CANARY_EPH-choice' '$1' && chown -R 10002:10002 /run/fastedge"
+  ' -- '$CKEY' '$CANARY_EPH-choice' '$1' && chown -R 10002:10002 /run/fastedge"
 }
 plant_choice corrupt
 csend '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"gcore_api","arguments":{"method":"GET","path":"/fastedge/v1/apps"}}}'
