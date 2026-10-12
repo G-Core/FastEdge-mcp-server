@@ -324,6 +324,35 @@ test("no session gives no_session through the broker", async () => {
   }
 });
 
+test("a request too large for one frame fails alone; the connection keeps working", async () => {
+  await withBroker(
+    () => json({ apps: [] }),
+    async (client, seen) => {
+      const query = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`k${i}`.padEnd(2000, "k"), "v".repeat(2000)]));
+      const r = (await client.call({ method: "GET", path: "/fastedge/v1/apps", query })) as { status: number; data: { error: string } };
+      assert.equal(r.status, 0);
+      assert.match(r.data.error, /too large/);
+      assert.equal(seen.length, 0);
+      assert.equal(((await client.call({ method: "GET", path: "/fastedge/v1/apps" })) as { status: number }).status, 200);
+    },
+  );
+});
+
+test("a response too large for one frame once JSON-escaped fails alone; the connection keeps working", async () => {
+  let big = true;
+  await withBroker(
+    // 15 MiB of control characters: under the 16 MiB response cap, six times that once escaped.
+    () => (big ? new Response("\x01".repeat(15 * 1024 * 1024), { headers: { "content-type": "text/plain" } }) : json({ apps: [] })),
+    async (client) => {
+      const r = (await client.call({ method: "GET", path: "/fastedge/v1/apps" })) as { status: number; data: { error: string } };
+      assert.equal(r.status, 0);
+      assert.match(r.data.error, /too large/);
+      big = false;
+      assert.equal(((await client.call({ method: "GET", path: "/fastedge/v1/apps" })) as { status: number }).status, 200);
+    },
+  );
+});
+
 test("when the broker goes away, every call is broker_unavailable (no reconnect, no fallback)", async () => {
   const { client, stop } = await brokerPair();
   stop();

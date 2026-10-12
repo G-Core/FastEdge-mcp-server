@@ -77,7 +77,8 @@ export class FrameReader {
 
   private take(n: number): Buffer {
     const all = this.flat();
-    this.chunks = [all.subarray(n)];
+    // Keep no empty view of a consumed buffer: it would hold the whole allocation (a large upload).
+    this.chunks = n < all.length ? [all.subarray(n)] : [];
     this.size -= n;
     return all.subarray(0, n);
   }
@@ -157,8 +158,12 @@ export function checkRequest(m: Record<string, unknown>, apiOrigin = GCORE_API_O
 export function serveBroker(socket: net.Socket, auth: LocalAuth, apiOrigin = GCORE_API_ORIGIN): void {
   let greeted = false;
   let inFlight = 0;
-  const send = (message: unknown) => {
-    if (!socket.destroyed) socket.write(encodeFrame(message));
+  // A reply too big for the client's frame limit would make it drop the connection, ending every
+  // later call: send that request a short error instead.
+  const send = (message: { id?: number } & Record<string, unknown>) => {
+    if (socket.destroyed) return;
+    const frame = encodeFrame(message);
+    socket.write(frame.length - 4 > MAX_RESPONSE_FRAME ? encodeFrame({ id: message.id, error: "the API response is too large" }) : frame);
   };
 
   const onFrame = (m: unknown, body?: Buffer) => {
@@ -361,8 +366,14 @@ async function connectBrokerImpl(
     if (closed) return Promise.resolve({ kind: "auth", reason: "broker_unavailable" });
     const id = nextId++;
     return new Promise((resolve) => {
+      const frame = encodeFrame({ ...message, id });
+      // The broker drops a connection whose frame or body is over its limits, so refuse the one
+      // request here rather than lose every later call.
+      if (frame.length - 4 > MAX_REQUEST_FRAME || (body && body.byteLength > MAX_BODY_BYTES)) {
+        return resolve({ kind: "error", error: "the request is too large" });
+      }
       pending.set(id, resolve);
-      socket.write(encodeFrame({ ...message, id }));
+      socket.write(frame);
       if (body) socket.write(body);
     });
   };
