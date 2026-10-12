@@ -189,45 +189,55 @@ test("a sealed file wins over plaintext, and the run stays sealed", async () => 
   } finally { s.restore(); }
 });
 
-test("a present but unusable sealed file blocks plaintext (no fallback)", async () => {
-  const cases: Array<[string, (x: ReturnType<typeof setup>) => void, string]> = [
-    ["corrupt", (x) => { mkdirSync(join(x.dir, "sealed"), { recursive: true }); for (const f of [x.recipient.publicKey]) writeSealed(x.dir, f, { garbage: true }); }, "no_session"],
-    ["over 8 h", (x) => x.putSealed({ expires_at: new Date(Date.now() + 9 * HOUR).toISOString() }), "no_session"],
-    ["expired", (x) => x.putSealed({ expires_at: new Date(Date.now() - HOUR).toISOString() }), "expired"],
-    ["other origin", (x) => x.putSealed({ api_origin: "https://api.gcore.com" }), "origin_mismatch"],
-    ["another key", (x) => x.putSealed({}, generateRecipient().publicKey), "no_session"],
-  ];
-  const s = stub();
-  try {
-    for (const [label, plant, reason] of cases) {
+const unusableSealed: Array<[string, (x: ReturnType<typeof setup>) => void, string]> = [
+  ["corrupt", (x) => { mkdirSync(join(x.dir, "sealed"), { recursive: true }); writeSealed(x.dir, x.recipient.publicKey, { garbage: true }); }, "no_session"],
+  ["beyond the 8 h cap", (x) => x.putSealed({ expires_at: new Date(Date.now() + 9 * HOUR).toISOString() }), "no_session"],
+  ["expired", (x) => x.putSealed({ expires_at: new Date(Date.now() - HOUR).toISOString() }), "expired"],
+  ["for another origin", (x) => x.putSealed({ api_origin: "https://api.gcore.com" }), "origin_mismatch"],
+  ["sealed to another key", (x) => x.putSealed({}, generateRecipient().publicKey), "no_session"],
+];
+for (const [label, plant, reason] of unusableSealed) {
+  test(`a sealed file that is ${label} blocks plaintext (no fallback)`, async () => {
+    const s = stub();
+    try {
       const x = setup();
       plaintext(x.dir);
       plant(x);
-      assert.deepEqual(await x.auth.call(get), { authRequired: reason }, label);
-    }
-    assert.deepEqual(s.sent, [], "the plaintext token was never used");
-    assert.ok(!s.meSent.includes(PLAIN), "not even for an account check");
-  } finally { s.restore(); }
-});
+      assert.deepEqual(await x.auth.call(get), { authRequired: reason });
+      assert.deepEqual(s.sent, [], "the plaintext token was never used");
+      assert.ok(!s.meSent.includes(PLAIN), "not even for an account check");
+    } finally { s.restore(); }
+  });
+}
 
-test("a sealed token rejected or unverifiable at the account check blocks plaintext too", async () => {
-  for (const [me, want] of [
-    [() => json({}, 401), { authRequired: "rejected", clientId: 123 }],
-    [() => json({ id: 999 }), { authRequired: "account_mismatch" }],
-    [() => json({}, 503), null],
-  ] as const) {
+const sealedAccountCheck: Array<[string, () => Response, unknown]> = [
+  ["rejected (401)", () => json({}, 401), { authRequired: "rejected", clientId: 123 }],
+  ["for another account", () => json({ id: 999 }), { authRequired: "account_mismatch" }],
+];
+for (const [label, me, want] of sealedAccountCheck) {
+  test(`a sealed token ${label} at the account check blocks plaintext too`, async () => {
     const { dir, auth, putSealed } = setup();
     plaintext(dir);
     putSealed();
     const s = stub((t) => (t === SEALED ? me() : json({ id: 123 })));
     try {
-      const r = await auth.call(get);
-      if (want) assert.deepEqual(r, want);
-      else assert.equal((r as any).status, 503, "an IAM outage is an error, not a fallback");
+      assert.deepEqual(await auth.call(get), want);
       assert.deepEqual(s.sent, []);
       assert.ok(!s.meSent.includes(PLAIN));
     } finally { s.restore(); }
-  }
+  });
+}
+
+test("an IAM outage at the sealed token's account check is an error, not a plaintext fallback", async () => {
+  const { dir, auth, putSealed } = setup();
+  plaintext(dir);
+  putSealed();
+  const s = stub((t) => (t === SEALED ? json({}, 503) : json({ id: 123 })));
+  try {
+    assert.equal(((await auth.call(get)) as { status: number }).status, 503);
+    assert.deepEqual(s.sent, []);
+    assert.ok(!s.meSent.includes(PLAIN));
+  } finally { s.restore(); }
 });
 
 test("a plaintext run switches to a sealed same-account session; another account gives account_changed", async () => {
@@ -253,10 +263,12 @@ test("race: a plaintext call still verifying when a sealed token is adopted goes
   plaintext(dir);
   let releasePlainMe!: () => void;
   const plainMe = new Promise<void>((r) => (releasePlainMe = r));
-  const s = stub(async (t) => { if (t === PLAIN) await plainMe; return json({ id: 123 }); });
+  let plainMeReached!: () => void;
+  const reached = new Promise<void>((r) => (plainMeReached = r));
+  const s = stub(async (t) => { if (t === PLAIN) { plainMeReached(); await plainMe; } return json({ id: 123 }); });
   try {
     const first = auth.call(get); // reads plaintext, waits on its account check
-    await new Promise((r) => setTimeout(r, 10));
+    await reached;
     putSealed();
     await auth.call(get); // adopts the sealed token
     releasePlainMe();
@@ -270,10 +282,12 @@ test("race: a late 401 for a plaintext request doesn't end a sealed session adop
   plaintext(dir);
   let releasePlainApi!: () => void;
   const plainApi = new Promise<void>((r) => (releasePlainApi = r));
-  const s = stub(undefined, async (t) => { if (t === PLAIN) { await plainApi; return json({}, 401); } return json({ ok: true }); });
+  let plainApiReached!: () => void;
+  const reached = new Promise<void>((r) => (plainApiReached = r));
+  const s = stub(undefined, async (t) => { if (t === PLAIN) { plainApiReached(); await plainApi; return json({}, 401); } return json({ ok: true }); });
   try {
     const first = auth.call(get); // goes out with the plaintext token, answer held back
-    await new Promise((r) => setTimeout(r, 10));
+    await reached;
     putSealed();
     assert.equal(((await auth.call(get)) as any).status, 200); // sealed adopted
     releasePlainApi();
@@ -301,8 +315,11 @@ test("after a sealed adoption: a 401 means restart, and plaintext is never used 
 
 // --- Commands in choice mode ----------------------------------------------------------------------
 
+// The seal key is set once per process, so every test that needs it sets this same one (allowed again).
+const SEAL_KEY = generateRecipient().publicKey;
+
 test("choice-mode commands carry the key but don't force ephemeral; --use stays; manual link has seal=1", () => {
-  const { publicKey } = generateRecipient();
+  const publicKey = SEAL_KEY;
   setSealTo(publicKey, false);
   assert.match(loginCommand(API)!, new RegExp(` login --seal-to ${publicKey}$`));
   assert.doesNotMatch(loginCommand(API)!, /FASTEDGE_SESSION/);
@@ -569,7 +586,8 @@ test("callback: an oversized body is refused early (declared or streamed), and l
 });
 
 test("the seal key is set once per process; a different second value is refused", () => {
-  // setSealTo(publicKey, false) already ran in this file (choice-mode commands test).
+  setSealTo(SEAL_KEY, false);
+  assert.doesNotThrow(() => setSealTo(SEAL_KEY, false), "the same value again is fine");
   assert.throws(() => setSealTo(generateRecipient().publicKey, false), /already set/);
 });
 

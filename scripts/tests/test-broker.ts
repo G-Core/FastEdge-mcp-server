@@ -327,7 +327,6 @@ test("no session gives no_session through the broker", async () => {
 test("when the broker goes away, every call is broker_unavailable (no reconnect, no fallback)", async () => {
   const { client, stop } = await brokerPair();
   stop();
-  await new Promise((r) => setTimeout(r, 50));
   assert.deepEqual(await client.call({ method: "GET", path: "/fastedge/v1/apps" }), { authRequired: "broker_unavailable" });
   assert.equal(((await client.status()) as Record<string, unknown>).state, "broker_unavailable");
 });
@@ -409,14 +408,17 @@ test("a token that belongs to another account is never used (account_mismatch), 
   );
 });
 
-test("the account check: a 401 is rejected; an IAM outage or 403 is an error, not a login or a fallback", async () => {
+test("the account check: a 401 means the token is rejected", async () => {
   await withMe(
     () => json({ message: "Invalid API token" }, 401),
     async (client) => {
       assert.deepEqual(await client.call({ method: "GET", path: "/fastedge/v1/apps" }), { authRequired: "rejected", clientId: 123 });
     },
   );
-  for (const status of [403, 429, 503]) {
+});
+
+for (const status of [403, 429, 503]) {
+  test(`the account check: a ${status} is an error, not a login or a fallback`, async () => {
     await withMe(
       () => json({ message: "nope" }, status),
       async (client, seen) => {
@@ -426,8 +428,8 @@ test("the account check: a 401 is rejected; an IAM outage or 403 is an error, no
         assert.equal(seen.length, 0);
       },
     );
-  }
-});
+  });
+}
 
 test("a missing or non-numeric id in the account check counts as a mismatch", async () => {
   await withMe(
