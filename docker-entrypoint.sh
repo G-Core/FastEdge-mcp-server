@@ -18,8 +18,8 @@
 # /proc/<pid>/environ of child processes.
 #
 # Without an API key the server runs in session mode: a token broker (uid 10002)
-# is started first and is the only process that can read the session cache
-# (fastedge-coordinator PROTOCOL.md §2a). Session mode refuses to start rather
+# is started first and is the only process that can read the session cache.
+# Session mode refuses to start rather
 # than run with a readable cache or an unverified broker.
 set -e
 
@@ -28,7 +28,7 @@ DROP="--clear-groups --no-new-privs --inh-caps=-all --ambient-caps=-all --boundi
 
 # `docker run <image> login …` is the session login, not the system /bin/login.
 # The session cache is broker-only (uid 10002; dirs 0700, files 0600): build code running as the
-# MCP server's uid must never be able to read it (fastedge-coordinator PROTOCOL.md §2/§2a).
+# MCP server's uid must never be able to read it.
 if [ "${1:-}" = "login" ]; then
   shift
   CACHE=/run/fastedge
@@ -43,7 +43,7 @@ if [ "${1:-}" = "login" ]; then
   # This also upgrades POC volumes (0644, owned by 10001) in place.
   if [ -e "$CACHE" ]; then
     [ -d "$CACHE" ] && [ ! -L "$CACHE" ] || login_fail "$CACHE is not a directory"
-    # Capture first: a pipe into head would hide a find failure (review A8).
+    # Capture first: a pipe into head would hide a find failure.
     found="$(find "$CACHE" -mindepth 1 \( -type l -o ! \( -type f -o -type d \) \) -print)" ||
       login_fail "could not inspect the session cache"
     odd="$(printf '%s\n' "$found" | head -1)"
@@ -101,7 +101,7 @@ canonical_id "$target_gid" || fail "HOST_GID must be a number (decimal, no leadi
 [ "$target_uid" -ne "$BROKER_ID" ] && [ "$target_gid" -ne "$BROKER_ID" ] ||
   fail "uid/gid $BROKER_ID is reserved for the token broker; set HOST_UID/HOST_GID to another id"
 
-# Ephemeral session mode (task 10) is forced by config and wins: no key alongside it, no unknown values.
+# Ephemeral session mode is forced by config and wins: no key alongside it, no unknown values.
 case "${FASTEDGE_SESSION:-}" in ''|ephemeral) ;; *) fail "FASTEDGE_SESSION must be unset or \"ephemeral\"";; esac
 [ "${FASTEDGE_SESSION:-}" != "ephemeral" ] || [ -z "${GCORE_API_KEY:-${FASTEDGE_API_KEY:-}}" ] ||
   fail "FASTEDGE_SESSION=ephemeral can't be combined with GCORE_API_KEY; remove one of them"

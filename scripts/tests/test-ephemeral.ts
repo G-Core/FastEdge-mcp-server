@@ -1,4 +1,4 @@
-// Ephemeral session mode (fastedge-coordinator tasks/10-ephemeral-session.md, v1): the broker's
+// Ephemeral session mode (FASTEDGE_SESSION=ephemeral): the broker's
 // adoption rules, fail-closed behaviour, the sealed login path and the broker handshake.
 // The envelope itself is tested in test-seal.ts; the container in test-broker-isolation.sh.
 import { test } from "node:test";

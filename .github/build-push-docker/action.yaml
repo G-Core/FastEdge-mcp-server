@@ -22,7 +22,7 @@ runs:
     - name: Extract Docker Tag version
       shell: bash
       id: extract_version
-      # Inputs reach the shell as environment variables, never pasted into the script (review C1).
+      # Inputs reach the shell as environment variables, never pasted into the script.
       env:
         TAG_VERSION: ${{ inputs.tag_version }}
       run: |

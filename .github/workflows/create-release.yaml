@@ -20,7 +20,7 @@ jobs:
   create_docker_release:
     # needs: fossa
     runs-on: [self-hosted, ubuntu-22-04, regular]
-    # Publishing needs an approval (review C3). Configure required reviewers in the repository's
+    # Publishing needs an approval. Configure required reviewers in the repository's
     # Settings → Environments → release; without them GitHub creates the environment unprotected.
     environment: release
 
@@ -51,7 +51,7 @@ jobs:
       - name: Create release tag
         id: determine-tag
         # Inputs and the token reach the shell as environment variables, never pasted into the
-        # script (review C1). An existing tag must point at the commit being built (review C2).
+        # script. An existing tag must point at the commit being built.
         env:
           INPUT_TAG: ${{ github.event.inputs.tag_version }}
           REF_NAME: ${{ github.ref_name }}
@@ -95,8 +95,8 @@ jobs:
         run: |
           echo "Release tag created successfully: $TAG_VERSION"
 
-      # The token-broker release gate (SECURITY.md, DEVELOPMENT.md): the image this commit builds
-      # must pass the container isolation checks before anything is published (review C3).
+      # The token-broker release gate (DEVELOPMENT.md): the image this commit builds
+      # must pass the container isolation checks before anything is published.
       # The base image is private: log in before the gate's build pulls it.
       - name: Log in to the registry (for the gate's build)
         if: ${{ steps.determine-tag.outputs.has_tag == 'true' }}

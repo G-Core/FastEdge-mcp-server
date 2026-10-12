@@ -56,7 +56,7 @@ jobs:
       - name: Resolve inputs
         id: inputs
         # Payload and inputs reach the shell as environment variables, never pasted into the
-        # script, and are validated before any later step uses them (review C1).
+        # script, and are validated before any later step uses them.
         env:
           IN_REF: ${{ github.event.client_payload.tag || inputs.plugin_ref || 'main' }}
           IN_VERSION: ${{ github.event.client_payload.version || inputs.version || '' }}
@@ -88,7 +88,7 @@ jobs:
           SHA256_URL: ${{ github.event.client_payload.artifact_sha256_url }}
           VERSION: ${{ steps.inputs.outputs.version }}
         run: |
-          # Only release assets of the plugin repo (review C1).
+          # Only release assets of the plugin repo.
           for u in "$ARTIFACT_URL" "$SHA256_URL"; do
             [[ "$u" =~ ^https://github\.com/G-Core/fastedge-plugin/releases/download/[A-Za-z0-9._/-]+$ ]] || { echo "Invalid artifact URL: $u" >&2; exit 1; }
           done

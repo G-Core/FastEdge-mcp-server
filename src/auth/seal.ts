@@ -1,5 +1,4 @@
-// Ephemeral-session envelope (fastedge-coordinator tasks/10-ephemeral-session.md, "Envelope",
-// frozen). The login container seals the approved token to the broker's in-memory X25519 key, so
+// Session-seal envelope (format frozen: changing it breaks running brokers). The login container seals the approved token to the broker's in-memory X25519 key, so
 // the volume only ever holds ciphertext that dies with the broker. Node stdlib only:
 // X25519 + HKDF-SHA256 + AES-256-GCM.
 import {

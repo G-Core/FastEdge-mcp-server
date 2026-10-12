@@ -31,7 +31,7 @@ const server = new McpServer({
 const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT || process.cwd();
 const GCORE_API_KEY = readApiKey() ?? "";
 
-// Task 10, MUST 1: forced ephemeral mode wins; never run it with a key (the entrypoint checks too).
+// Forced ephemeral mode wins; never run it with a key (the entrypoint checks too).
 if (process.env.FASTEDGE_SESSION === "ephemeral" && GCORE_API_KEY) {
   console.error("FASTEDGE_SESSION=ephemeral can't be combined with GCORE_API_KEY. Remove one of them.");
   process.exit(2);

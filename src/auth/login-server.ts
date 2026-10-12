@@ -28,7 +28,7 @@ export { ensureInstallationId } from "./store.js";
 
 export type LoginOutcome = "ok" | "denied" | "timeout";
 
-/** Exit codes from PROTOCOL.md §3. */
+/** Login exit codes. */
 export class LoginError extends Error {
   constructor(
     message: string,
@@ -48,7 +48,7 @@ export interface LoginOptions {
   forced?: boolean;
   /** `--account`: accept only this Gcore account (a renewal, or a switch to a known account). */
   account?: number;
-  /** `--set-default-origin` (task 11): also save this origin as the default. Keep-only logins. */
+  /** `--set-default-origin`: also save this origin as the default. Keep-only logins. */
   setDefaultOrigin?: boolean;
   /** Test hooks. */
   sessionDir?: string;
@@ -63,7 +63,7 @@ export interface LoginHandle {
 
 const MAX_BODY_BYTES = 8192;
 const LOGIN_TIMEOUT_MS = 5 * 60_000;
-// 7 days (the longest option on the Approve page) plus 5 minutes of clock skew (PROTOCOL.md constants).
+// 7 days (the longest option on the Approve page) plus 5 minutes of clock skew.
 export const MAX_LIFETIME_MS = 7 * 24 * 3_600_000 + 5 * 60_000;
 
 const FIELDS = ["state", "token", "token_id", "client_id", "expires_at", "api_origin"] as const;
@@ -81,7 +81,7 @@ const DENIED_PAGE = page("FastEdge not connected", "Access was denied. You can c
 const BAD_PAGE = page("Bad request", "This request was not accepted.");
 
 /**
- * PROTOCOL.md §6: a handled callback sends the browser to the portal's own outcome page (themed,
+ * A handled callback sends the browser to the portal's own outcome page (themed,
  * display-only), so we don't serve an unstyled page. `portalOrigin` comes only from this login's
  * API→portal mapping, never from the request; the URL carries nothing but the outcome. Without a
  * mapping (can't happen: login needs one to start) it falls back to the static page.
@@ -110,7 +110,7 @@ function sameSecret(a: string, b: string): boolean {
 type Delivery = Parameters<typeof saveSession>[1];
 
 /**
- * PROTOCOL.md §6 checks 5–6 plus the task 06 cap, shared by the browser callback and
+ * The delivery checks plus the lifetime cap, shared by the browser callback and
  * `login --code`. Returns what to save, or null.
  */
 function validateDelivery(
@@ -127,7 +127,7 @@ function validateDelivery(
     parseId(f.client_id) === null ||
     Number.isNaN(expiresAt) ||
     expiresAt <= now ||
-    // Task 06 cap (8 h for ephemeral, task 10): a tampered delivery can't plant a longer session than the page allows.
+    // Lifetime cap (8 h for ephemeral): a tampered delivery can't plant a longer session than the page allows.
     expiresAt > now + maxLifetimeMs
   ) {
     return null;
@@ -144,8 +144,8 @@ function validateDelivery(
 const MAX_CODE_BYTES = 8192;
 
 /**
- * `fe1.` / `fe2.` + base64url JSON (PROTOCOL.md §3, "Connect code format") → the delivery fields
- * and whether to keep the session, or null. `fe1` = keep; `fe2` = "don't keep" (task 10 v2). A
+ * `fe1.` / `fe2.` + base64url JSON → the delivery fields
+ * and whether to keep the session, or null. `fe1` = keep; `fe2` = "don't keep". A
  * new prefix, so an older login that ignores unknown fields can't save a "don't keep" code.
  */
 function decodeConnectCode(code: string): { fields: Record<string, string>; keep: boolean } | null {
@@ -167,7 +167,7 @@ function decodeConnectCode(code: string): { fields: Record<string, string>; keep
 type How = "keep" | "seal";
 
 /**
- * The callback's `persist` field against this login's own policy (task 10 v2, MoM rule 5). The
+ * The callback's `persist` field against this login's own policy. The
  * policy comes from how login was started, never from the delivery: forced never keeps; choice
  * needs exactly one 0|1; a login without a key can't honour "don't keep". Null → reject.
  */
@@ -194,8 +194,8 @@ const capFor = (how: How) => (how === "seal" ? EPHEMERAL_MAX_LIFETIME_MS : MAX_L
 
 /**
  * Saves a validated delivery: sealed to the broker, or plaintext. Plaintext housekeeping (POC
- * migration, expired accounts) runs only now, once a "keep" delivery is known (MoM rule 6). The
- * saved default origin (task 11) is written last, so a failed save leaves it unchanged.
+ * migration, expired accounts) runs only now, once a "keep" delivery is known. The
+ * saved default origin is written last, so a failed save leaves it unchanged.
  */
 function store(sessionDir: string, delivered: Delivery, how: How, sealTo: string | undefined, setDefault = false): void {
   if (how === "seal") {
@@ -220,7 +220,7 @@ function refuseDefaultWithSeal(opts: { setDefaultOrigin?: boolean; sealTo?: stri
   }
 }
 
-/** `login --code` (PROTOCOL.md §3.8): validate a pasted connect code and save it like a browser login. */
+/** `login --code`: validate a pasted connect code and save it like a browser login. */
 export function connectWithCode(
   code: string,
   opts: { apiOrigin: string; sealTo?: string; forced?: boolean; account?: number; setDefaultOrigin?: boolean; sessionDir?: string },
@@ -301,7 +301,7 @@ function prepare(sessionDir: string, cleanupNow = true): (() => void) & { held: 
   return release;
 }
 
-/** `login --use <client_id>` (PROTOCOL.md §3.6). `setDefaultOrigin` only after a successful switch (task 11). */
+/** `login --use <client_id>`. `setDefaultOrigin` only after a successful switch. */
 export function useCachedAccount(opts: {
   apiOrigin: string;
   clientId: number;
@@ -327,7 +327,7 @@ export function useCachedAccount(opts: {
 }
 
 /**
- * `login --logout <client_id>` / `login --logout all` (PROTOCOL.md §3.7). Local only: tokens stay
+ * `login --logout <client_id>` / `login --logout all`. Local only: tokens stay
  * valid at Gcore until they expire. `all` covers every API origin on this volume (prod and
  * preprod) and the sealed files. Returns what was removed, for the revocation hint.
  */
@@ -348,7 +348,7 @@ export function logoutSessions(opts: {
   }
 }
 
-/** `login --logout` (PROTOCOL.md §3.7). Local only: the token stays valid until it expires. */
+/** `login --logout`. Local only: the token stays valid until it expires. */
 export function logoutActive(opts: { apiOrigin: string; sessionDir?: string }): Session | null {
   requirePortal(opts.apiOrigin);
   const sessionDir = opts.sessionDir ?? SESSION_DIR;
@@ -361,9 +361,9 @@ export function logoutActive(opts: { apiOrigin: string; sessionDir?: string }): 
 }
 
 /**
- * Binds the loopback listener, then returns the approval URL to print (S12: bind first).
+ * Binds the loopback listener, then returns the approval URL to print (bind first).
  * Accepts exactly one valid callback, writes the session cache, and resolves.
- * Holds the login lock until it resolves. Never logs request bodies or headers (PROTOCOL.md §6).
+ * Holds the login lock until it resolves. Never logs request bodies or headers.
  */
 export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
   const portalOrigin = requirePortal(opts.apiOrigin);
@@ -398,7 +398,7 @@ export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
       return reject();
     }
 
-    // Oversized bodies are refused as soon as we know, not read to the end (review A6).
+    // Oversized bodies are refused as soon as we know, not read to the end.
     const tooBig = () => {
       res.writeHead(400, { ...PAGE_HEADERS, Connection: "close" }).end(BAD_PAGE);
       req.destroy();
@@ -452,7 +452,7 @@ export async function startLogin(opts: LoginOptions): Promise<LoginHandle> {
     });
   });
 
-  // Slow or many connections can't hold the one-shot listener (review A6): a browser needs one
+  // Slow or many connections can't hold the one-shot listener: a browser needs one
   // request, sent at once.
   server.headersTimeout = 10_000;
   server.requestTimeout = 15_000;

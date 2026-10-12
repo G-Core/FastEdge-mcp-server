@@ -1,4 +1,4 @@
-# Independent implementation of the task 10 envelope (Python `cryptography`), for known-answer vectors.
+# Independent implementation of the session-seal envelope (Python `cryptography`), for known-answer vectors.
 import json, struct, base64
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF

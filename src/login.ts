@@ -1,5 +1,5 @@
-// `docker run … <image> login [--use <client_id> | --logout | --code] [--set-default-origin]` (PROTOCOL.md §3).
-// No workspace mount, no GCORE_API_KEY (S16). Never prints the token (S3).
+// `docker run … <image> login [--use <client_id> | --logout | --code] [--set-default-origin]`.
+// No workspace mount, no GCORE_API_KEY. Never prints the token.
 import { GCORE_API_ORIGIN } from "./api-client.js";
 import {
   LoginError,
@@ -29,7 +29,7 @@ function usage(): never {
   process.exit(2);
 }
 
-/** Reads one line from the terminal without echoing it (S18: never from args, env or a pipe). */
+/** Reads one line from the terminal without echoing it (never from args, env or a pipe). */
 function readHidden(prompt: string): Promise<string> {
   const stdin = process.stdin;
   return new Promise((resolve, reject) => {
@@ -66,14 +66,14 @@ function readHidden(prompt: string): Promise<string> {
 
 async function main() {
   const args = process.argv.slice(2);
-  // `--seal-to <key>` (task 10) may follow the browser login or --code; take it out first.
+  // `--seal-to <key>` may follow the browser login or --code; take it out first.
   const at = args.indexOf("--seal-to");
   const sealArg = at >= 0 ? args.splice(at, 2)[1] ?? "" : undefined;
   // `--account <client_id>`: accept only that Gcore account (browser login or --code).
   const accAt = args.indexOf("--account");
   const accountArg = accAt >= 0 ? args.splice(accAt, 2)[1] ?? "" : undefined;
   const account = accountArg === undefined ? undefined : (parseId(accountArg) ?? usage());
-  // `--set-default-origin` (task 11): also make this origin the default for servers started
+  // `--set-default-origin`: also make this origin the default for servers started
   // without GCORE_API_BASE. Only this flag writes it; renewals and generated commands never pass it.
   const defAt = args.indexOf("--set-default-origin");
   const setDefaultOrigin = defAt >= 0;
@@ -205,7 +205,7 @@ async function main() {
 
 /**
  * Any other failure: a fixed message and exit 1, never an unhandled rejection. Only the error code
- * is shown, not the message or stack, which could carry request data (review B7).
+ * is shown, not the message or stack, which could carry request data.
  */
 function unexpected(err: unknown): never {
   console.error(`login: unexpected error${errorCode(err) ? ` (${errorCode(err)})` : ""}. Try again; if it repeats, report it.`);

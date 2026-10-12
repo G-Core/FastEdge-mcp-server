@@ -74,7 +74,7 @@ export function registerAuthStatusTool(server: McpServer, auth: Auth) {
         const command = defaultOriginCommand(api_origin);
         return { api_origin, portal, current, ...(command ? { sign_in_and_make_default: command } : {}) };
       });
-      // Which environment, and why (task 11): env, a default saved by `login --set-default-origin`, or the image's own.
+      // Which environment, and why: env, a default saved by `login --set-default-origin`, or the image's own.
       const status = {
         api_origin: GCORE_API_ORIGIN,
         api_origin_source: GCORE_API_ORIGIN_SOURCE,

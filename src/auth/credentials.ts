@@ -48,7 +48,7 @@ export interface LocalAuth extends Auth {
   status(): Record<string, unknown>;
 }
 
-// Session tokens get the broker's transport limits (PROTOCOL.md §2a).
+// Session tokens get the broker's transport limits.
 const SESSION_LIMITS = { manualRedirect: true, maxResponseBytes: 16 * 1024 * 1024 };
 
 type SessionCheck =
@@ -56,11 +56,11 @@ type SessionCheck =
   | { reason: "no_session" }
   | { reason: "expired" | "origin_mismatch"; session: Session };
 
-/** PROTOCOL.md §2 checks, without account pinning. */
+/** The stored-session checks, without account pinning. */
 function checkSession(dir: string, apiOrigin: string, now: number): SessionCheck {
   const session = readActiveSession(dir, apiOrigin);
   if (!session) return { reason: "no_session" };
-  // S2: the request destination is never taken from the file, only checked against it.
+  // The request destination is never taken from the file, only checked against it.
   if (session.api_origin !== apiOrigin) return { reason: "origin_mismatch", session };
   if (!isUsable(session, now)) return { reason: "expired", session };
   return { session };
@@ -70,7 +70,7 @@ function checkSession(dir: string, apiOrigin: string, now: number): SessionCheck
 const SIGN_IN_HINT =
   "To sign in, ask the user which way: 1. Browser on this computer (recommended): with their OK, run login_command yourself as a background task with your tool's own background option (Claude Code: run_in_background, not a shell `&`), and give them the URL as soon as it's printed (the command then waits for their approval). If you can't read the command's output, tell them the URL is in the terminal where it runs. Never open a portal link yourself (no built-in or simple browser, no browser automation): only the user opens it, in their own browser. The page connects whichever account the portal is signed in to and shows it before Approve; tell the user to check it. 2. Remote (SSH, Codespaces): give them manual_login. 3. Not now. 4. Use an existing API key instead: follow api_key_setup in this status. Never ask them to paste a token, key or code into this chat.";
 
-/** Status guidance for "log me out" requests (PROTOCOL §3.7). */
+/** Status guidance for "log me out" requests. */
 const SIGN_OUT_HINT =
   "To sign out on this computer: with the user's OK, run logout_command with a client_id, or `all` (every saved account, prod and preprod). It removes local sessions only and prints the token ids; tell the user to delete those tokens on the portal's API tokens page to revoke them. A server holding a \"don't keep\" session keeps it until it's stopped or restarted.";
 
@@ -103,8 +103,8 @@ async function callWithToken(
 }
 
 /**
- * The cache only *claims* an account. Ask the API whose token it is (GET /iam/clients/me → `id`,
- * PROTOCOL.md §2a). Null when it matches; otherwise the result to return instead. An IAM outage
+ * The cache only *claims* an account. Ask the API whose token it is (GET /iam/clients/me → `id`).
+ * Null when it matches; otherwise the result to return instead. An IAM outage
  * is an error, never a login prompt or a fallback.
  */
 async function checkAccount(token: string, clientId: number): Promise<ApiResult | null> {
@@ -123,11 +123,11 @@ async function checkAccount(token: string, clientId: number): Promise<ApiResult 
 type Recipient = { privateKey: KeyObject; publicKey: string };
 
 // 8 hours (the longest ephemeral option) plus the protocol's 5 minutes of clock skew between the
-// portal and this machine, as for the 7-day cap (task 10, MUST 10).
+// portal and this machine, as for the 7-day cap.
 export const EPHEMERAL_MAX_LIFETIME_MS = 8 * 3_600_000 + 5 * 60_000;
 
 /**
- * Opens and checks the session sealed to `recipient` (task 10), without adopting it: the account
+ * Opens and checks the session sealed to `recipient`, without adopting it: the account
  * check comes later. A Session, or why it can't be used.
  */
 function openSealed(recipient: Recipient, sessionDir: string, apiOrigin: string, now: number): Session | AuthRequiredReason {
@@ -162,7 +162,7 @@ const KEY_SWITCH =
   "To use a different account, the user removes or changes GCORE_API_KEY where this agent starts (for this project or globally), then restarts the MCP server.";
 
 /**
- * An explicit key (S1): the session cache is never read. The key's account is looked up once
+ * An explicit key: the session cache is never read. The key's account is looked up once
  * (GET /iam/clients/me), shown in status, and announced once with the first API result, so a key
  * from a project's or a teammate's config is never used unnoticed.
  */
@@ -207,7 +207,7 @@ export async function withNotice<T extends { content: { type: "text"; text: stri
 
 /**
  * Session mode. The active session is re-read and validated on every call, and the first accepted account is
- * pinned for the life of the process (S5); a 401 on the session token becomes `rejected`.
+ * pinned for the life of the process; a 401 on the session token becomes `rejected`.
  *
  * Session mode reads the token cache, so only the token broker runs it. The MCP server
  * uses `connectBroker` instead and never reads the cache. `sessionDir`, `apiOrigin` and
@@ -227,17 +227,17 @@ export function createAuth(
   let verifiedToken: string | undefined;
   let verifying: { token: string; result: Promise<ApiResult | null> } | undefined;
   // Tokens the API answered 401 for: never sent again. A set, so an older request's late 401
-  // can't erase a newer token's rejection (review, verification round). A renewal brings a new
+  // can't erase a newer token's rejection. A renewal brings a new
   // token, which isn't in it.
   const rejectedTokens = new Set<string>();
   const isRejection = (r: ApiResult | null) => r !== null && "authRequired" in r && r.authRequired === "rejected";
 
-  // Task 10 v2: with a recipient key, a "don't keep" login seals its token to this broker. One
-  // credential state and one pin for both sources (MoM rule 3): until a sealed token is adopted,
-  // every call checks our sealed file first and falls back to plaintext only if it's absent (rule 2).
+  // Choice mode: with a recipient key, a "don't keep" login seals its token to this broker. One
+  // credential state and one pin for both sources: until a sealed token is adopted,
+  // every call checks our sealed file first and falls back to plaintext only if it's absent.
   // Once adopted, the run is ephemeral for good: no more disk reads; expiry or a 401 → restart.
   const recipient = opts.recipient;
-  // FASTEDGE_SESSION=ephemeral (task 10 v1): the sealed path only. An absent sealed file is
+  // FASTEDGE_SESSION=ephemeral: the sealed path only. An absent sealed file is
   // no_session, and the plaintext cache is never read, not even for status.
   const forced = opts.forced === true && recipient !== undefined;
   let sealed: Session | undefined;
@@ -421,7 +421,7 @@ export function createAuth(
         // For when the browser can't reach this machine (Codespaces, SSH). The user runs it, never the agent.
         code_command: codeCommand(apiOrigin),
         manual_login: manualFallback(apiOrigin),
-        // Only a different account needs a restart (S5 pins one per process); agents over-apply it otherwise.
+        // Only a different account needs a restart (one account is pinned per process); agents over-apply it otherwise.
         renew_session: command
           ? "If the session expired or was rejected, run login_command and approve for the same account. No restart is needed: retry the request."
           : "Session login is not available for this API origin; set GCORE_API_KEY instead.",
@@ -436,8 +436,8 @@ export function createAuth(
 }
 
 /**
- * Ephemeral session mode (fastedge-coordinator tasks/10-ephemeral-session.md, v1): the same sealed
- * path as choice mode (one implementation, review B2), with the plaintext cache switched off. The
+ * Ephemeral session mode (FASTEDGE_SESSION=ephemeral): the same sealed
+ * path as choice mode (one implementation), with the plaintext cache switched off. The
  * broker adopts one sealed token per lifetime, after the account check; expiry or a 401 means
  * restart. `sessionDir`, `apiOrigin` and `now` are test hooks.
  */
@@ -448,7 +448,7 @@ export const createEphemeralAuth = (opts: {
   now?: () => number;
 }): LocalAuth => createAuth({ ...opts, forced: true });
 
-/** PROTOCOL.md §4. Metadata only: never the token or the file contents (S3). */
+/** Metadata only: never the token or the file contents. */
 export function authRequiredResult(
   reason: AuthRequiredReason,
   opts: { apiOrigin?: string; detail?: string; clientId?: number } = {},

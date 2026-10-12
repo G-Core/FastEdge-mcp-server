@@ -1,5 +1,5 @@
-// Run by the root entrypoint in session mode when GCORE_API_BASE is unset (task 11, PROTOCOL.md
-// §2a): prints the saved default origin, or nothing when there isn't one. A saved file that's
+// Run by the root entrypoint in session mode when GCORE_API_BASE is unset:
+// prints the saved default origin, or nothing when there isn't one. A saved file that's
 // unreadable, malformed, or names an origin without session login exits 2, so startup stops
 // instead of falling back to the baked default. Started like the broker: env -i, uid 10002.
 import { ALLOWED_API_ORIGINS } from "./api-client.js";

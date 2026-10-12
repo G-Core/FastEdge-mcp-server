@@ -1,5 +1,5 @@
 /**
- * Session-approval gate tests (fastedge-coordinator context/session-approval/SECURITY.md, phase 1).
+ * Session login gate tests (context/architecture/SESSION-AUTH.md).
  * Run via: tsx --test scripts/tests/test-session-auth.ts
  */
 import { test } from "node:test";
@@ -52,7 +52,7 @@ const writeSession = (dir: string, data: unknown, clientId = (data as { client_i
 };
 const authFor = (dir: string) => createAuth({ sessionDir: dir, apiOrigin: API });
 /**
- * One real API call through `auth` (review B1: there is no (await resolve()) any more), with fetch stubbed:
+ * One real API call through `auth`, with fetch stubbed:
  * the account check answers the active account in `dir`. Returns the Authorization header that
  * went out, or the auth_required reason.
  */
@@ -89,7 +89,7 @@ const sessionHeader = (token = TOKEN) => ({ header: `APIKey ${token}` });
 
 // --- Resolver -----------------------------------------------------------------
 
-test("S1: an explicit key wins, even a wrong one, with a valid session present", async () => {
+test("an explicit key wins, even a wrong one, with a valid session present", async () => {
   const dir = writeSession(tmp(), session());
   assert.deepEqual(await resolveOnce(createKeyAuth("wrong-key"), dir), { header: "APIKey wrong-key" });
 });
@@ -181,7 +181,7 @@ for (const [label, setup, reason] of rejected) {
   });
 }
 
-test("S5: renewal within the account carries on; a different client_id gives account_changed", async () => {
+test("renewal within the account carries on; a different client_id gives account_changed", async () => {
   const dir = tmp();
   writeSession(dir, session());
   const resolve = resolverFor(dir);
@@ -192,14 +192,14 @@ test("S5: renewal within the account carries on; a different client_id gives acc
   assert.deepEqual((await resolve()), { authRequired: "account_changed" });
 });
 
-test("S15: a stray temp file from a crashed write leaves the old session in use", async () => {
+test("a stray temp file from a crashed write leaves the old session in use", async () => {
   const dir = tmp();
   writeSession(dir, session());
   writeFileSync(join(dir, "accounts", ".tmp-deadbeef"), '{"version":1,"token":"half');
   assert.deepEqual((await resolverFor(dir)()), sessionHeader());
 });
 
-test("S3: auth_required results never contain the token", () => {
+test("auth_required results never contain the token", () => {
   for (const reason of ["no_session", "expired", "account_changed", "origin_mismatch", "rejected"] as const) {
     const result = authRequiredResult(reason, { apiOrigin: API });
     assert.equal(result.isError, true);
@@ -316,7 +316,7 @@ test("gcore_api: a session token rejected with 401 becomes auth_required (reject
   }
 });
 
-test("gcore_api: an explicit key keeps the raw 401 (S1)", async () => {
+test("gcore_api: an explicit key keeps the raw 401", async () => {
   const restore = stubFetch([401]);
   try {
     const call = await toolsWith(createKeyAuth("a-key"));
@@ -574,7 +574,7 @@ test("login times out", async () => {
   assert.equal(await l.result, "timeout");
 });
 
-test("S12: a port already in use fails with exit code 4", async () => {
+test("a port already in use fails with exit code 4", async () => {
   const blocker = net.createServer();
   await new Promise<void>((r) => blocker.listen(0, "127.0.0.1", r));
   const port = (blocker.address() as net.AddressInfo).port;
@@ -595,7 +595,7 @@ test("origins with no portal mapping refuse session login with exit code 2", asy
   );
 });
 
-// --- Installation id (task 05) ----------------------------------------------------
+// --- Installation id ----------------------------------------------------
 
 const ID = /^[0-9a-f]{32}$/;
 
@@ -647,14 +647,14 @@ test("login refuses with exit 2 when the volume isn't writable (it could never s
   }
 });
 
-// --- Per-account cache (task 07) ---------------------------------------------------
+// --- Per-account cache ---------------------------------------------------
 
 const PROD = "https://api.gcore.com";
 const usable = (overrides: Record<string, unknown> = {}) => session(overrides);
 const expiredSession = (overrides: Record<string, unknown> = {}) =>
   session({ expires_at: new Date(Date.now() - HOUR).toISOString(), ...overrides });
 
-test("a present but unreadable active pointer never falls back to legacy session.json (review A4)", async () => {
+test("a present but unreadable active pointer never falls back to legacy session.json", async () => {
   for (const pointer of ["{not json", JSON.stringify({ version: 2 }), "x".repeat(5000)]) {
     const dir = tmp();
     writeFileSync(join(dir, "session.json"), JSON.stringify(session()));
@@ -667,7 +667,7 @@ test("a present but unreadable active pointer never falls back to legacy session
   assert.deepEqual((await resolverFor(linked)()), { authRequired: "no_session" }, "a symlinked pointer");
 });
 
-test("ids must fit a JavaScript number exactly; sessions need their full stored shape (review A8)", async () => {
+test("ids must fit a JavaScript number exactly; sessions need their full stored shape", async () => {
   const { parseId } = await import("../../src/auth/store.js");
   assert.equal(parseId("9007199254740991"), 9007199254740991);
   for (const bad of ["9007199254740993", "123456789012345678", "0", "012", "1e3", "", undefined]) assert.equal(parseId(bad), null, String(bad));
@@ -707,7 +707,7 @@ test("--use switches to a cached account without a new token, and refuses unusab
   assert.throws(() => useCachedAccount({ apiOrigin: API, clientId: 333, sessionDir: dir }), isExit7);
 });
 
-test("a running server stays pinned when the active account switches (S5)", async () => {
+test("a running server stays pinned when the active account switches", async () => {
   const dir = tmp();
   writeSession(dir, usable({ client_id: 111 }));
   writeSession(dir, usable({ client_id: 222 }));
@@ -846,7 +846,7 @@ test("cached accounts in status never include tokens", () => {
   assert.ok(!JSON.stringify(status).includes(TOKEN));
 });
 
-// --- Lifetime cap (task 06) ---------------------------------------------------------
+// --- Lifetime cap ---------------------------------------------------------
 
 test("callback accepts a 7-day expiry and rejects anything past 7 days + 5 minutes", async () => {
   const sevenDays = 7 * 24 * HOUR;
@@ -869,7 +869,7 @@ test("auth_required no longer promises a fixed 8-hour session", () => {
   assert.doesNotMatch(text, /8-hour/);
 });
 
-// --- Manual connect code (task 08) --------------------------------------------------
+// --- Manual connect code --------------------------------------------------
 
 const encode = (payload: Record<string, unknown>) =>
   `fe1.${Buffer.from(JSON.stringify(payload)).toString("base64url")}`;
@@ -935,7 +935,7 @@ test("auth_required and status offer the manual fallback, and warn against pasti
   assert.match(String(status.code_command), / -it .* login --code$/);
 });
 
-// --- Broker-only storage modes (task 09 phase 2) ------------------------------------
+// --- Broker-only storage modes ------------------------------------
 
 test("every cache writer is owner-only: 0700 directories, 0600 files (lock and installation id too)", async () => {
   const sessionDir = tmp();
@@ -993,7 +993,7 @@ test("auth_required offers four choices: browser here, remote with a code, not n
   assert.match(text, /the URL is in the terminal/);
 });
 
-// --- Saved default origin (task 11) -------------------------------------------------
+// --- Saved default origin -------------------------------------------------
 
 const defaultFile = (dir: string) => join(dir, "default-origin.json");
 const savedDefault = (dir: string) => JSON.parse(readFileSync(defaultFile(dir), "utf8"));

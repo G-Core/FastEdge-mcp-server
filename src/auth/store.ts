@@ -1,4 +1,4 @@
-// The `fastedge-session` volume layout (fastedge-coordinator PROTOCOL.md §2). Readers (the MCP
+// The `fastedge-session` volume layout. Readers (the MCP
 // server, read-only mount) and the writer (the login container) share these helpers.
 import fs from "node:fs";
 import { join } from "node:path";
@@ -77,7 +77,7 @@ function absent(path: string): boolean {
 }
 
 /**
- * A positive decimal id that fits a JavaScript number exactly (review A8: 18 digits passed the
+ * A positive decimal id that fits a JavaScript number exactly (18 digits passed the
  * old patterns but could lose precision). Null otherwise.
  */
 export function parseId(text: string | undefined): number | null {
@@ -96,7 +96,7 @@ function parseSession(raw: unknown): Session | null {
   if (!isId(s.client_id) || !isId(s.token_id)) return null;
   if (typeof s.api_origin !== "string" || typeof s.expires_at !== "string") return null;
   if (Number.isNaN(Date.parse(s.expires_at))) return null;
-  // The rest of the stored shape (review A8): written by saveSession, checked on read.
+  // The rest of the stored shape: written by saveSession, checked on read.
   if (typeof s.generation !== "string" || typeof s.created_at !== "string") return null;
   return s as unknown as Session;
 }
@@ -148,7 +148,7 @@ export function listAccounts(dir: string, origin: string): Session[] {
 // --- Writing (login container only) ----------------------------------------------
 
 // The cache is broker-only: build code running as the MCP server's uid must not be able to read
-// it (PROTOCOL.md §2, SECURITY.md R1/S15). Directories 0700, files 0600, everywhere.
+// it. Directories 0700, files 0600, everywhere.
 const DIR_MODE = 0o700;
 const FILE_MODE = 0o600;
 
@@ -178,7 +178,7 @@ function writeTemp(dir: string, content: string): string {
   }
 }
 
-/** Temp file + fsync + rename, so a reader never sees a half-written file (S15). */
+/** Temp file + fsync + rename, so a reader never sees a half-written file. */
 function writeAtomic(path: string, data: object): void {
   const dir = join(path, "..");
   const tmp = writeTemp(dir, JSON.stringify(data));
@@ -197,7 +197,7 @@ function writePointer(dir: string, origin: string, clientId: number): void {
   writeAtomic(activePath(dir, origin), pointer);
 }
 
-/** Account file first, then the active pointer (PROTOCOL.md §2). */
+/** Account file first, then the active pointer. */
 export function saveSession(dir: string, session: Omit<Session, "version" | "generation" | "created_at">): void {
   writeAtomic(accountPath(dir, session.api_origin, session.client_id), {
     version: 1,
@@ -218,7 +218,7 @@ export function useAccount(dir: string, origin: string, clientId: number, now: n
   return session;
 }
 
-/** Removes the active account and its pointer, only if the pointer didn't change meanwhile (S15). */
+/** Removes the active account and its pointer, only if the pointer didn't change meanwhile. */
 export function logout(dir: string, origin: string): Session | null {
   const path = activePath(dir, origin);
   const pointer = parsePointer(readJson(path));
@@ -283,7 +283,7 @@ export function logoutAll(dir: string): { sessions: Session[]; sealed: number } 
   return { sessions, sealed };
 }
 
-// --- Saved default origin (task 11) ---------------------------------------------------
+// --- Saved default origin ---------------------------------------------------
 
 /** `login --set-default-origin`: the environment a server started without GCORE_API_BASE uses. */
 export function saveDefaultOrigin(dir: string, origin: string): void {
@@ -293,7 +293,7 @@ export function saveDefaultOrigin(dir: string, origin: string): void {
 /**
  * The saved default origin: null when there's no file, "invalid" when there is one that isn't a
  * `version: 1` file naming an origin `accept` allows. A present but bad file never reads as absent,
- * so a damaged preprod default can't quietly turn into prod (PROTOCOL.md §2a).
+ * so a damaged preprod default can't quietly turn into prod.
  */
 export function readDefaultOrigin(dir: string, accept: (origin: string) => boolean): string | null | "invalid" {
   const path = defaultOriginPath(dir);
@@ -346,7 +346,7 @@ export function removeExpired(dir: string, now: number): void {
   }
 }
 
-// --- Sealed sessions (task 10, ephemeral mode) ---------------------------------------
+// --- Sealed sessions ---------------------------------------
 
 /** `sealed/<sha256(raw recipient key)>.json`: one file per broker key, named only from the key. */
 const sealedPath = (dir: string, recipient: string) =>
@@ -362,7 +362,7 @@ export function writeSealed(dir: string, recipient: string, envelope: object): v
 export const readSealed = (dir: string, recipient: string): unknown => readJson(sealedPath(dir, recipient));
 
 /**
- * Whether anything exists at our sealed path (task 10 v2, MoM rule 2): only a truly absent file
+ * Whether anything exists at our sealed path: only a truly absent file
  * lets normal mode fall back to plaintext. A present but unreadable one (bad JSON, a link, too big)
  * must block that fallback, so it counts as present.
  */
@@ -409,7 +409,7 @@ export function acquireLock(dir: string): (() => void) & { held: () => boolean }
         // ponytail: check-then-unlink across processes, and the lease itself, are best-effort
         // coordination (no flock in Node). No security property depends on exclusivity: writes are
         // atomic and each login writes only its own decision. An overlap can at worst lose a cache
-        // update (one more approval). Accepted residual, task 10 v2 MoM review.
+        // update (one more approval). Accepted residual.
         if (ours()) fs.rmSync(path, { force: true });
       };
       process.on("exit", release);
@@ -428,7 +428,7 @@ export function acquireLock(dir: string): (() => void) & { held: () => boolean }
       // Take over: move the stale lock aside, then check that what we moved is the stale one we
       // saw; if another contender replaced it meanwhile, put it back and give up. This narrows
       // the race but doesn't close it: the age and owner are read separately, so two logins can
-      // still both end up holding the lock (review A7). Best-effort, see release() below.
+      // still both end up holding the lock. Best-effort, see release() below.
       let staleOwner: string;
       try {
         staleOwner = fs.readFileSync(path, "utf8");
@@ -465,7 +465,7 @@ export function acquireLock(dir: string): (() => void) & { held: () => boolean }
   );
 }
 
-// --- Installation id (task 05) ------------------------------------------------------
+// --- Installation id ------------------------------------------------------
 
 function readInstallationId(file: string): string | null {
   try {
@@ -483,7 +483,7 @@ function readInstallationId(file: string): string | null {
 }
 
 /**
- * This volume's installation id (PROTOCOL.md §2), created on first use. `link()` makes the first
+ * This volume's installation id, created on first use. `link()` makes the first
  * writer win if two logins race; an unreadable or malformed file is replaced.
  */
 export function ensureInstallationId(dir: string): string {

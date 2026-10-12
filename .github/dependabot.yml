@@ -1,4 +1,4 @@
-# Keeps the commit-SHA pins of GitHub Actions current (review C4). The base image is pinned by
+# Keeps the commit-SHA pins of GitHub Actions current. The base image is pinned by
 # digest in the Dockerfile's BASE_IMAGE argument; update it when a new base image is published.
 version: 2
 updates:

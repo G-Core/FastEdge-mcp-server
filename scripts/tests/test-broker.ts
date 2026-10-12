@@ -1,4 +1,4 @@
-// Token broker (fastedge-coordinator PROTOCOL.md §2a): frames, request policy, and the
+// Token broker: frames, request policy, and the
 // broker/client pair over a real Unix socket. The container isolation itself is tested by
 // scripts/tests/test-broker-isolation.sh.
 import { test } from "node:test";
@@ -46,7 +46,7 @@ test("an oversized frame or bad JSON throws (the connection is dropped)", () => 
   assert.throws(() => new FrameReader(8, () => 0, () => {}).push(bad));
 });
 
-// --- Request policy (MUST 6) ------------------------------------------------------------
+// --- Request policy ------------------------------------------------------------
 
 const req = (path: string, extra: Record<string, unknown> = {}) => ({ op: "request", id: 1, method: "GET", path, ...extra });
 
@@ -240,7 +240,7 @@ test("a policy denial is a broker error, and nothing is sent", async () => {
 });
 
 test("a 401 on the session token becomes rejected; a 403 passes through", async () => {
-  // 403 first: once a token gets a 401 it isn't sent again (review A5).
+  // 403 first: once a token gets a 401 it isn't sent again.
   let status = 403;
   await withBroker(
     () => json({ message: "Invalid API token" }, status),
@@ -469,7 +469,7 @@ test("auth_required carries the failed session's account across the broker (reje
   );
 });
 
-test("a failed upstream request reaches the server as a short category, never the exception text (review B7)", async () => {
+test("a failed upstream request reaches the server as a short category, never the exception text", async () => {
   await withBroker(
     () => new Response("{not json", { status: 200, headers: { "content-type": "application/json" } }),
     async (client) => {

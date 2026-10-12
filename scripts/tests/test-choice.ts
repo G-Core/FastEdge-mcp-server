@@ -1,5 +1,4 @@
-// Task 10 v2: "Keep me signed in" chosen on the Approve page (fastedge-coordinator
-// tasks/10-ephemeral-session.md, "v2 design" + the MoM rules). Persistence matrix, no fallback
+// "Keep me signed in" chosen on the Approve page (choice mode). Persistence matrix, no fallback
 // from a present sealed file, sealed/plaintext transitions and races, and the commands.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -21,7 +20,7 @@ const HOUR = 3_600_000;
 const tmp = () => mkdtempSync(join(tmpdir(), "choice-"));
 const get = { method: "GET", path: "/fastedge/v1/apps" };
 
-// --- The persistence decision (MoM rule 5) ---------------------------------------------------
+// --- The persistence decision ---------------------------------------------------
 
 test("persist matrix: forced never keeps; choice needs exactly one 0|1; no key can't honour 0", () => {
   const forced = { sealTo: "k", forced: true };
@@ -65,7 +64,7 @@ async function choiceLogin(dir: string) {
 
 test("choice login: seal=1 plus the installation id; a bad persist is refused; persist=0 seals and leaves plaintext alone", async () => {
   const dir = tmp();
-  legacyPoc(dir); // must not be migrated by a "don't keep" login (MoM rule 6)
+  legacyPoc(dir); // must not be migrated by a "don't keep" login
   const { l, state } = await choiceLogin(dir);
   const url = new URL(l.url);
   assert.equal(url.searchParams.get("seal"), "1");
@@ -106,7 +105,7 @@ test("a login without a key refuses persist=0 (it can't seal), and keeps by defa
   assert.ok(existsSync(join(dir, "accounts", "api.preprod.world_123.json")));
 });
 
-// --- Connect codes: fe1 keeps, fe2 doesn't (MoM rule 1) ------------------------------------------
+// --- Connect codes: fe1 keeps, fe2 doesn't ------------------------------------------
 
 const code = (v: 1 | 2, lifetime = 4 * HOUR, extra: Record<string, unknown> = {}) =>
   `fe${v}.` + Buffer.from(JSON.stringify({ v, token: SEALED, token_id: 4242, client_id: 123, api_origin: API, expires_at: new Date(Date.now() + lifetime).toISOString(), ...extra })).toString("base64url");
@@ -190,7 +189,7 @@ test("a sealed file wins over plaintext, and the run stays sealed", async () => 
   } finally { s.restore(); }
 });
 
-test("a present but unusable sealed file blocks plaintext (no fallback, MoM rule 2)", async () => {
+test("a present but unusable sealed file blocks plaintext (no fallback)", async () => {
   const cases: Array<[string, (x: ReturnType<typeof setup>) => void, string]> = [
     ["corrupt", (x) => { mkdirSync(join(x.dir, "sealed"), { recursive: true }); for (const f of [x.recipient.publicKey]) writeSealed(x.dir, f, { garbage: true }); }, "no_session"],
     ["over 8 h", (x) => x.putSealed({ expires_at: new Date(Date.now() + 9 * HOUR).toISOString() }), "no_session"],
@@ -385,7 +384,7 @@ test("lock: held() follows ownership; a fresh foreign lock blocks; release leave
   assert.equal(readFileSync(join(dir, ".lock"), "utf8"), "someone-else");
 });
 
-// --- Outcome redirect (PROTOCOL §6): a handled callback goes back to the portal's outcome page ------
+// --- Outcome redirect: a handled callback goes back to the portal's outcome page ------
 
 /** POST with full control of headers; resolves to the status and Location. */
 function postRaw(port: number, body: string, headers: Record<string, string> = {}): Promise<{ status: number; location?: string }> {
@@ -569,12 +568,12 @@ test("callback: an oversized body is refused early (declared or streamed), and l
   await l.result;
 });
 
-test("the seal key is set once per process; a different second value is refused (review B3)", () => {
+test("the seal key is set once per process; a different second value is refused", () => {
   // setSealTo(publicKey, false) already ran in this file (choice-mode commands test).
   assert.throws(() => setSealTo(generateRecipient().publicKey, false), /already set/);
 });
 
-test("a late 401 for an older token can't erase a newer token's rejection (review, verification round)", async () => {
+test("a late 401 for an older token can't erase a newer token's rejection", async () => {
   const { dir, auth } = setup();
   plaintext(dir);
   let releaseOld!: () => void;

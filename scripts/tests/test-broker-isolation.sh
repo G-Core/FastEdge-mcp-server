@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Release gate for the token broker (fastedge-coordinator task 09, SECURITY.md "Release gate").
+# Release gate for the token broker (see DEVELOPMENT.md).
 # Runs the real image in session mode with a canary token in the cache, then attacks it the way
 # build code would: as the MCP server's uid, with the server's privileges. Every row must pass.
 #
@@ -178,7 +178,7 @@ grep -q '(rejected)' <<<"$(line 3)" && pass "gcore_api reaches the API through t
 grep -q 'policy_denied' <<<"$(line 4)" && pass "a path outside the policy is denied" || fail "policy: $(line 4 | head -c 200)"
 check "no tool output contains the canary" "$(grep -c "$CANARY" <<<"$OUT")" "0"
 
-# --- 5. Ephemeral mode (task 10): sealed to the broker's in-memory key ------------------------
+# --- 5. Ephemeral mode: sealed to the broker's in-memory key ------------------------
 echo "Ephemeral mode"
 expect_refusal "ephemeral together with an API key is refused" "can't be combined" -e FASTEDGE_SESSION=ephemeral -e GCORE_API_KEY=not-a-real-key
 expect_refusal "an unknown FASTEDGE_SESSION is refused" "must be unset" -e FASTEDGE_SESSION=sometimes
@@ -243,7 +243,7 @@ AFTER="$(printf '%s\n' \
 grep -q '(no_session)' <<<"$(grep '"id":2}' <<<"$AFTER")" && pass "after a restart the old sealed token can't be opened (new key)" ||
   fail "restart: $(grep '"id":2}' <<<"$AFTER" | head -c 200)"
 
-# --- 6. Choice mode (task 10 v2): no config, the page decides per login ----------------------
+# --- 6. Choice mode: no config, the page decides per login ----------------------
 echo "Choice mode"
 mkfifo "$EPH_DIR/cin"
 docker run --rm -i --name "$CHOICE_NAME" -v "$WS:/workspace" -v "$VOL_CHOICE:/run/fastedge:ro" -e GCORE_API_BASE=$API \
@@ -278,7 +278,7 @@ check "no plaintext \"don't keep\" token in the volume" \
   "$(docker run --rm -v "$VOL_CHOICE:/v:ro" --entrypoint sh "$IMAGE" -c "grep -rlF '$CANARY_EPH-choice' /v" 2>/dev/null)" ""
 exec 5>&-
 
-# --- 7. Saved default origin (task 11) ------------------------------------------------------
+# --- 7. Saved default origin ------------------------------------------------------
 echo "Saved default origin"
 # The status tool only, launched without GCORE_API_BASE unless the caller passes one.
 status_rpc() { # volume [docker args...]

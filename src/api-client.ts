@@ -55,7 +55,7 @@ if (!resolvedOrigin) {
 export const GCORE_API_ORIGIN: string = resolvedOrigin;
 
 /**
- * Where GCORE_API_ORIGIN came from (task 11), for the status tool. The session-mode entrypoint
+ * Where GCORE_API_ORIGIN came from, for the status tool. The session-mode entrypoint
  * sets FASTEDGE_ORIGIN_SOURCE after resolving a saved default; otherwise it follows the env.
  */
 export type ApiOriginSource = "env" | "saved_default" | "baked_default";
@@ -133,8 +133,8 @@ export function serializeBody(
 }
 
 /**
- * Extra limits the token broker applies to session-token requests (fastedge-coordinator
- * PROTOCOL.md §2a). Explicit-key calls don't use them.
+ * Extra limits the token broker applies to session-token requests.
+ * Explicit-key calls don't use them.
  */
 export interface TransportLimits {
   /** Return 3xx as an error instead of following it (a same-origin redirect would keep the token). */

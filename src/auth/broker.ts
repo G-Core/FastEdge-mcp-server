@@ -1,4 +1,4 @@
-// Token broker socket contract (fastedge-coordinator PROTOCOL.md §2a). Both sides live here:
+// Token broker socket contract. Both sides live here:
 // `serveBroker` runs in the broker process (uid 10002, the only reader of the session cache);
 // `connectBroker` runs in the MCP server, which never sees a session token.
 import fs from "node:fs";
@@ -82,7 +82,7 @@ export class FrameReader {
   }
 }
 
-// --- Process identity (MUST 1) ------------------------------------------------------
+// --- Process identity ------------------------------------------------------
 
 /** IDs and whether every privilege is gone: no capabilities, no groups, no_new_privs. */
 export function readIdentity(statusText?: string): { uids: number[]; gids: number[]; dropped: boolean } {
@@ -125,7 +125,7 @@ function bodyLengthOf(message: unknown): number {
   return n;
 }
 
-/** MUST 6. Returns a fixed error message, or null when the request may be sent. */
+/** The request policy. Returns a fixed error message, or null when the request may be sent. */
 export function checkRequest(m: Record<string, unknown>, apiOrigin = GCORE_API_ORIGIN): string | null {
   if (Object.keys(m).some((k) => !REQUEST_KEYS.has(k))) return "unexpected field";
   if (typeof m.method !== "string" || !METHODS.has(m.method)) return "method not allowed";
@@ -164,7 +164,7 @@ export function serveBroker(socket: net.Socket, auth: LocalAuth, apiOrigin = GCO
     if (!greeted) {
       if (!isPlainObject(m) || m.hello !== HELLO || Object.keys(m).length !== 1) return void socket.destroy();
       greeted = true;
-      // The server needs the public key (and whether ephemeral is forced) to build login commands (task 10).
+      // The server needs the public key (and whether ephemeral is forced) to build login commands.
       const sealTo = getSealTo();
       return send(sealTo ? { ok: true, seal_to: sealTo, forced: isForcedEphemeral() } : { ok: true });
     }
@@ -196,7 +196,7 @@ export function serveBroker(socket: net.Socket, auth: LocalAuth, apiOrigin = GCO
               ? { id, auth_required: r.authRequired, ...(r.clientId !== undefined ? { client_id: r.clientId } : {}) }
               : { id, status: r.status, data: r.data },
           ),
-        // A short category only, never the exception text (review B7).
+        // A short category only, never the exception text.
         (err: unknown) =>
           send({ id, error: err instanceof SyntaxError ? "the API answered malformed JSON" : "the API could not be reached" }),
       )
@@ -214,7 +214,7 @@ export function serveBroker(socket: net.Socket, auth: LocalAuth, apiOrigin = GCO
   socket.on("error", () => socket.destroy());
 }
 
-// --- Broker replies, as the MCP server sees them (review B6: parsed, not trusted as `any`) ---------
+// --- Broker replies, as the MCP server sees them (parsed, not trusted as `any`) ---------
 
 const AUTH_REASONS: ReadonlySet<AuthRequiredReason> = new Set<AuthRequiredReason>([
   "no_session", "expired", "account_changed", "origin_mismatch", "rejected",
@@ -260,7 +260,7 @@ function splitQuery(path: string, query?: Record<string, string>) {
 }
 
 /**
- * Connects to the broker once, at startup, before any tool can run (MUST 5, MUST 9). Any
+ * Connects to the broker once, at startup, before any tool can run. Any
  * problem gives an Auth that answers `broker_unavailable`: it never falls back to reading the
  * cache. Every check is on; there are no options to turn one off.
  */
@@ -322,7 +322,7 @@ async function connectBrokerImpl(
         if (forcedHere && !forcedThere) return void socket.destroy();
         setSealTo(m.seal_to, forcedThere);
       } else if (expectSeal) {
-        // Every session broker sends a key (task 10 v2); without one, login commands would
+        // Every session broker sends a key; without one, login commands would
         // silently lose the "don't keep" choice. Never fall back.
         return void socket.destroy();
       }
