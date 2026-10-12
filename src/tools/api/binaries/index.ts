@@ -30,7 +30,7 @@ export function registerUploadBinaryTool(
         readOnlyHint: false,
         destructiveHint: true,
         idempotentHint: true,
-        openWorldHint: false,
+        openWorldHint: true, // uploads to the Gcore API
       },
     },
     async (params) => {
