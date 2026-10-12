@@ -95,7 +95,7 @@ Instead of a long-lived `GCORE_API_KEY`, you can approve a **time-limited sessio
 The login command looks like this. Run it yourself if you prefer:
 
 ```bash
-docker run --rm -i -p 127.0.0.1:47215:47215 -v fastedge-session:/run/fastedge \
+docker run --rm -i --pull=always -p 127.0.0.1:47215:47215 -v fastedge-session:/run/fastedge \
   -e GCORE_API_BASE=https://api.gcore.com ghcr.io/g-core/fastedge-mcp-server:latest login
 ```
 
@@ -118,7 +118,7 @@ Logout is local: it prints each removed account's **token id** and expiry, and t
 - **Another environment (preprod, Orange) without editing your shell.** Sign in once with that environment's API base and `--set-default-origin`, then restart the agent. Every MCP server started without `GCORE_API_BASE` now uses it:
 
   ```bash
-  docker run --rm -i -p 127.0.0.1:47215:47215 -v fastedge-session:/run/fastedge \
+  docker run --rm -i --pull=always -p 127.0.0.1:47215:47215 -v fastedge-session:/run/fastedge \
     -e GCORE_API_BASE=https://api.preprod.world ghcr.io/g-core/fastedge-mcp-server:latest login --set-default-origin
   ```
 
