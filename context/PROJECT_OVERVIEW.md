@@ -392,7 +392,8 @@ npx asc <input> -o <output> --optimize
 ## Environment Variables
 
 **Server configuration**:
-- `GCORE_API_KEY` - API authentication (optional on `feat/token-gen`: without it, session mode; legacy `FASTEDGE_API_KEY` also accepted)
+- `GCORE_API_KEY` - API authentication (optional: without it, session mode; legacy `FASTEDGE_API_KEY`
+  also accepted)
 - `GCORE_API_BASE` - Runtime override for baked-in Gcore API base URL (optional; useful for in-house devs running prod schemas against preprod endpoints)
 - `BATCH_MAX_CALLS` - Max calls per `batch_execute` (optional, default: 5)
 - `WORKSPACE_ROOT` - Workspace root path (optional, default: `/workspace` in Docker)

@@ -260,7 +260,7 @@ See `SEARCH_GUIDE.md` for more patterns.
 
 **FastEdge API**:
 - All API calls go direct from `src/api-client.ts` — no proxy, no embedded MCP client
-- `GCORE_API_KEY`, or (on `feat/token-gen`) a portal session through the token broker; see `architecture/SESSION-AUTH.md`
+- `GCORE_API_KEY`, or a portal session through the token broker; see `architecture/SESSION-AUTH.md`
 - `GCORE_API_BASE` (optional) runtime overrides the build-time baked API base URL (useful for in-house preprod testing with prod schemas)
 - Per-call timeout: 60s default, per-product override via `src/config/products.ts`
 - `batch_execute` total budget capped at 3 min (sum of per-step product timeouts)
