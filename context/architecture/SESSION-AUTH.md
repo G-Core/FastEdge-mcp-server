@@ -51,7 +51,8 @@ cached account's token (risk R1).
     **never** falls back to reading the cache.
 - **`src/auth/credentials.ts`:**
   - `Auth.call()` is the only way tools reach the API.
-  - `createAuth(key)` is the explicit key, or the session logic (which **only the broker runs**).
+  - `createKeyAuth(key)` is the explicit key (server process, no broker). `createAuth(opts)` is the
+    session logic, which **only the broker runs**.
   - **Session logic:**
     - Reads and validates the cache on every call.
     - **Account check:** `GET /iam/clients/me` once per token; `id` must equal the file's
