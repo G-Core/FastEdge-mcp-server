@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-sdk-js
-      ref: main
+      ref: v2.5.2
       commit: 9c8c7886f0d1ec5ac2296b4080805966a96ca817
-      updated: 2026-09-22
+      updated: 2026-10-02
 -->
 
 # Proxy and Response Transform Patterns (JavaScript/TypeScript)
@@ -69,7 +69,7 @@ addEventListener("fetch", (event) => {
 });
 ```
 
-**Gotcha:** `.json()`, `.text()`, and `.arrayBuffer()` are one-shot body consumers — calling any of them exhausts the body stream. You cannot read the body a second time from the same `Response`. If you need the raw bytes and a parsed value, read with `.arrayBuffer()` once, then parse from that buffer.
+**Gotcha:** `.json()`, `.text()`, and `.arrayBuffer()` are one-shot body consumers — calling any of them exhausts the body stream. You cannot read the body a second time from the same `Response`. If you need both the raw bytes and a parsed value, read with `.arrayBuffer()` once, then parse from that buffer.
 
 ---
 

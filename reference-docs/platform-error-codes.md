@@ -137,4 +137,4 @@ FastEdge returns specific HTTP status codes (530-533) when the Wasm runtime enco
 3. **Check app logs** in the Gcore portal for console output
 4. **Verify configuration** — env vars, secrets, KV store names
 5. **Test the specific request** that triggers the error (method, headers, body)
-6. **Check app stats** via `GET /apps/{id}/stats` for error rate patterns
+6. **Check app stats** via `GET /stats/calls` (query `id`, `from`, `to`, `step`) for error rate patterns
