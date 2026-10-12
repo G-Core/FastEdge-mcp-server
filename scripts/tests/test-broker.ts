@@ -9,9 +9,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { FrameReader, checkRequest, connectBrokerForTest, encodeFrame, readIdentity, serveBroker } from "../../src/auth/broker.js";
+import { GCORE_API_ORIGIN } from "../../src/api-client.js";
 import { createAuth, type Auth } from "../../src/auth/credentials.js";
 
-const API = "https://api.preprod.world";
+// Outgoing URLs are built from the process origin, so the session must be for that origin too.
+const API = GCORE_API_ORIGIN;
+const HOST = new URL(API).host;
 const TOKEN = "4242_CANARY-broker-token-do-not-leak";
 const HOUR = 3_600_000;
 
@@ -115,7 +118,7 @@ function cacheWithSession(token = TOKEN) {
   const dir = tmp();
   mkdirSync(join(dir, "accounts"));
   writeFileSync(
-    join(dir, "accounts", "api.preprod.world_123.json"),
+    join(dir, "accounts", `${HOST}_123.json`),
     JSON.stringify({
       version: 1,
       generation: "g",
@@ -127,7 +130,7 @@ function cacheWithSession(token = TOKEN) {
       created_at: new Date().toISOString(),
     }),
   );
-  writeFileSync(join(dir, "active-api.preprod.world.json"), JSON.stringify({ version: 1, api_origin: API, client_id: 123, generation: "p" }));
+  writeFileSync(join(dir, `active-${HOST}.json`), JSON.stringify({ version: 1, api_origin: API, client_id: 123, generation: "p" }));
   return dir;
 }
 
@@ -446,7 +449,7 @@ test("after pinning, a replacement token claiming the same account but belonging
     assert.equal(((await client.call({ method: "GET", path: "/fastedge/v1/apps" })) as { status: number }).status, 200);
     // Same claimed account (123), different real owner.
     const planted = cacheWithSession("4242_PLANTED-token");
-    const file = "accounts/api.preprod.world_123.json";
+    const file = `accounts/${HOST}_123.json`;
     writeFileSync(join(dir, file), readFileSync(join(planted, file)));
     assert.deepEqual(await client.call({ method: "GET", path: "/fastedge/v1/apps" }), { authRequired: "account_mismatch" });
     assert.equal(stub.seen.length, 1);
