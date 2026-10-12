@@ -3,6 +3,7 @@
 // The envelope itself is tested in test-seal.ts; the container in test-broker-isolation.sh.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import http from "node:http";
 import net from "node:net";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -404,3 +405,20 @@ for (const [label, hello] of badHellos) {
     }
   });
 }
+
+test("configured forced ephemeral holds without a broker handshake: no command can save a keep session", () => {
+  // A fresh process with FASTEDGE_SESSION=ephemeral whose broker never answered (no setSealTo).
+  const probe = `const s = await import(${JSON.stringify(new URL("../../src/auth/session.ts", import.meta.url).pathname)});
+    console.log(JSON.stringify({ forced: s.isForcedEphemeral(), def: s.defaultOriginCommand("${API}"),
+      use: s.useDefaultOriginCommand("${API}", 123), login: s.loginCommand("${API}") }));`;
+  const r = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", probe], {
+    env: { ...process.env, FASTEDGE_SESSION: "ephemeral" },
+    encoding: "utf8",
+  });
+  assert.equal(r.status, 0, r.stderr);
+  const out = JSON.parse(r.stdout.trim().split("\n").pop()!);
+  assert.equal(out.forced, true);
+  assert.equal(out.def, null, "no sign_in_and_make_default");
+  assert.equal(out.use, null, "no switch_to_saved");
+  assert.match(out.login, / -e FASTEDGE_SESSION=ephemeral .* login$/);
+});

@@ -2,6 +2,8 @@
 // sides together (context/architecture/SESSION-AUTH.md).
 import fs from "node:fs";
 
+import { FORCED_EPHEMERAL } from "../config/session-mode.js";
+
 export const LOGIN_PORT = 47215;
 export const SESSION_DIR = "/run/fastedge";
 
@@ -43,10 +45,12 @@ export function setSealTo(publicKey: string, forcedEphemeral = false): void {
   forced = forcedEphemeral;
 }
 export const getSealTo = () => sealTo;
-export const isForcedEphemeral = () => forced;
+// The configured mode counts even before (or without) a broker handshake: a server whose broker is
+// unavailable must still never offer a command that would save a "keep" session.
+export const isForcedEphemeral = () => forced || FORCED_EPHEMERAL;
 
 /** Extra `docker run` flags and login arguments: the key whenever there is one; the env only when forced. */
-const ephemeralEnv = () => (forced ? " -e FASTEDGE_SESSION=ephemeral" : "");
+const ephemeralEnv = () => (isForcedEphemeral() ? " -e FASTEDGE_SESSION=ephemeral" : "");
 const sealArg = () => (sealTo ? ` --seal-to ${sealTo}` : "");
 // `--account <id>`: login (and the page) accept only that account (a renewal, or a switch to a known account).
 const accountArg = (account?: number | string) => (account !== undefined ? ` --account ${account}` : "");
@@ -67,19 +71,19 @@ export function loginCommand(apiOrigin: string, account?: number | string): stri
  * forced ephemeral, which can't save a default.
  */
 export function defaultOriginCommand(apiOrigin: string): string | null {
-  if (!PORTAL_ORIGINS[apiOrigin] || forced) return null;
+  if (!PORTAL_ORIGINS[apiOrigin] || isForcedEphemeral()) return null;
   return `docker run --rm -i -p 127.0.0.1:${LOGIN_PORT}:${LOGIN_PORT} -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login --set-default-origin`;
 }
 
 /** Switch to a saved account in another environment and make that environment the default: no browser. */
 export function useDefaultOriginCommand(apiOrigin: string, clientId: number): string | null {
-  if (!PORTAL_ORIGINS[apiOrigin] || forced || !Number.isSafeInteger(clientId)) return null;
+  if (!PORTAL_ORIGINS[apiOrigin] || isForcedEphemeral() || !Number.isSafeInteger(clientId)) return null;
   return `docker run --rm -i -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login --use ${clientId} --set-default-origin`;
 }
 
 /** `login --use <client_id>`: switch to a cached account, no browser, no port. Not when forced ephemeral. */
 export function useCommand(apiOrigin: string): string | null {
-  if (!PORTAL_ORIGINS[apiOrigin] || forced) return null;
+  if (!PORTAL_ORIGINS[apiOrigin] || isForcedEphemeral()) return null;
   return `docker run --rm -i -v fastedge-session:${SESSION_DIR} -e GCORE_API_BASE=${apiOrigin} ghcr.io/g-core/fastedge-mcp-server:${IMAGE_TAG} login --use <client_id>`;
 }
 
@@ -104,7 +108,7 @@ export function manualFallback(apiOrigin: string, account?: number): string | nu
   const portal = PORTAL_ORIGINS[apiOrigin];
   const command = codeCommand(apiOrigin, account);
   if (!portal || !command) return null;
-  const query = [forced ? "ephemeral=1" : sealTo ? "seal=1" : "", account ? `account=${account}` : ""].filter(Boolean).join("&");
+  const query = [isForcedEphemeral() ? "ephemeral=1" : sealTo ? "seal=1" : "", account ? `account=${account}` : ""].filter(Boolean).join("&");
   return [
     `Ask the user to open ${portal}/fastedge/agent-connect${query ? `?${query}` : ""} themselves, choose the manual option, approve,`,
     `and run this in their own terminal (not through you): ${command}`,
