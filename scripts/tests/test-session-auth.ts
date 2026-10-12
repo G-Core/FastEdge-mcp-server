@@ -453,8 +453,9 @@ test("an environment with a usable saved session offers a no-browser switch, not
   assert.equal(status.other_environments, undefined, "merged into environments");
   // Choice 4: the key goes in by name in the MCP config, its value in the agent's environment.
   assert.match(status.api_key_setup, /"-e", "GCORE_API_KEY" \(no value\)/);
-  assert.match(status.api_key_setup, /\.claude\/settings\.local\.json/);
-  assert.match(status.api_key_setup, /Never put the key in this chat, in an MCP config/);
+  assert.match(status.api_key_setup, /~\/\.claude\/settings\.json/);
+  assert.match(status.api_key_setup, /Never put the key in this chat, in an MCP config, or in any file inside the project/);
+  assert.match(status.api_key_setup, /Not in \.claude\/settings\.local\.json, a project \.env or \.envrc/);
   assert.ok(!result.content[0].text.includes(TOKEN));
 });
 

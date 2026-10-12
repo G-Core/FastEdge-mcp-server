@@ -29,11 +29,12 @@ export function switchEnvironmentHint(keyMode: boolean, source: string, forced: 
  * In a test an agent told the user to write the key into .mcp.json.
  */
 export const API_KEY_SETUP =
-  "Tell the user these steps; they make the edits. Never put the key in this chat, in an MCP config, or in any file git tracks. " +
+  "Tell the user these steps; they make the edits. Never put the key in this chat, in an MCP config, or in any file inside the project: the MCP server mounts the project folder, where the project's own build scripts (npm, cargo) can read every file. " +
   "1. The MCP config's docker args must pass the variable by name only: \"-e\", \"GCORE_API_KEY\" (no value). The FastEdge plugin's config already does; a hand-written config (e.g. a project's .mcp.json) may need that line added. " +
-  "2. Give it a value where the agent starts. Claude Code, one project: \"env\": { \"GCORE_API_KEY\": \"<key>\" } in .claude/settings.local.json (git-ignored; never .claude/settings.json); every project: the same block in ~/.claude/settings.json. " +
-  "Codex: export GCORE_API_KEY in the shell that starts codex (one project: direnv .envrc, git-ignored). Cursor: export it in the shell that starts Cursor (macOS app: launchctl setenv GCORE_API_KEY …), then restart Cursor. " +
-  "VS Code: an input with \"password\": true, referenced as ${input:<id>} in the server's env. Or, in any agent: export it in the shell before starting the agent, with no file at all. " +
+  "2. Give it a value outside the project folder, where the agent starts. Claude Code: \"env\": { \"GCORE_API_KEY\": \"<key>\" } in ~/.claude/settings.json. " +
+  "Codex: export GCORE_API_KEY in the shell that starts codex. Cursor: export it in the shell that starts Cursor (macOS app: launchctl setenv GCORE_API_KEY …), then restart Cursor. " +
+  "VS Code: an input with \"password\": true, referenced as ${input:<id>} in the server's env. In any agent: export it in the shell before starting the agent (that also limits it to one project). " +
+  "Not in .claude/settings.local.json, a project .env or .envrc: those are inside the project. A key is the user's own responsibility; portal sign-in needs none. " +
   "For another environment, also set GCORE_API_BASE the same way, with a key from that environment's portal. " +
   "3. Restart the MCP server. fastedge-auth-status then shows credential explicit_key and the key's account. " +
   "Keys come from the portal's API tokens page (prod https://portal.gcore.com, preprod https://portal.preprod.world).";
