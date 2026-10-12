@@ -45,6 +45,14 @@ const listener = net.createServer((conn) => {
 
 const deadline = setTimeout(() => fail("the MCP server did not connect"), CONNECT_DEADLINE_MS);
 
+// Stateless relay: on a stop signal, remove the socket and exit; there is nothing else to flush.
+for (const signal of ["SIGTERM", "SIGINT"] as const) {
+  process.on(signal, () => {
+    fs.rmSync(BROKER_SOCKET, { force: true });
+    process.exit(0);
+  });
+}
+
 fs.rmSync(BROKER_SOCKET, { force: true });
 listener.listen(BROKER_SOCKET, () => {
   fs.chmodSync(BROKER_SOCKET, 0o666);
