@@ -24,6 +24,9 @@
 set -e
 
 BROKER_ID=10002
+# Every privilege drop uses these flags. $DROP is expanded unquoted on purpose: it is a fixed list
+# with no outside input, and POSIX sh has no arrays (setpriv is reached through env -i, so a
+# shell function can't wrap it).
 DROP="--clear-groups --no-new-privs --inh-caps=-all --ambient-caps=-all --bounding-set=-all"
 
 # `docker run <image> login …` is the session login, not the system /bin/login.

@@ -6,11 +6,11 @@
 # Usage: scripts/tests/test-broker-isolation.sh [image]   (default: fastedge-mcp-server:session-poc)
 # Platform sign-off runbook (macOS, Windows, rootless, arm64): DEVELOPMENT.md.
 # Needs Docker. The gcore_api row calls api.preprod.world with the fake token (expects a 401).
-set -u
+set -Euo pipefail
 IMAGE="${1:-fastedge-mcp-server:session-poc}"
 API=https://api.preprod.world
 CANARY="4242_GATE-CANARY-token-$(date +%s)"
-DROP="--clear-groups --no-new-privs --inh-caps=-all --ambient-caps=-all --bounding-set=-all"
+DROP=(--clear-groups --no-new-privs --inh-caps=-all --ambient-caps=-all --bounding-set=-all)
 VOL_GOOD="fe-gate-good-$$"
 VOL_LEGACY="fe-gate-legacy-$$"
 VOL_LINK="fe-gate-link-$$"
@@ -155,7 +155,7 @@ while read -r verdict label; do
     LEAK | OPEN) fail "build code: $verdict $label" ;;
     *) ;; # e.g. ld.so warnings from the hostile LD_PRELOAD in the container environment
   esac
-done < <(docker exec "$CONTAINER" setpriv --reuid="$SERVER_UID" --regid="$SERVER_GID" $DROP sh /workspace/evil.sh "$BROKER" "$CANARY" 2>&1)
+done < <(docker exec "$CONTAINER" setpriv --reuid="$SERVER_UID" --regid="$SERVER_GID" "${DROP[@]}" sh /workspace/evil.sh "$BROKER" "$CANARY" 2>&1)
 
 check "the canary is not in the container logs" "$(docker logs "$CONTAINER" 2>&1 | grep -c "$CANARY")" "0"
 docker rm -f "$CONTAINER" >/dev/null; CONTAINER=""
@@ -224,7 +224,7 @@ send '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"gcore_api"
 grep -q '(rejected)' <<<"$(reply 3)" && pass "the broker opens the sealed token and uses it (fake token → rejected)" || fail "sealed adoption: $(reply 3 | head -c 200)"
 
 EPH_SERVER_UID="$(docker exec "$EPH_NAME" awk '/^Uid:/{print $2}' /proc/1/status)"
-found="$(docker exec "$EPH_NAME" setpriv --reuid="$EPH_SERVER_UID" --regid="$EPH_SERVER_UID" $DROP \
+found="$(docker exec "$EPH_NAME" setpriv --reuid="$EPH_SERVER_UID" --regid="$EPH_SERVER_UID" "${DROP[@]}" \
   sh -c "timeout 30 grep -rlsF --exclude-dir=proc --exclude-dir=sys --exclude-dir=dev '$CANARY_EPH' / | head -3" 2>/dev/null)"
 check "build code can't: find the ephemeral token anywhere" "$found" ""
 check "no plaintext ephemeral token in the volume, even for root" \
