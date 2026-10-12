@@ -255,7 +255,8 @@ export async function batchExecuteHandler(
       as: call.as,
     };
 
-    if (result.status >= 400) {
+    // Status 0 is a call that never got an HTTP answer (network, broker, refused redirect, too large).
+    if (result.status === 0 || result.status >= 400) {
       return textResult(
         JSON.stringify(
           {
