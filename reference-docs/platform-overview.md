@@ -145,4 +145,5 @@ There is no fixed per-plan limit. The platform rejects uploads beyond ~50MB; tre
 
 - `console.log()` output is captured in app logs
 - View logs in the Gcore portal or via API
-- Stats available via `GET /apps/{id}/stats` (requests, errors, latency percentiles)
+- Stats available via `GET /stats/calls` (calls and errors) and `GET /stats/app_duration` (execution time),
+  with query `id`, `from`, `to`, `step`

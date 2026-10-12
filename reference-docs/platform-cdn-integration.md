@@ -156,12 +156,19 @@ Remember: the rule's hook set is **complete and replacing**. If you want admin t
 
 ## Reading and Updating
 
+Use the FastEdge MCP server's `gcore_api` tool. It works with either credential (an API key or a
+portal sign-in session; see [sign-in.md](./sign-in.md)):
+
+- Read the resource, including `options.fastedge` and rules: `gcore_api` GET `/cdn/resources/<resource-id>`.
+- Patch the resource-level fastedge attachment: `gcore_api` PATCH `/cdn/resources/<resource-id>`
+  with the body below.
+
+The same calls with `curl`, only for users who don't run the MCP server (they need `GCORE_API_KEY`):
+
 ```bash
-# Read resource (includes options.fastedge and rules)
 curl -s -X GET "https://api.gcore.com/cdn/resources/<resource-id>" \
   -H "Authorization: APIKey $GCORE_API_KEY"
 
-# Patch resource-level fastedge attachment
 curl -s -X PATCH "https://api.gcore.com/cdn/resources/<resource-id>" \
   -H "Authorization: APIKey $GCORE_API_KEY" \
   -H "Content-Type: application/json" \
@@ -198,7 +205,7 @@ curl -s -X POST "https://api.gcore.com/cdn/resources/<resource-id>/purge" \
   -d '{"paths": ["/affected/path/*"]}'
 ```
 
-`{"paths": []}` purges **the entire resource** and sends all traffic back to origin — use it only with explicit user confirmation. The FastEdge MCP server's default access policy blocks this endpoint; when it is blocked, give the user the command to run themselves.
+`{"paths": []}` purges **the entire resource** and sends all traffic back to origin — use it only with explicit user confirmation. The FastEdge MCP server's default access policy blocks this endpoint. When it is blocked, ask the user to purge the paths in the Gcore portal (CDN → the resource → Purge), or, if they have an API key, give them the command above to run themselves. A portal sign-in session can't be used outside the MCP server.
 
 ## Operational Notes
 
