@@ -33,8 +33,9 @@ export class LoginError extends Error {
   constructor(
     message: string,
     public readonly exitCode: 2 | 3 | 4 | 7 | 8,
+    options?: { cause?: unknown },
   ) {
-    super(message);
+    super(message, options);
   }
 }
 
@@ -288,8 +289,8 @@ function prepare(sessionDir: string, cleanupNow = true): (() => void) & { held: 
   try {
     release = acquireLock(sessionDir);
   } catch (err) {
-    if (err instanceof LockedError) throw new LoginError(err.message, 3);
-    throw new LoginError(`Cannot write to the session volume (${sessionDir}): ${errorCode(err) ?? "error"}`, 2);
+    if (err instanceof LockedError) throw new LoginError(err.message, 3, { cause: err });
+    throw new LoginError(`Cannot write to the session volume (${sessionDir}): ${errorCode(err) ?? "error"}`, 2, { cause: err });
   }
   if (!cleanupNow) return release;
   try {
