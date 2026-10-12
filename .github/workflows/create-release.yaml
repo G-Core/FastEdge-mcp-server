@@ -112,9 +112,10 @@ jobs:
         env:
           GATE_IMAGE: fastedge-mcp-server:release-gate-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
+          # Remove the gate image whether the gate passes or fails (self-hosted runner disk).
+          trap 'docker image rm "$GATE_IMAGE" >/dev/null 2>&1 || true' EXIT
           docker build -t "$GATE_IMAGE" .
           bash scripts/tests/test-broker-isolation.sh "$GATE_IMAGE"
-          docker image rm "$GATE_IMAGE" >/dev/null 2>&1 || true
 
       - name: Build and push Docker Image
         if: ${{ steps.determine-tag.outputs.has_tag == 'true' }}
