@@ -1,5 +1,10 @@
-// The `fastedge-session` volume layout. Readers (the MCP
-// server, read-only mount) and the writer (the login container) share these helpers.
+// The `fastedge-session` volume layout. The reader (the token broker, read-only mount) and the
+// writer (the login container) share these helpers.
+//
+// Synchronous file APIs on purpose, although the broker is long-running: it serves a single MCP
+// server connection and every file is capped at MAX_FILE_BYTES, so a read is a few small local
+// syscalls next to the API call it guards. They also keep each check-then-use sequence free of
+// awaits, so concurrent requests can't interleave inside one.
 import fs from "node:fs";
 import { join } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
