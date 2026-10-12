@@ -1,0 +1,527 @@
+// The `fastedge-session` volume layout. The reader (the token broker, read-only mount) and the
+// writer (the login container) share these helpers.
+//
+// Synchronous file APIs on purpose, although the broker is long-running: it serves a single MCP
+// server connection and every file is capped at MAX_FILE_BYTES, so a read is a few small local
+// syscalls next to the API call it guards. They also keep each check-then-use sequence free of
+// awaits, so concurrent requests can't interleave inside one.
+import fs from "node:fs";
+import { join } from "node:path";
+import { createHash, randomBytes } from "node:crypto";
+
+const MAX_FILE_BYTES = 4096;
+const LOCK_HEARTBEAT_MS = 5_000;
+const LOCK_STALE_MS = 30_000; // six missed heartbeats
+export const EXPIRY_MARGIN_MS = 60_000;
+// Printable ASCII only, so a tampered file can't smuggle header syntax.
+export const TOKEN_PATTERN = /^[\x21-\x7e]{1,1024}$/;
+const INSTALL_ID_PATTERN = /^[0-9a-f]{32}$/;
+
+export interface Session {
+  version: 1;
+  generation: string;
+  token: string;
+  token_id: number;
+  client_id: number;
+  api_origin: string;
+  expires_at: string;
+  created_at: string;
+}
+
+interface ActivePointer {
+  version: 1;
+  api_origin: string;
+  client_id: number;
+  generation: string;
+}
+
+const hostOf = (origin: string) => new URL(origin).host;
+const accountsDir = (dir: string) => join(dir, "accounts");
+const accountPath = (dir: string, origin: string, clientId: number) =>
+  join(accountsDir(dir), `${hostOf(origin)}_${clientId}.json`);
+const activePath = (dir: string, origin: string) => join(dir, `active-${hostOf(origin)}.json`);
+const legacyPath = (dir: string) => join(dir, "session.json");
+// Task 11. Deliberately not `active-*.json`: cleanup removes any of those that isn't an account pointer.
+const defaultOriginPath = (dir: string) => join(dir, "default-origin.json");
+
+// --- Reading -------------------------------------------------------------------
+
+/** Bounded, symlink-refusing read (O_NOFOLLOW). Anything unusual reads as null. */
+function readJson(path: string): unknown {
+  let fd: number;
+  try {
+    fd = fs.openSync(path, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  } catch {
+    return null;
+  }
+  try {
+    if (!fs.fstatSync(fd).isFile()) return null;
+    const buf = Buffer.alloc(MAX_FILE_BYTES + 1);
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    if (n > MAX_FILE_BYTES) return null;
+    return JSON.parse(buf.subarray(0, n).toString("utf8"));
+  } catch {
+    return null;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/** The `code` of a Node system error (ENOENT, EEXIST, …), or undefined. Never the message. */
+export const errorCode = (err: unknown): string | undefined =>
+  typeof err === "object" && err !== null && typeof (err as { code?: unknown }).code === "string" ? (err as { code: string }).code : undefined;
+
+/** True only if nothing at all is at `path` (ENOENT); any other state counts as present. */
+function absent(path: string): boolean {
+  try {
+    fs.lstatSync(path);
+    return false;
+  } catch (err) {
+    return errorCode(err) === "ENOENT";
+  }
+}
+
+/**
+ * A positive decimal id that fits a JavaScript number exactly (18 digits passed the
+ * old patterns but could lose precision). Null otherwise.
+ */
+export function parseId(text: string | undefined): number | null {
+  if (text === undefined || !/^[1-9]\d{0,15}$/.test(text)) return null;
+  const n = Number(text);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
+const isId = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) > 0;
+
+function parseSession(raw: unknown): Session | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const s = raw as Record<string, unknown>;
+  if (s.version !== 1) return null;
+  if (typeof s.token !== "string" || !TOKEN_PATTERN.test(s.token)) return null;
+  if (!isId(s.client_id) || !isId(s.token_id)) return null;
+  if (typeof s.api_origin !== "string" || typeof s.expires_at !== "string") return null;
+  if (Number.isNaN(Date.parse(s.expires_at))) return null;
+  // The rest of the stored shape: written by saveSession, checked on read.
+  if (typeof s.generation !== "string" || typeof s.created_at !== "string") return null;
+  return s as unknown as Session;
+}
+
+/** A bare origin, as every writer stores it. Anything else would make the file-name helpers throw. */
+function isOrigin(text: string): boolean {
+  try {
+    return new URL(text).origin === text;
+  } catch {
+    return false;
+  }
+}
+
+function parsePointer(raw: unknown): ActivePointer | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const p = raw as Record<string, unknown>;
+  if (p.version !== 1 || typeof p.api_origin !== "string" || !isId(p.client_id)) return null;
+  if (typeof p.generation !== "string" || !isOrigin(p.api_origin)) return null;
+  return p as unknown as ActivePointer;
+}
+
+const readSession = (path: string) => parseSession(readJson(path));
+
+/**
+ * The session this origin should use: the active pointer's account, or legacy `session.json`
+ * when there's no pointer yet. The file name is always built here, never taken from a file.
+ */
+export function readActiveSession(dir: string, origin: string): Session | null {
+  const pointer = parsePointer(readJson(activePath(dir, origin)));
+  if (!pointer) {
+    // Legacy `session.json` only when there's no pointer at all: a present but unreadable one
+    // (malformed, a link, too big) means no session, never a fall back to another credential.
+    return absent(activePath(dir, origin)) ? readSession(legacyPath(dir)) : null;
+  }
+  if (pointer.api_origin !== origin) return null;
+  const session = readSession(accountPath(dir, origin, pointer.client_id));
+  return session && session.client_id === pointer.client_id ? session : null;
+}
+
+export const isUsable = (session: Session, now: number) =>
+  Date.parse(session.expires_at) - now > EXPIRY_MARGIN_MS;
+
+/** Every cached account for this origin. Callers must not expose `token`. */
+export function listAccounts(dir: string, origin: string): Session[] {
+  const prefix = `${hostOf(origin)}_`;
+  let names: string[];
+  try {
+    names = fs.readdirSync(accountsDir(dir));
+  } catch {
+    return [];
+  }
+  return names
+    .filter((name) => name.startsWith(prefix) && name.endsWith(".json"))
+    .map((name) => readSession(join(accountsDir(dir), name)))
+    .filter((s): s is Session => s !== null && s.api_origin === origin);
+}
+
+// --- Writing (login container only) ----------------------------------------------
+
+// The cache is broker-only: build code running as the MCP server's uid must not be able to read
+// it. Directories 0700, files 0600, everywhere.
+const DIR_MODE = 0o700;
+const FILE_MODE = 0o600;
+
+/** Creates `dir` (and parents) owner-only; tightens it if it already exists. */
+function ensurePrivateDir(dir: string): void {
+  fs.mkdirSync(dir, { recursive: true, mode: DIR_MODE });
+  fs.chmodSync(dir, DIR_MODE);
+}
+
+/** A fully written, fsynced `0600` temp file in `dir`, ready to be renamed or linked into place. */
+function writeTemp(dir: string, content: string): string {
+  ensurePrivateDir(dir);
+  const tmp = join(dir, `.tmp-${randomBytes(8).toString("hex")}`);
+  try {
+    const fd = fs.openSync(tmp, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, FILE_MODE);
+    try {
+      fs.writeSync(fd, content);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.chmodSync(tmp, FILE_MODE); // independent of the umask
+    return tmp;
+  } catch (err) {
+    fs.rmSync(tmp, { force: true });
+    throw err;
+  }
+}
+
+/** Temp file + fsync + rename, so a reader never sees a half-written file. */
+function writeAtomic(path: string, data: object): void {
+  const dir = join(path, "..");
+  const tmp = writeTemp(dir, JSON.stringify(data));
+  try {
+    fs.renameSync(tmp, path);
+  } catch (err) {
+    fs.rmSync(tmp, { force: true });
+    throw err;
+  }
+}
+
+const newGeneration = () => randomBytes(16).toString("hex");
+
+function writePointer(dir: string, origin: string, clientId: number): void {
+  const pointer: ActivePointer = { version: 1, api_origin: origin, client_id: clientId, generation: newGeneration() };
+  writeAtomic(activePath(dir, origin), pointer);
+}
+
+/** Account file first, then the active pointer. */
+export function saveSession(dir: string, session: Omit<Session, "version" | "generation" | "created_at">): void {
+  writeAtomic(accountPath(dir, session.api_origin, session.client_id), {
+    version: 1,
+    generation: newGeneration(),
+    ...session,
+    created_at: new Date().toISOString(),
+  });
+  writePointer(dir, session.api_origin, session.client_id);
+}
+
+/** Points the origin at a cached account. Returns it, or null if it isn't usable. */
+export function useAccount(dir: string, origin: string, clientId: number, now: number): Session | null {
+  const session = readSession(accountPath(dir, origin, clientId));
+  if (!session || session.client_id !== clientId || session.api_origin !== origin || !isUsable(session, now)) {
+    return null;
+  }
+  writePointer(dir, origin, clientId);
+  return session;
+}
+
+/** Removes the active account and its pointer, only if the pointer didn't change meanwhile. */
+export function logout(dir: string, origin: string): Session | null {
+  const path = activePath(dir, origin);
+  const pointer = parsePointer(readJson(path));
+  if (!pointer) return null;
+  const session = readSession(accountPath(dir, origin, pointer.client_id));
+  const again = parsePointer(readJson(path));
+  if (!again || again.generation !== pointer.generation) return null;
+  fs.rmSync(accountPath(dir, origin, pointer.client_id), { force: true });
+  fs.rmSync(path, { force: true });
+  return session;
+}
+
+/**
+ * Removes one saved account for this origin, and the origin's active pointer if it pointed at it.
+ * Local only. Returns the removed session (for its token id and expiry), or null if none.
+ */
+export function logoutAccount(dir: string, origin: string, clientId: number): Session | null {
+  const path = accountPath(dir, origin, clientId);
+  const session = readSession(path);
+  const pointer = parsePointer(readJson(activePath(dir, origin)));
+  if (pointer && pointer.client_id === clientId) fs.rmSync(activePath(dir, origin), { force: true });
+  if (!session && !fs.existsSync(path)) return null;
+  fs.rmSync(path, { force: true });
+  return session && session.client_id === clientId ? session : null;
+}
+
+/**
+ * Removes every saved session on this volume, for every API origin (prod and preprod): account
+ * files, active pointers, the saved default origin, the legacy POC file, and sealed files (so a
+ * server that hasn't adopted its "don't keep" token yet can't). File names are listed from fixed
+ * directories, never built from input. Returns the readable sessions removed and how many sealed
+ * files went.
+ */
+export function logoutAll(dir: string): { sessions: Session[]; sealed: number } {
+  const sessions: Session[] = [];
+  const list = (d: string) => {
+    try {
+      return fs.readdirSync(d);
+    } catch {
+      return [];
+    }
+  };
+  for (const name of list(accountsDir(dir))) {
+    if (!name.endsWith(".json")) continue;
+    const session = readSession(join(accountsDir(dir), name));
+    if (session) sessions.push(session);
+    fs.rmSync(join(accountsDir(dir), name), { force: true });
+  }
+  for (const name of list(dir)) {
+    if (/^active-.+\.json$/.test(name)) fs.rmSync(join(dir, name), { force: true });
+  }
+  fs.rmSync(defaultOriginPath(dir), { force: true });
+  const legacy = readSession(legacyPath(dir));
+  if (legacy) sessions.push(legacy);
+  fs.rmSync(legacyPath(dir), { force: true });
+  let sealed = 0;
+  for (const name of list(join(dir, "sealed"))) {
+    if (!name.endsWith(".json")) continue;
+    fs.rmSync(join(dir, "sealed", name), { force: true });
+    sealed++;
+  }
+  return { sessions, sealed };
+}
+
+// --- Saved default origin ---------------------------------------------------
+
+/** `login --set-default-origin`: the environment a server started without GCORE_API_BASE uses. */
+export function saveDefaultOrigin(dir: string, origin: string): void {
+  writeAtomic(defaultOriginPath(dir), { version: 1, api_origin: origin });
+}
+
+/**
+ * The saved default origin: null when there's no file, "invalid" when there is one that isn't a
+ * `version: 1` file naming an origin `accept` allows. A present but bad file never reads as absent,
+ * so a damaged preprod default can't quietly turn into prod.
+ */
+export function readDefaultOrigin(dir: string, accept: (origin: string) => boolean): string | null | "invalid" {
+  const path = defaultOriginPath(dir);
+  if (absent(path)) return null;
+  const raw = readJson(path);
+  if (typeof raw !== "object" || raw === null) return "invalid";
+  const d = raw as Record<string, unknown>;
+  if (d.version !== 1 || typeof d.api_origin !== "string" || !accept(d.api_origin)) return "invalid";
+  return d.api_origin;
+}
+
+/** Moves a POC `session.json` into the per-account layout (once). */
+export function migrateLegacy(dir: string): void {
+  const session = readSession(legacyPath(dir));
+  if (session) {
+    let origin: string;
+    try {
+      origin = new URL(session.api_origin).origin;
+    } catch {
+      origin = "";
+    }
+    if (origin === session.api_origin) {
+      const target = accountPath(dir, origin, session.client_id);
+      if (!readSession(target)) writeAtomic(target, session);
+      if (!parsePointer(readJson(activePath(dir, origin)))) writePointer(dir, origin, session.client_id);
+    }
+  }
+  fs.rmSync(legacyPath(dir), { force: true });
+}
+
+/** Removes expired account files, and pointers left pointing at nothing. */
+export function removeExpired(dir: string, now: number): void {
+  let names: string[] = [];
+  try {
+    names = fs.readdirSync(accountsDir(dir));
+  } catch {
+    // no accounts yet
+  }
+  for (const name of names) {
+    const path = join(accountsDir(dir), name);
+    const session = readSession(path);
+    if (name.endsWith(".json") && (!session || Date.parse(session.expires_at) <= now)) fs.rmSync(path, { force: true });
+  }
+  for (const name of fs.readdirSync(dir)) {
+    if (!/^active-.+\.json$/.test(name)) continue;
+    const pointer = parsePointer(readJson(join(dir, name)));
+    if (!pointer || !readSession(accountPath(dir, pointer.api_origin, pointer.client_id))) {
+      fs.rmSync(join(dir, name), { force: true });
+    }
+  }
+}
+
+// --- Sealed sessions ---------------------------------------
+
+/** `sealed/<sha256(raw recipient key)>.json`: one file per broker key, named only from the key. */
+const sealedPath = (dir: string, recipient: string) =>
+  join(dir, "sealed", `${createHash("sha256").update(Buffer.from(recipient, "base64url")).digest("hex")}.json`);
+
+/** Writes an envelope for `recipient` atomically (`0700` dir, `0600` file). Never plaintext. */
+export function writeSealed(dir: string, recipient: string, envelope: object): void {
+  ensurePrivateDir(dir);
+  writeAtomic(sealedPath(dir, recipient), envelope);
+}
+
+/** The envelope sealed to `recipient`, unparsed beyond JSON (bounded, no links), or null. */
+export const readSealed = (dir: string, recipient: string): unknown => readJson(sealedPath(dir, recipient));
+
+/**
+ * Whether anything exists at our sealed path: only a truly absent file
+ * lets normal mode fall back to plaintext. A present but unreadable one (bad JSON, a link, too big)
+ * must block that fallback, so it counts as present.
+ */
+export const sealedPresent = (dir: string, recipient: string): boolean => !absent(sealedPath(dir, recipient));
+
+/** Removes the envelope sealed to `recipient`, if any. */
+export const removeSealed = (dir: string, recipient: string): void => fs.rmSync(sealedPath(dir, recipient), { force: true });
+
+// --- Lock -----------------------------------------------------------------------
+
+export class LockedError extends Error {}
+
+/**
+ * `O_EXCL` lock holding a random owner id. The holder refreshes its mtime every
+ * `LOCK_HEARTBEAT_MS`; one not refreshed for `LOCK_STALE_MS` belongs to a login that was killed
+ * (an agent cancelling a tool call sends SIGKILL, so no exit handler runs) and is taken over.
+ * Returns a release function, which removes the lock only while it's still ours.
+ */
+export function acquireLock(dir: string): (() => void) & { held: () => boolean } {
+  ensurePrivateDir(dir);
+  const path = join(dir, ".lock");
+  const owner = randomBytes(16).toString("hex");
+  const ours = () => {
+    try {
+      return fs.readFileSync(path, "utf8") === owner;
+    } catch {
+      return false;
+    }
+  };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const fd = fs.openSync(path, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, FILE_MODE);
+      fs.writeSync(fd, owner);
+      fs.closeSync(fd);
+      const heartbeat = setInterval(() => {
+        try {
+          if (ours()) fs.utimesSync(path, new Date(), new Date());
+        } catch {
+          // best effort: a missed beat only shortens the takeover delay
+        }
+      }, LOCK_HEARTBEAT_MS);
+      heartbeat.unref();
+      // Also release on process exit (incl. Ctrl-C/`docker stop`, which login.ts turns into an exit).
+      const release = () => {
+        clearInterval(heartbeat);
+        process.off("exit", release);
+        // ponytail: check-then-unlink across processes, and the lease itself, are best-effort
+        // coordination (no flock in Node). No security property depends on exclusivity: writes are
+        // atomic and each login writes only its own decision. An overlap can at worst lose a cache
+        // update (one more approval). Accepted residual.
+        if (ours()) fs.rmSync(path, { force: true });
+      };
+      process.on("exit", release);
+      // Ownership check (not a guarantee): a login that has visibly lost its lock, e.g. after the
+      // laptop slept past the stale window and another login took over, doesn't write.
+      return Object.assign(release, { held: ours });
+    } catch (err) {
+      if (errorCode(err) !== "EEXIST") throw err;
+      let age = 0;
+      try {
+        age = Date.now() - fs.lstatSync(path).mtimeMs;
+      } catch {
+        continue; // released meanwhile; retry
+      }
+      if (age <= LOCK_STALE_MS) break;
+      // Take over: move the stale lock aside, then check that what we moved is the stale one we
+      // saw; if another contender replaced it meanwhile, put it back and give up. This narrows
+      // the race but doesn't close it: the age and owner are read separately, so two logins can
+      // still both end up holding the lock. Best-effort, see release() below.
+      let staleOwner: string;
+      try {
+        staleOwner = fs.readFileSync(path, "utf8");
+      } catch {
+        continue;
+      }
+      const aside = join(dir, `.lock-stale-${owner}`);
+      try {
+        fs.renameSync(path, aside);
+      } catch {
+        continue; // someone else moved it first; retry
+      }
+      let moved = "";
+      try {
+        moved = fs.readFileSync(aside, "utf8");
+      } catch {
+        // gone: treat as stale
+      }
+      if (moved && moved !== staleOwner) {
+        try {
+          fs.linkSync(aside, path);
+        } catch {
+          // a third login holds it now
+        }
+        fs.rmSync(aside, { force: true });
+        break;
+      }
+      fs.rmSync(aside, { force: true });
+    }
+  }
+  // An agent once told the user to approve an abandoned link just to free the lock: say what to do.
+  throw new LockedError(
+    "Another FastEdge login is in progress, usually a browser login still waiting for approval (up to 5 minutes). If it's one you started and no longer need, stop it (its background task, or docker ps, then docker stop its container), then try again. Don't ask the user to approve an old link just to clear it.",
+  );
+}
+
+// --- Installation id ------------------------------------------------------
+
+function readInstallationId(file: string): string | null {
+  try {
+    const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      const buf = Buffer.alloc(64);
+      const id = buf.subarray(0, fs.readSync(fd, buf, 0, buf.length, 0)).toString("utf8").trim();
+      return INSTALL_ID_PATTERN.test(id) ? id : null;
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * This volume's installation id, created on first use. `link()` makes the first
+ * writer win if two logins race; an unreadable or malformed file is replaced.
+ */
+export function ensureInstallationId(dir: string): string {
+  const file = join(dir, "installation_id");
+  const existing = readInstallationId(file);
+  if (existing) return existing;
+
+  const tmp = writeTemp(dir, randomBytes(16).toString("hex"));
+  try {
+    try {
+      fs.linkSync(tmp, file);
+    } catch (err) {
+      if (errorCode(err) !== "EEXIST") throw err;
+      const raced = readInstallationId(file);
+      if (raced) return raced;
+      fs.renameSync(tmp, file);
+    }
+    const id = readInstallationId(file);
+    if (!id) throw new Error("installation id unreadable");
+    return id;
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
+}

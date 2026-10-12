@@ -71,6 +71,114 @@ The `args` array is the same for every client. What differs is the surrounding s
 
 Claude Code and Codex users should install the [`gcore-fastedge` plugin](https://github.com/G-Core/fastedge-plugin) instead, which configures this server for you.
 
+## Sign In Without an API Key (Portal Session)
+
+Instead of a long-lived `GCORE_API_KEY`, you can approve a **time-limited session** in the Gcore portal. Leave the key out and mount the session volume read-only:
+
+```json
+"args": [
+    "run", "--rm", "-i", "--pull=always",
+    "-v", "${workspaceFolder}:/workspace",
+    "-e", "WORKSPACE_ROOT=/workspace",
+    "-v", "fastedge-session:/run/fastedge:ro",
+    "ghcr.io/g-core/fastedge-mcp-server:latest"
+]
+```
+
+**Signing in:**
+
+1. The first time an API tool runs, it answers "not connected" with a login command.
+2. Your agent asks permission, runs that command and shows you a portal link.
+3. Open the link, sign in to the account you want, choose how long the token lasts (4 hours, 8 hours by default, 2 days, or 7 days at most), and click **Approve**.
+4. The agent retries. No restart is needed.
+
+The login command looks like this. Run it yourself if you prefer:
+
+```bash
+docker run --rm -i --pull=always -p 127.0.0.1:47215:47215 -v fastedge-session:/run/fastedge \
+  -e GCORE_API_BASE=https://api.gcore.com ghcr.io/g-core/fastedge-mcp-server:latest login
+```
+
+**Other commands:**
+
+| Command | What it does |
+|---|---|
+| `… login --use <client_id>` (no `-p` needed) | Switch to another account that's already signed in, without the browser. |
+| `… login --logout` | Forget the active account on this computer. |
+| `… login --logout <client_id>` | Forget that account on this computer. |
+| `… login --logout all` | Forget every saved account on this computer, prod and preprod (and any "don't keep" session not yet in use). |
+| `docker run -it … login --code` | For Codespaces, SSH or anything else where your browser can't reach this machine's `127.0.0.1`. Choose the manual option on the Approve page, then paste the code into this prompt **in your own terminal**. Never paste it into the agent chat: it contains the token. |
+
+Logout is local: it prints each removed account's **token id** and expiry, and the tokens stay valid until they expire. To revoke them now, delete those token ids on the portal's **API tokens** page. A running MCP server stops using a removed session on its next call; one holding a "don't keep" session keeps it until you stop or restart it. Your agent can run these for you: ask it to "log me out of account 123" or "log me out of all my FastEdge accounts".
+
+**Good to know:**
+
+- **Switching accounts.** A running MCP server stays on the account it started with. After switching, restart it (Claude Code: `/mcp`, then reconnect).
+- **Checking your account.** The `fastedge-auth-status` tool shows which account you're on and when the session expires. It never shows the token.
+- **Another environment (preprod, Orange) without editing your shell.** Sign in once with that environment's API base and `--set-default-origin`, then restart the agent. Every MCP server started without `GCORE_API_BASE` now uses it:
+
+  ```bash
+  docker run --rm -i --pull=always -p 127.0.0.1:47215:47215 -v fastedge-session:/run/fastedge \
+    -e GCORE_API_BASE=https://api.preprod.world ghcr.io/g-core/fastedge-mcp-server:latest login --set-default-origin
+  ```
+
+  Only that flag changes the default (it also works with `--use <client_id>` and `--code`); ordinary sign-ins and renewals never do, and `--logout all` clears it. A `GCORE_API_BASE` in the MCP configuration still wins. It needs a session kept on this computer, so it can't be used with `FASTEDGE_SESSION=ephemeral`; set `GCORE_API_BASE` in the configuration instead. `fastedge-auth-status` shows the environment and why (`api_origin_source`). If the saved default is ever damaged, the server refuses to start rather than quietly using prod: sign in again with the flag, or run `… login --logout all`.
+- **An explicit key always wins.** If `GCORE_API_KEY` is set, the session is not used.
+- **Root required.** Session mode needs the container's default root start, so don't add `--user`. It drops to an unprivileged user itself.
+- **Reserved id.** uid/gid `10002` is reserved for the token broker, so don't use it as `HOST_UID`/`HOST_GID`.
+
+### What's protected, and what isn't
+
+The session token sits in the `fastedge-session` Docker volume. Inside the container, only a small **token broker** process can read it: it runs under its own user with every privilege dropped. The MCP server, and everything `build-wasm` runs (Cargo `build.rs` scripts, procedural macros, npm scripts), run as a different user and reach the API only through the broker.
+
+The broker:
+- sends only the API operations this server allows;
+- never returns the token;
+- accepts one connection, from the MCP server at startup, so build code started later has nothing to connect to.
+
+**Protected:**
+- A malicious build dependency can't read the token from the cache, the broker's memory or its environment.
+- It can't connect to the broker either.
+
+**Not protected:**
+- **Anything that can run Docker on your machine, or root.** This includes malware running as your user on Docker Desktop or rootless Docker, and members of the `docker` group on Linux. Such code can mount the volume and read the token, just as it could read an API key from your shell profile or another CLI's config file. Short lifetimes limit the damage; prefer 4 or 8 hours.
+- **Hosts where any process can trace any other** (Linux `kernel.yama.ptrace_scope=0`). There, build code could take over the MCP server's own connection and make the API calls the server is allowed to make, but it still can't read the token. The default on most distributions is `1`.
+- **MCP configurations you didn't write.** A config can add mounts, environment variables or a different image. Only use MCP configurations you control: be wary of a `.vscode/mcp.json` or similar that arrives inside a cloned repository.
+- **Your disk.** Without disk encryption, the volume is readable from a stolen disk or a backup until the token expires.
+
+### Don't keep the session on this computer
+
+The Approve page offers two options: **Keep me signed in on this computer** (the default) and
+**Only for this MCP server session**.
+
+- **Keep me signed in:** the session is saved in the `fastedge-session` volume as described above, for 4
+  hours up to 7 days, and later MCP server starts reuse it.
+- **Only for this MCP server session:** the token is encrypted to a key that only the running MCP server holds, in
+  memory. The volume keeps only ciphertext, and once the server stops nobody can decrypt it, from a
+  backup or a stolen disk either. You choose 4 or 8 hours, and you approve again the next time the
+  server starts, including after `/mcp` reconnects.
+
+Good to know about session-only sign-ins:
+- While the server runs, renewing or switching accounts means **restarting it first**, then
+  approving again. An approval goes to the server that's running when you approve.
+- `login --use` and `login --logout` change only the sessions saved on this computer. A server
+  holding a session-only sign-in ignores them until it's restarted; to end it, stop the server.
+- A session you saved earlier with "Keep me signed in" stays saved until you `login --logout` or it
+  expires. After a restart the server can use it again.
+- What it doesn't protect against: anything that can run Docker or is root can still read the
+  server's memory while it runs. The token also stays valid at Gcore until it expires (delete it
+  on the **API tokens** page to revoke it now).
+
+**Make it the rule:** add `-e FASTEDGE_SESSION=ephemeral` to the MCP configuration (with no API
+key). Every sign-in is then session-only, the page doesn't offer "Keep me signed in", and sessions last
+4 or 8 hours. The page's choice is a convenience for each sign-in; this setting is the guarantee. Combining it
+with an API key stops the container.
+
+```json
+"-v", "fastedge-session:/run/fastedge:ro",
+"-e", "FASTEDGE_SESSION=ephemeral",
+```
+
 ## What This Does
 
 - Pulls `ghcr.io/g-core/fastedge-mcp-server:latest` from GitHub Container Registry
@@ -100,6 +208,6 @@ If builds fail with "Permission denied", or generated files end up with the wron
 
 - Docker installed and running
 - VS Code with MCP extension
-- FastEdge API key
+- A FastEdge API key, or a Gcore portal sign-in (see above)
 
 That's it! No need to clone the repository or manage dependencies locally.

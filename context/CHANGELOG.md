@@ -14,6 +14,362 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-09] - login lock message says how to clear an abandoned login
+
+- **Why:** in a test, an abandoned browser login (still waiting for approval) held the lock, so
+  `login --use … --set-default-origin` failed; the agent first asked the user to approve the old
+  link, then killed it.
+- **Change:** exit 3's message names the likely cause and says to stop one's own waiting login,
+  never to approve an old link just to clear it.
+
+## [2026-10-09] - status tool description: switch only through its commands
+
+- **Why:** in a test the agent never called `fastedge-auth-status` before switching to preprod:
+  it created its own volume (`fastedge-session-preprod`), ran a hand-built login, and edited
+  `.mcp.json` both ways. The rules were only in the status result, which it never fetched.
+- **Change:** the tool description now says: before switching account or environment, call this
+  and use only the commands it returns; never edit MCP configs, create volumes, or build your own
+  login commands. (About 30 tokens; no other standing context.)
+
+## [2026-10-09] - API key setup steps in the status tool
+
+- **Why:** choosing "Use an existing API key", an agent told the user to write the key into the
+  project's `.mcp.json`. The `platform-sign-in` docs it was pointed to aren't in the image's docs
+  index until the next plugin release.
+- **Change:** status (session mode) has `api_key_setup`: the MCP config passes
+  `"-e", "GCORE_API_KEY"` by name only; the value goes in the agent's environment (Claude Code
+  `.claude/settings.local.json` `env`, Codex/Cursor shell or direnv, VS Code password input),
+  never in an MCP config or tracked file. Choice 4 now just points there (shorter).
+
+## [2026-10-09] - switch back to a saved environment without a new approval
+
+- **Why:** in a test the agent switched prod → preprod fine, but going back asked for a new
+  approval although a prod session was saved, and then the agent edited `.mcp.json` itself.
+- **Status:** each other environment offers `switch_to_saved` (`login --use <id>
+  --set-default-origin`, no browser) when it has usable saved sessions, else
+  `sign_in_and_make_default`. The broker reports other environments' saved sessions as metadata.
+- **Rules** in `switch_environment` (only fetched when switching, so no standing context): never
+  edit MCP configs or agent settings, tell the user; restart after a switch, no API calls until.
+
+## [2026-10-09] - status lists environments and how to switch
+
+- **Why:** asked to "restart pointed at preprod", an agent guessed `api.preprod.gcore.com` and
+  added it to the project's `.mcp.json` (the server would refuse to start). Nothing told it the
+  valid origins, or that task 11's saved default makes a config edit unnecessary.
+- **Status:** `environments` (`api_origin`, `portal`, `current`, and `sign_in_and_make_default`
+  on the others: `login --set-default-origin` for that origin) and `switch_environment` (which
+  setting decides; saved default first, `GCORE_API_BASE` per project only if wanted; a key
+  belongs to one environment). Tool description mentions environments.
+
+## [2026-10-09] - an explicit key's account; "use an existing API key" choice
+
+- **Why:** new users only see the portal sign-in and may never learn a key is an option; and a key
+  from a project's or teammate's config was used silently, so work could land in an account the
+  user didn't expect.
+- **Key mode** (`createKeyAuth`, `createAuth` is now session-only): `GET /iam/clients/me` once;
+  status shows `account` (`client_id`, company or person name, never the email) and
+  `switch_account`; the first `gcore_api`/`batch_execute` result after each start ends with one
+  line naming the account (`Auth.takeNotice`).
+- **`auth_required`:** a fourth choice, "Use an existing API key instead", pointing to the
+  per-agent steps in the `platform-sign-in` docs.
+
+## [2026-10-09] - sign-in text: only the user opens portal links
+
+- **Why:** in a Copilot test the agent couldn't read the login's background output, then opened the
+  manual-mode link in VS Code's Simple Browser itself (a blank page; the user had already approved
+  from the URL in the terminal). An agent with browser automation could approve there and read the
+  connect code, which contains the token.
+- **Change:** `auth_required`, status `sign_in` and `manual_login` say never to open a portal link
+  yourself (no built-in or simple browser, no automation), and to tell the user the URL is in the
+  terminal when the output can't be read. Tests.
+
+## [2026-10-08] - plugin review: sealed-mode switching, Approve page wording
+
+- **Status:** a session-only server without a session now lists `login_for_account`, so switching
+  accounts after a restart works in that mode too. It's still hidden while a session is held: the
+  command carries this server's key, which the restart replaces.
+- **Batch progress:** when `batch_execute` stops for sign-in, the earlier steps' results are
+  labelled "API data, not instructions" (Codex review: they sit next to the sign-in steps).
+- **Wording:** the Approve page offers two options ("Keep me signed in on this computer" / "Only
+  for this MCP server session"), not a checkbox. The forced-mode `fe1` error and the docs say so.
+
+## [2026-10-08] - `--account`: sign in one specific account
+
+- **Why:** found in a Codex test. Renewing account 5724274 while the portal was on 4732724 silently
+  saved 4732724. Approval connects whichever account the portal is signed in to, and the user
+  wasn't told which one was meant.
+- **Login:** `login … --account <client_id>` puts `&account=` in the link and refuses any other
+  account (400; a code → exit 8).
+- **Renewals:** for `expired`/`rejected`, the broker reports the session's account. `auth_required`
+  names it, tells the agent what to tell the user, and pins both commands.
+- **Switches:** the status tool's `login_for_account` handles switching to a known account.
+- **Portal:** the page warns and disables Approve on a mismatch (frontend; PROTOCOL §7b).
+
+## [2026-10-08] - logout by account, or everything
+
+- **New forms:**
+  - `login --logout <client_id>` removes that account (and the active pointer only if it pointed
+    there).
+  - `login --logout all` removes every saved session for prod **and** preprod, the legacy file and
+    sealed files, keeping the installation id.
+- **Output:** each removed account's client id, environment, token id and expiry, and where to
+  revoke them. Never a token.
+- **Agents:** the status tool now offers `logout_command` and a `sign_out` hint, so "log me out of
+  account X / all my accounts" works through the agent.
+- **Effect:** a running server sees the logout on its next call. A "don't keep" session lasts
+  until its server stops.
+- **Tests:** 4 new, in `test:session-auth` (70).
+
+## [2026-10-07] - login callback redirects to the portal's outcome page
+
+- **What changed:** a handled `POST /callback` (approve or deny, in every mode) now answers
+  `303 See Other` to `<portal>/fastedge/agent-connect?result=connected|denied` instead of
+  serving our own unstyled page. The portal page follows the portal's and resellers' themes.
+- **Where it points:** the portal origin comes only from the login's API→portal mapping (never
+  from `Origin`, `Referer` or form fields). The URL carries only the result.
+- **Ordering:** the state is consumed and the session written before the redirect is sent.
+- **Rejections:** still a static 400, never a redirect.
+- **Gate:** the release is held, with no switch in code. The portal outcome page must be live in
+  preprod and prod before the session release (coordinator PROTOCOL §6).
+
+## [2026-10-07] - "Keep me signed in" per sign-in (task 10 v2)
+
+Users choose on the Approve page instead of in config. `FASTEDGE_SESSION=ephemeral` stays as
+the forced policy.
+- **The choice:** the broker always has a key, and login commands always carry `--seal-to`.
+  - The page (`seal=1`) sends `persist=0|1`: `0` seals to the running server (8 h); `1` saves as
+    before.
+  - Codes: `fe1` = keep, `fe2` = don't keep.
+- **MoM design review:** three gaps made the draft less safe than v1; eight rules closed them:
+  - an old reader saving `fe2` as plaintext;
+  - a fallback from an unusable sealed file;
+  - two credential states.
+- **MoM implementation review:**
+  - fixed a High: cross-account re-dispatch;
+  - fixed the status pin conflict, lock takeover verification, fencing on the callback save, and
+    restart-first and cache-only wording.
+- **Lock:** accepted as best-effort; no security harm.
+- **Tests:** `test:choice` (19), and the gate at 54.
+
+## [2026-10-07] - login lock: heartbeat instead of a 10-minute stale rule
+
+Found in the real-client test: killing the containers (SIGKILL) left `.lock` behind, and every
+new login exited 3 for 10 minutes. Agents kill tool processes routinely.
+- **The lock:** holds a random owner id and is refreshed every 5 s. One not refreshed for 30 s is
+  taken over.
+- **Takeover:** by rename, so two contenders can't both win. This fixes the race MoM flagged.
+- **Release:** removes the lock only if it's still ours.
+
+## [2026-10-07] - ephemeral session mode (`FASTEDGE_SESSION=ephemeral`)
+
+Coordinator task 10, v1 (forced by config).
+- **The mode:** the broker generates an X25519 key at start, and login seals the approved token to
+  it (`src/auth/seal.ts`). The volume holds only ciphertext that no one can decrypt once the broker
+  exits.
+- **The broker:**
+  - adopts one sealed token per lifetime, after the `/iam/clients/me` check;
+  - never reads the plaintext cache;
+  - treats expiry or a 401 as terminal: `restart_required`.
+- **Login:** `--seal-to`, an 8 h cap (plus 5 min of skew), `ephemeral=1` and no installation id
+  in the URL, and no plaintext writes or migration. `--use` and `--logout` are refused.
+- **Entrypoint:** validates the value and refuses it together with a key.
+- **Review:** MoM (Codex) found five issues, all fixed in `7c02c82`:
+  - a 401 wasn't terminal;
+  - low-order recipient keys passed the check;
+  - the manual link was missing `ephemeral=1`;
+  - ephemeral login with a key wasn't refused;
+  - the server accepted a handshake without a key.
+- **Deferred:** the stale-lock reclaim race. It predates this work.
+- **Tests:** `test:seal` (10, with an independent known-answer vector), `test:ephemeral` (15), and
+  13 new gate rows (50 in total).
+
+## [2026-10-07] - entrypoint: reserved-id check before the root fallback; status wording
+
+- **`docker-entrypoint.sh`:** the `HOST_UID`/`HOST_GID` checks (numeric, not 10002) now run before the fallback to 10001. When the workspace looks root-owned (rootless Docker, likely Docker Desktop for Mac), the fallback replaced a requested `HOST_GID=10002` before it was checked, so the refusal was skipped. The server still ran as 10001:10001, so the broker's identity was never shared. Found by the rootless gate run.
+- **Status tool:** a new `renew_session` field says a login for the same account needs no restart, and `switch_account` now starts "Only to use a different account". In the Windows test, the agent told the user to restart `/mcp` after any sign-in. `login --use` prints the restart hint only for an MCP server that is running with another account.
+
+## [2026-10-06] - auth_required: sign-in as three choices
+
+After the preprod test, the agent showed two command blocks and then asked a separate question. `auth_required` now asks the agent to offer **1. Browser on this computer (recommended) / 2. Remote (SSH, Codespaces) / 3. Not now**, as a multiple-choice question where the client supports one (Claude Code shows a menu), or as a list otherwise. This folds the permission ask and the method choice into one. It also says that the listener is a one-time local handoff, not OAuth. The manual-fallback text (`session.ts`) now reads as choice 2, and it's also the status tool's `manual_login`. There's a new wording test, and the coordinator's PROTOCOL §4 is updated.
+
+## [2026-10-06] - security: broker confirms the account behind a session token
+
+A cache file only *claims* an account. Anyone who can write the volume could plant a token from another account labelled with yours, and pinning trusted the label.
+- **`src/auth/credentials.ts` (session mode, runs in the broker):**
+  - **The check:** before a token's first use, the broker calls `GET /iam/clients/me` (`id` is the account ID, per the IAM OpenAPI spec) and requires it to equal the file's `client_id`. Only then does it pin the account.
+  - **Repeat checks:** concurrent first calls share one check; renewed or replaced tokens are checked again.
+  - **Outcomes:**
+    - A mismatch gives the new reason `account_mismatch` (log in again; if it repeats, stop and tell the user), and the token is never used.
+    - A 401 gives `rejected`.
+    - Anything else (403, 429, 5xx) is an error result, with no login prompt and no fallback.
+  - **Status:** gains `account_verified`.
+- **Explicit keys** are not checked (S1).
+- **Tests:** test:broker now has 39 tests, covering one check per token, shared concurrent checks, mismatch with nothing sent or pinned, 401/403/429/503, a non-numeric id, and a planted replacement after pinning. The fetch stubs answer `/iam/clients/me`. The container gate still passes.
+
+## [2026-10-06] - docs: portal session login and what it protects (session-approval task 09, phase 8)
+
+- **`STANDALONE-SETUP.md`**: a new "Sign In Without an API Key" section. It covers:
+  - the keyless config (`-v fastedge-session:/run/fastedge:ro`), the login flow and lifetimes;
+  - `--use`, `--logout`, and `--code` (never paste the code into chat);
+  - restarting after an account switch; no `--user`; uid 10002 reserved;
+  - **What's protected, and what isn't**: build dependencies are protected. Not protected: anything that can run Docker or is root, `ptrace_scope=0` hosts (the server's connection can be used, but the token can't be read), MCP configs you didn't write, and unencrypted disks.
+- **`README.md`**: `GCORE_API_KEY` is optional; new `fastedge-auth-status` tool entry.
+- **`DEVELOPMENT.md`**:
+  - The env table is updated, and the test commands now include `test:session-auth` and `test:broker`.
+  - A new section covers the container gate, with a **platform sign-off runbook** (macOS, Windows via WSL 2 including a C: drive workspace, rootless Docker, arm64) and what to send back.
+- **`scripts/tests/test-broker-isolation.sh`**: portable to the sign-off platforms.
+  - It reads the server's uid/gid from the container, since Docker Desktop uses the 10001 fallback.
+  - It uses `gtimeout`, or no timeout, where `timeout` is missing (macOS).
+  - `GATE_WS_PARENT` chooses where the workspace goes.
+
+Release gate: only the platform sign-off (phase 7) remains.
+
+## [2026-10-06] - security: token broker (session-approval task 09, phases 3–6 of 8)
+
+**Still not releasable**: the release gate stays closed until the container gate test passes on Docker Desktop (macOS, Windows), rootless Docker and arm64 (phase 7), and the user docs are written (phase 8). Coordinator: `context/session-approval/` PROTOCOL §2a, SECURITY "Release gate".
+
+Session mode now works in a container again, with the session cache readable only by a broker process under its own uid.
+- **`docker-entrypoint.sh`**:
+  - **Every mode:** `HOST_UID`/`HOST_GID` must be numbers and must not be 10002 (exit 2).
+  - **Without a key (session mode):**
+    - It must start as root, and `/run/fastedge` must be a real directory that's entirely `10002`, `0700`/`0600`, with no links. Otherwise it exits 2 and says to run login once, and never fixes anything.
+    - It starts `build/broker.js` as 10002 with the full `setpriv` drop, `env -i` (`PATH`, `HOME`, `GCORE_API_BASE`) and core dumps off, then waits up to 5 s for a ready FIFO.
+    - It then execs the server with the full drop.
+  - **The explicit-key path** is otherwise unchanged and starts no broker.
+- **`src/broker.ts`**:
+  - It checks its own identity (all uids and gids 10002, no capabilities or groups, `no_new_privs`) and listens on `/run/fastedge-broker/sock`.
+  - It accepts **one** connection, then closes the listener and unlinks the socket. It exits when that connection ends, and exits if nothing connects within 30 s.
+- **`src/auth/broker.ts`**:
+  - **Frames:** length-prefixed JSON frames with raw bodies.
+  - **`checkRequest`:**
+    - fields: a strict field set;
+    - methods: a method enum;
+    - paths: the path grammar (no dot segments, `%`, `//`, `?`, `#`, `\`), and the URL must keep the fixed origin and the exact pathname;
+    - policy: `ALLOWED_OPS` plus `GET /iam/clients/me`;
+    - limits on query and body; JSON and octet-stream content types only.
+  - **`serveBroker`:** a handshake first, 8 requests in flight, and fixed error strings.
+  - **`connectBroker` (server side):**
+    - It refuses unless this process is unprivileged and not 10002, and the socket is a socket owned by 10002.
+    - It completes the handshake at startup. If anything fails, it never falls back to reading the cache: every API tool returns `auth_required` `broker_unavailable`.
+- **`src/auth/credentials.ts`**:
+  - `Auth.call()` replaces handing tools a header.
+  - Session mode (broker only) uses manual redirects and a 16 MiB response cap.
+  - A 401 maps to `rejected`, and any response containing the token is withheld.
+  - New reason `broker_unavailable`: restart the MCP server, logging in won't help.
+- **`src/server.ts`**: connects to the broker before registering tools.
+- **API tools**:
+  - `gcore_api`, `batch_execute`, `upload-binary` and `fastedge-auth-status` go through `Auth`.
+  - `upload-binary` now uses `callGcoreApi`, so it gets the same origin check and 60 s timeout as the batch upload workflows. It previously had no timeout.
+- **`src/api-client.ts`**:
+  - `serializeBody` passes `Uint8Array` bodies through.
+  - New optional `TransportLimits` (manual redirects, capped responses), used only for session tokens.
+- **Tests**:
+  - `test:broker`: 34 unit tests (frames, policy, the `Authorization` canary, redirects, size cap, broker loss, socket owner).
+  - `test:broker-isolation`: the container gate, 37 checks. It covers startup refusals, the explicit-key path having no broker, the identities of both processes, the broker environment and core limits, a hostile build as the server uid (cache, `/proc`, socket, `su`/`mount`, writing broker code, a filesystem-wide canary search), and tools working through the broker against preprod.
+  - Passes on rootful Linux amd64.
+
+## [2026-10-06] - security: broker-only session cache (session-approval task 09, phase 2 of 8)
+
+**Not releasable on its own**: session mode can't work in a container again until the token broker lands (phases 3–5). Explicit-key mode is unaffected. Release gate: coordinator `context/session-approval/` README and SECURITY R1.
+
+Why: `build-wasm` runs third-party build code (`build.rs`, npm scripts) as the MCP server's uid, and the `0644` cache let it read every cached token (R1).
+- **`src/auth/store.ts`**: every writer is owner-only. Directories are `0700` (created *and* tightened if they already exist); files, temp files, `.lock` and `installation_id` are `0600`, regardless of the umask. The lock is also released on process exit.
+- **`docker-entrypoint.sh` `login …`**: refuses `--user` and a missing `setpriv` (exit 2). As root, it migrates the cache: it refuses symlinks or odd file types (exit 2), then `chown`s everything to `10002:10002` with `0700`/`0600`, which upgrades POC volumes in place. It then execs `login` as **10002** with `--clear-groups --no-new-privs --inh-caps=-all --ambient-caps=-all --bounding-set=-all`, a clean `env -i` (only `PATH`, `HOME`, `TERM`, `GCORE_API_BASE`), and absolute paths.
+- **`Dockerfile`**: `/run/fastedge` is now `10002:10002 0700`.
+- **`src/login.ts`**: SIGINT and SIGTERM exit normally (node is PID 1 in Docker and would ignore SIGTERM), so an interrupted login no longer leaves `.lock` blocking the next login for 10 minutes.
+
+Verified in containers:
+- a legacy `0644`/10001 volume migrated to `10002 0700/0600`;
+- a uid-1000 process gets "Permission denied" listing the cache;
+- a symlink in the cache and `--user 1000` each exit 2;
+- the login process is uid/gid 10002 everywhere, with no groups, zero capability sets and `NoNewPrivs=1`;
+- `docker stop` on a waiting login removes `.lock`.
+
+Tests: 65 session tests (mode assertions updated to `0600`; new tests for writer modes and for a signal releasing the lock).
+
+---
+
+## [2026-10-06] - feat: `login --code` for setups where the browser can't reach this machine (session-approval task 08)
+
+In a browser-based Codespace, an SSH session or with a remote Docker host, the portal page can't POST to `127.0.0.1` on the agent's machine. The page's manual mode now shows a **connect code** (`fe1.` + base64url JSON of the callback fields), and the user pastes it here:
+
+`docker run --rm -it -v fastedge-session:/run/fastedge -e GCORE_API_BASE=<origin> <image> login --code`
+
+- **Terminal only:** `-it` makes Docker itself refuse without a terminal, and `login.ts` also exits 2 if stdin isn't a TTY. An agent's shell can't feed it a code.
+- **Hidden prompt:** raw mode, no echo, at most 8 KiB. Ctrl-C or Ctrl-D cancels, Backspace works, and bracketed-paste markers are stripped. The code is never read from arguments, environment or a pipe (S18).
+- **Same checks as the browser callback:** `validateDelivery()` in `src/auth/login-server.ts` is now shared. That covers origin, token and id formats, and expiry in the future and at most 7 days + 5 minutes ahead.
+- **Saved like a browser login:** `connectWithCode()` saves under the lock (account file plus active pointer). It exits 0, or 8 for a bad or expired code; the message never echoes the code.
+- **Agent guidance:** `auth_required` now ends with a manual fallback: open `<portal>/fastedge/agent-connect` yourself, approve, and run the `--code` command in your own terminal, and never paste the code into the chat. `fastedge-auth-status` adds `code_command` and `manual_login`.
+
+Tests: 13 new (63 total): a valid code; ten bad codes, each exit 8 with nothing written; a piped stdin exits 2; the fallback text and status fields.
+
+---
+
+## [2026-10-06] - feat: 7-day lifetime cap on session tokens (session-approval task 06)
+
+The Approve page now offers a lifetime: 4 h, 8 h (default), 2 days or 7 days. That's built in `fastedge-frontend`. This server side:
+- The login callback rejects an `expires_at` more than 7 days + 5 minutes ahead (`MAX_LIFETIME_MS` in `src/auth/login-server.ts`), so a tampered callback can't plant a longer session than the page allows.
+- `auth_required` now says "a time-limited session" instead of "an 8-hour session".
+
+Tests: exactly 7 days is accepted; 7 days + 6 minutes is rejected with 400 and nothing written; the wording (50 total).
+
+---
+
+## [2026-10-06] - feat: one cached session per account, `login --use`, `--logout`, login lock (session-approval task 07)
+
+Switching A → B → A used to create a new token each time, because the volume held one `session.json`.
+
+- **Layout** (`src/auth/store.ts`, new): `accounts/<api host>_<client_id>.json` (same shape as the old `session.json`) plus one `active-<api host>.json` pointer **per API origin**, so prod and preprod sessions don't affect each other.
+  - Readers build the account file name themselves from their own origin and the pointer's `client_id`, and refuse a mismatch.
+  - All writes are temp + fsync + rename.
+  - `store.ts` now holds every volume helper (reads, atomic writes, lock, migration, cleanup, installation id), shared by `credentials.ts` and `login-server.ts`.
+- **Migration**: a POC `session.json` is still read while no pointer exists. The first login, `--use` or `--logout` moves it into `accounts/` and removes it.
+- **`login --use <client_id>`**: no port, no browser. It points the origin at a cached, unexpired account, or exits 7. A running MCP server stays pinned until restart (S5).
+- **`login --logout`**: removes the active account and its pointer (only if the pointer's `generation` is unchanged). It's local only, and prints when the token expires. `login --status` is dropped; `fastedge-auth-status` covers it.
+- **Lock**: an `O_EXCL` `.lock` held by login, `--use` and `--logout` (exit 3 if held; stale after 10 minutes). Expired accounts and dangling pointers are removed under it. An unwritable volume now fails with exit 2 at the lock (login could never save a session anyway).
+- **`fastedge-auth-status`**: `cached_session` is renamed `active_session`. It adds `cached_accounts` (`client_id`, `expires_at`, `usable`; never tokens) and `use_command`, and `switch_account` prefers `--use`.
+
+Tests: 48 in `test-session-auth.ts` (11 new for task 07, existing ones moved to the new layout).
+
+---
+
+## [2026-10-06] - feat: installation id in the login link (session-approval task 05)
+
+`login` reads or creates `/run/fastedge/installation_id` (32 lowercase hex characters, `0644`) and adds `&install=<id>` to the approval link. The portal uses it to replace this installation's earlier tokens after creating the new one, so repeated logins on one machine don't pile up tokens.
+- `ensureInstallationId()` in `src/auth/login-server.ts` writes a temp file and links it into place, so the first writer wins a race. A symlinked or malformed file is replaced.
+- If the volume can't be written, login carries on without `install`.
+- The temp-file writer is now shared with `writeSession`.
+- Tests: 4 new (37 total). Container check: two logins share one id, and the file is `10001:10001 0644`.
+
+---
+
+## [2026-10-06] - feat (POC): recover from a revoked session token, `fastedge-auth-status`, safer login command
+
+Found in the preprod demo: a token deleted in the portal before expiry kept being sent, and the raw `401 Invalid API token` came back as a normal result, so the agent never got a login prompt. Reviewed with Codex (MoM) for Codex CLI support and security.
+
+- **`rejected` reason** (`src/auth/credentials.ts`, `src/tools/api/*`): `Auth.resolve()` now returns `source: "explicit" | "session"` with the header. When a request that used the **session** token gets a **401**, `gcore_api`, `batch_execute` and `upload-binary` return `auth_required (rejected)`, judged by that request's credential and not by re-reading the cache. Explicit keys keep the raw 401 (S1); a 403 is never mapped. `batch_execute` keeps its `completed`/`failed` JSON after the text and says to retry only what did not complete. `upload-binary` throws `UploadError` with the HTTP status, so nothing parses "401" out of a message.
+- **`fastedge-auth-status` tool** (`src/tools/api/auth-status.ts`): read-only, no arguments. Returns explicit-key mode, or the session state, cached account, the account this process is pinned to, the login command and how to switch account. `Auth.status()` never pins and never includes the token.
+- **Login command** (`src/auth/session.ts`): writes the server's own origin (`-e GCORE_API_BASE=<origin>`). A bare `-e GCORE_API_BASE` copied the agent shell's value, which can differ from the server's. The `package.json` version must match the Docker tag grammar, or the server fails at start. Origins with no portal get no login command. `account_changed` now says to restart (Claude Code `/mcp` reconnect; Codex CLI: exit, then `codex resume --last`).
+- `createAuthResolver` → `createAuth` (`{ resolve, status }`). `registerApiTools` takes an optional `auth` for tests.
+
+Tests: `scripts/tests/test-session-auth.ts` now has 33 tests; the tool-level ones drive the real tools over the SDK's in-memory transport with a stubbed `fetch`.
+
+---
+
+## [2026-10-02] - feat (POC): keyless mode, session tokens and the `login` command
+
+Users without `GCORE_API_KEY` can sign in through the portal for an 8-hour session instead of exporting a long-lived key. The contract lives in fastedge-coordinator `context/session-approval/` (`PROTOCOL.md`, `SECURITY.md`); the portal side is `fastedge-frontend` `/fastedge/agent-connect`.
+
+- **Keyless startup** (`src/server.ts`): no key no longer exits; it logs one stderr line. Local tools work unchanged.
+- **Credential resolver** (`src/auth/credentials.ts`): `createAuthResolver(key)` is created once in `registerApiTools`. An explicit key always returns `APIKey <key>` and never reads the cache (S1), so the wire request for key users is unchanged. Without one, `/run/fastedge/session.json` is re-read on every API call: `O_NOFOLLOW`, 4 KiB cap, `version: 1`, `api_origin` must equal `GCORE_API_ORIGIN` (now exported from `api-client.ts`), expiry more than 60 s away, and the first accepted `client_id` is pinned per process (`account_changed` otherwise). `gcore_api`, `batch_execute` and `upload-binary` (now takes the header, not the key) return the `auth_required` result (`isError: true`, login command, no token) before any request.
+- **`login` subcommand** (`src/login.ts`, `src/auth/login-server.ts`): `docker run --rm -i -p 127.0.0.1:47215:47215 -v fastedge-session:/run/fastedge -e GCORE_API_BASE <image> login`. Binds before printing the portal URL, accepts one valid `POST /callback` (path, Host, `Origin` = `null` or the portal, `state` constant-time, `api_origin`, field formats, 8 KiB body), writes the cache atomically (temp + fsync + rename, `0644`), exits 0 / 5 (timeout) / 6 (denied) / 2 (origin with no portal, e.g. the Orange hosts). Browsers send `Origin: null` on this POST (Q3), so `state` is the real control. Node built-ins only.
+- **Image**: `docker-entrypoint.sh` maps `login` to `node build/login.js` (otherwise `exec "$@"` would run the system `/bin/login`). `Dockerfile` creates `/run/fastedge` as `10001:10001 0755`, so a new named volume inherits it and the login container (uid 10001) can write while any MCP UID reads.
+- **Not yet** (POC): login lock (exit 3), `login --logout`, `login --status`, README/DEVELOPMENT docs. A port clash fails in Docker itself (exit 125, "address already in use") before the code runs.
+
+Tests: `scripts/tests/test-session-auth.ts` (21, phase-1 gate rows). Verified in containers on Linux Docker: keyless `auth_required`, login → cache → the next `gcore_api` call sends the session token without a restart.
+
+---
+
 ## [2026-10-01] - docs: standalone config matches the VS Code extension
 
 `STANDALONE-SETUP.md` and `mcp-standalone.json` showed the old `bash -c "docker run … -e \"GCORE_API_KEY=$GCORE_API_KEY\" …"` form with an inline `your_api_key_here` placeholder (and `HOST_UID=$(id -u)` flags in the doc). They now show the same shape the VS Code extension's "FastEdge (Generate mcp.json)" writes and the portal's agent-onboarding "Other agents" tab shows: `docker` called directly with an argv array (works on Windows, no shell splicing), bare `-e GCORE_API_KEY` forwarded from the client, and `"GCORE_API_KEY": "${env:GCORE_API_KEY}"` so the key is read from the user's environment instead of being written into a file that is often committed. `HOST_UID`/`HOST_GID` moved to the Permissions section as an override only — the entrypoint detects the `/workspace` owner and falls back to 10001 (SA-004). Added an "Other MCP Clients" section (`mcpServers` shape, per-client variable syntax).

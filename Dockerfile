@@ -1,7 +1,7 @@
 # Base image built from Dockerfile-base and published to GHCR.
 # Update both the tag and the digest together when publishing a new base image.
 # apt/rustup runs inside the pinned base build — accepted.
-ARG BASE_IMAGE=ghcr.io/g-core/fastedge-mcp-server-base:latest
+ARG BASE_IMAGE=ghcr.io/g-core/fastedge-mcp-server-base:0.2.9@sha256:18c20628f204f70785fa7bd709d9181676400692d38e1e337bd70cf8ab58a58a
 
 # Build stage
 FROM ${BASE_IMAGE} AS builder
@@ -30,6 +30,11 @@ RUN pnpm install --frozen-lockfile --prod
 # Copy build output and reference docs
 COPY --from=builder /app/build ./build
 COPY --from=builder /app/reference-docs ./reference-docs
+
+# Session-login cache mount point. A new named volume copies this directory's owner and mode.
+# Broker-only (uid/gid 10002, 0700): build code running as the MCP server's uid must not be able
+# to read cached tokens. The login container runs as 10002; the token broker reads it.
+RUN mkdir -p /run/fastedge && chown 10002:10002 /run/fastedge && chmod 0700 /run/fastedge
 
 # Default to workspace in volumey
 ENV WORKSPACE_ROOT=/workspace

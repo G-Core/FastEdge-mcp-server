@@ -342,6 +342,11 @@ test("allowedApiOrigin: only exact Gcore API origins may receive the key", () =>
     "blob:https://api.gcore.com",                 // inherits an https origin
     "not a url",
     "",
+    "https://api.gcore.com/iam/users",            // a path: requests would go elsewhere than checked
+    "https://api.gcore.com/iam/users#",
+    "https://api.gcore.com/#",                    // fragment
+    "https://api.gcore.com/?x=1",                 // query
+    "https://api.gcore.com?",
   ]) {
     assert.equal(allowedApiOrigin(base), null, `expected ${JSON.stringify(base)} to be rejected`);
   }
@@ -395,6 +400,23 @@ test("batchExecuteHandler: fail-fast on 4xx, returns completed + failed step", a
   assert.match(parsed.error, /Step 2 failed: 404/);
   assert.equal(parsed.completed.length, 1);
   assert.equal(parsed.failed.status, 404);
+});
+
+test("batchExecuteHandler: a call that got no HTTP answer (status 0) stops the batch", async () => {
+  const calls: BatchCall[] = [
+    { method: "POST", path: "/fastedge/v1/apps" },
+    { method: "DELETE", path: "/fastedge/v1/apps/1" },
+  ];
+  let callCount = 0;
+  const mockCaller = async (): Promise<ApiCallResult> => {
+    callCount++;
+    return { status: 0, data: { error: "Token broker: the API could not be reached" } };
+  };
+
+  const parsed = parseResponse(await batchExecuteHandler({ calls }, mockCaller)) as { error: string; completed: any[]; failed: any };
+  assert.match(parsed.error, /Step 1 failed: 0/);
+  assert.equal(parsed.completed.length, 0);
+  assert.equal(callCount, 1, "the later mutating step never ran");
 });
 
 // ── gcore_api handler: forwards args, returns JSON-stringified result ────────

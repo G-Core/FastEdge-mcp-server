@@ -2,16 +2,18 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { uploadBinary } from "./api.js";
+import type { UploadBinaryResponse } from "./types.js";
+import { authRequiredResult, withNotice, type Auth } from "../../../auth/credentials.js";
 
 /**
  * Register the upload-binary tool to the MCP server.
  * @param server MCP Server instance
- * @param apiKey Gcore API key
+ * @param auth Resolves the credential (explicit key or session token)
  * @param workspaceRoot Workspace root path
  */
 export function registerUploadBinaryTool(
   server: McpServer,
-  apiKey: string,
+  auth: Auth,
   workspaceRoot: string,
 ) {
   server.registerTool(
@@ -28,36 +30,43 @@ export function registerUploadBinaryTool(
         readOnlyHint: false,
         destructiveHint: true,
         idempotentHint: true,
-        openWorldHint: false,
+        openWorldHint: true, // uploads to the Gcore API
       },
     },
     async (params) => {
       try {
-        const binary = await uploadBinary(apiKey, workspaceRoot, params.wasmFile);
+        const result = await uploadBinary(auth, workspaceRoot, params.wasmFile);
+        if ("authRequired" in result) return authRequiredResult(result.authRequired, { clientId: result.clientId });
 
-        if (!binary.id) {
+        const { status, data } = result;
+        if (status < 200 || status >= 300) {
+          const detail = typeof data === "string" ? data : JSON.stringify(data);
+          throw new Error(`Failed to upload binary: ${status}${detail ? ` — ${detail}` : ""}`);
+        }
+        const binary = data as Partial<UploadBinaryResponse> | null;
+        if (!binary?.id) {
           throw new Error("Failed to upload binary: No ID returned");
         }
 
-        return {
+        return withNotice(auth, {
           content: [
             {
-              type: "text",
+              type: "text" as const,
               text: `Successfully uploaded the WASM binary! { id: ${binary.id} }`,
             },
           ],
-        };
+        });
       } catch (error: any) {
-        return {
+        return withNotice(auth, {
           content: [
             {
-              type: "text",
+              type: "text" as const,
               text: `Failed to upload the WASM binary: ${
                 error?.message || String(error)
               }`,
             },
           ],
-        };
+        });
       }
     },
   );

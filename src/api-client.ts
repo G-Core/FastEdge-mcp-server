@@ -34,6 +34,9 @@ export function allowedApiOrigin(base: string): string | null {
     if (url.protocol !== "https:") return null;
     // userinfo would ride along with every request, next to the key.
     if (url.username || url.password) return null;
+    // An origin only: requests are built from the origin, and a path, query or fragment here
+    // would make the URL sent differ from the one the policy and broker checked.
+    if (url.pathname !== "/" || base.includes("?") || base.includes("#")) return null;
     return ALLOWED_API_ORIGINS.has(url.origin) ? url.origin : null;
   } catch {
     return null;
@@ -49,7 +52,17 @@ if (!resolvedOrigin) {
   );
   process.exit(1);
 }
-const GCORE_API_ORIGIN: string = resolvedOrigin;
+export const GCORE_API_ORIGIN: string = resolvedOrigin;
+
+/**
+ * Where GCORE_API_ORIGIN came from, for the status tool. The session-mode entrypoint
+ * sets FASTEDGE_ORIGIN_SOURCE after resolving a saved default; otherwise it follows the env.
+ */
+export type ApiOriginSource = "env" | "saved_default" | "baked_default";
+const ORIGIN_SOURCES: readonly ApiOriginSource[] = ["env", "saved_default", "baked_default"];
+const declaredSource = ORIGIN_SOURCES.find((s) => s === process.env.FASTEDGE_ORIGIN_SOURCE);
+export const GCORE_API_ORIGIN_SOURCE: ApiOriginSource =
+  declaredSource ?? (process.env.GCORE_API_BASE ? "env" : "baked_default");
 
 export const DEFAULT_TIMEOUT_MS = 60_000;
 
@@ -100,6 +113,8 @@ export function serializeBody(
   contentType: string,
 ): string | Uint8Array | undefined {
   if (body === undefined || body === null) return undefined;
+  // Raw bytes are already the wire body (upload-binary, and every body relayed by the token broker).
+  if (body instanceof Uint8Array) return body;
   if (contentType === "application/json") {
     if (typeof body === "string") {
       try {
@@ -111,15 +126,46 @@ export function serializeBody(
     return JSON.stringify(body);
   }
   if (contentType === "application/octet-stream") {
-    if (body instanceof Uint8Array) return body;
     if (body instanceof ArrayBuffer) return new Uint8Array(body);
     if (typeof body === "string") return Buffer.from(body, "base64");
   }
   return String(body);
 }
 
+/**
+ * Extra limits the token broker applies to session-token requests.
+ * Explicit-key calls don't use them.
+ */
+export interface TransportLimits {
+  /** Return 3xx as an error instead of following it (a same-origin redirect would keep the token). */
+  manualRedirect?: boolean;
+  /** Cap on the response body; larger responses become an error. */
+  maxResponseBytes?: number;
+}
+
+/** Reads the body, failing once it exceeds `max` bytes rather than buffering it all. */
+async function readCapped(response: Response, max: number): Promise<Buffer | null> {
+  const declared = Number(response.headers.get("content-length"));
+  if (declared > max) {
+    await response.body?.cancel();
+    return null;
+  }
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for await (const chunk of response.body ?? []) {
+    total += chunk.byteLength;
+    if (total > max) {
+      await response.body?.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
 export async function callGcoreApi(
   opts: ApiCallOptions,
+  limits: TransportLimits = {},
 ): Promise<ApiCallResult> {
   const authorization = opts.authHeader ?? null;
   if (!authorization) {
@@ -140,7 +186,7 @@ export async function callGcoreApi(
   // does not depend on it.
   let url: URL;
   try {
-    url = new URL(`${GCORE_API_BASE}${opts.path}`);
+    url = new URL(`${GCORE_API_ORIGIN}${opts.path}`);
   } catch {
     return { status: 0, data: { error: `Invalid API path: ${opts.path}` } };
   }
@@ -180,11 +226,24 @@ export async function callGcoreApi(
       // Uint8Array is valid BodyInit in Node 18+ but missing from @types/node fetch overloads
       body: body as BodyInit | undefined,
       signal: controller.signal,
+      ...(limits.manualRedirect ? { redirect: "manual" as const } : {}),
     });
+
+    if (limits.manualRedirect && response.status >= 300 && response.status < 400) {
+      await response.body?.cancel();
+      return { status: 0, data: { error: `The API answered ${response.status} (a redirect), which is not followed.` } };
+    }
 
     let data: unknown;
     const contentType = response.headers.get("content-type") ?? "";
-    if (contentType.includes("application/json")) {
+    if (limits.maxResponseBytes !== undefined) {
+      const bytes = await readCapped(response, limits.maxResponseBytes);
+      if (!bytes) {
+        return { status: 0, data: { error: `The API response is larger than ${limits.maxResponseBytes} bytes.` } };
+      }
+      const text = bytes.toString("utf8");
+      data = contentType.includes("application/json") ? JSON.parse(text) : text.length > 0 ? text : null;
+    } else if (contentType.includes("application/json")) {
       data = await response.json();
     } else {
       const text = await response.text();
