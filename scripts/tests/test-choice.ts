@@ -228,6 +228,20 @@ for (const [label, me, want] of sealedAccountCheck) {
   });
 }
 
+test("a keep login for this server clears its unusable sealed file, so the new session is used", async () => {
+  const { dir, auth, recipient, putSealed } = setup();
+  putSealed({ expires_at: new Date(Date.now() - HOUR).toISOString() });
+  const s = stub();
+  try {
+    assert.deepEqual(await auth.call(get), { authRequired: "expired" });
+    const l = await startLogin({ apiOrigin: API, port: 0, host: "127.0.0.1", sessionDir: dir, sealTo: recipient.publicKey });
+    assert.equal(await post(l.port, fields(new URL(l.url).searchParams.get("state")!, 8 * HOUR, ["1"])), 303);
+    assert.equal(await l.result, "ok");
+    assert.ok(!filesIn(dir).some((f) => f.startsWith("sealed/")), "the sealed file is gone");
+    assert.equal(((await auth.call(get)) as { status: number }).status, 200);
+  } finally { s.restore(); }
+});
+
 test("an IAM outage at the sealed token's account check is an error, not a plaintext fallback", async () => {
   const { dir, auth, putSealed } = setup();
   plaintext(dir);

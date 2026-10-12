@@ -373,6 +373,9 @@ export const readSealed = (dir: string, recipient: string): unknown => readJson(
  */
 export const sealedPresent = (dir: string, recipient: string): boolean => !absent(sealedPath(dir, recipient));
 
+/** Removes the envelope sealed to `recipient`, if any. */
+export const removeSealed = (dir: string, recipient: string): void => fs.rmSync(sealedPath(dir, recipient), { force: true });
+
 // --- Lock -----------------------------------------------------------------------
 
 export class LockedError extends Error {}

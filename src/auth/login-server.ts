@@ -15,6 +15,7 @@ import {
   logoutAll,
   migrateLegacy,
   removeExpired,
+  removeSealed,
   saveDefaultOrigin,
   saveSession,
   useAccount,
@@ -205,6 +206,10 @@ function store(sessionDir: string, delivered: Delivery, how: How, sealTo: string
   }
   cleanup(sessionDir);
   saveSession(sessionDir, delivered);
+  // A sealed file for this server, not yet adopted and unusable (expired, rejected, another
+  // account), would otherwise keep blocking the session just saved. One already adopted lives on
+  // in the broker's memory.
+  if (sealTo !== undefined) removeSealed(sessionDir, sealTo);
   if (setDefault) saveDefaultOrigin(sessionDir, delivered.api_origin);
 }
 
