@@ -14,6 +14,15 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-13] - pin create-fastedge-app 0.0.18 (scaffold landed in container /tmp)
+
+- **Why:** since the tmpdir-cwd hardening (f7fb4d6), `scaffold-fastedge-project` passes an absolute
+  output path; create-fastedge-app <= 0.0.17 prefixed it with `./` and resolved it against `/tmp`,
+  so every scaffold was written inside the container and lost while the tool reported success.
+  0.0.17 also fixed the AssemblyScript cdn-base template (`setLogLevel` import, TS2305).
+- **Change:** `CREATE_APP_PKG` → `create-fastedge-app@0.0.18`. Verified over MCP: scaffold →
+  build-wasm succeeds for cdn-base/assemblyscript and http-base/typescript.
+
 ## [2026-10-13] - build-wasm installs JS/AS project dependencies in the container (issue #61)
 
 - **Why:** `build-wasm` ran `npx fastedge-build` / `npx asc` with no install step. A fresh project

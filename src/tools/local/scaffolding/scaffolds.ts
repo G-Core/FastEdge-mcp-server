@@ -11,7 +11,7 @@ import { normalizePath, INVALID_PATH, buildSubprocessEnv } from "../../../utils/
 
 // Exact version of create-fastedge-app to use. Update this when the package releases
 // a new version — do not use @beta or @latest (workspace .npmrc can redirect the registry).
-const CREATE_APP_PKG = "create-fastedge-app@0.0.16";
+const CREATE_APP_PKG = "create-fastedge-app@0.0.18";
 
 // Override npm/npx config to prevent a workspace .npmrc from redirecting the
 // registry to an attacker-controlled host. npm_config_userconfig=/dev/null
