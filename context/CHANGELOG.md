@@ -21,7 +21,7 @@ See `SEARCH_GUIDE.md` for more search patterns.
   so every scaffold was written inside the container and lost while the tool reported success.
   0.0.17 also fixed the AssemblyScript cdn-base template (`setLogLevel` import, TS2305).
 - **PR #62 review:** scaffold `packageManager` drops `yarn` (not in the image: the CLI's `yarn install`
-  already exited 1); the scaffolding prompt no longer offers a host install; `build-wasm`
+  already exited 1); the scaffolding prompt and guide say build-wasm needs no host install (host install only for local tests/builds); `build-wasm`
   `openWorldHint` is now `true` (the install reaches the npm registry).
 - **Change:** `CREATE_APP_PKG` → `create-fastedge-app@0.0.18`. Verified over MCP: scaffold →
   build-wasm succeeds for cdn-base/assemblyscript and http-base/typescript.

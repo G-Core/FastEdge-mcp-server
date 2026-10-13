@@ -357,7 +357,7 @@ export function registerScaffoldingResources(server: McpServer) {
               ### Post-Scaffold Steps
               1. Show what was created
               2. Point to .claude/skills/ for guidance
-              3. Don't run npm install on the host: build-wasm installs dependencies in the container
+              3. build-wasm doesn't need a host npm install (it installs dependencies in the container); install on the host only for local tests or builds
               4. Mention /deployFastEdgeApp for deployment
 
               ---

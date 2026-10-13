@@ -101,7 +101,7 @@ export function registerCreateFastEdgeAppPrompt(server: McpServer) {
                 ## Step 5: Post-Scaffold Setup
 
                 After scaffolding:
-                1. For TypeScript/JavaScript projects: Don't run npm/pnpm install on the host; build-wasm installs dependencies in the container
+                1. For TypeScript/JavaScript projects: build-wasm doesn't need a host npm/pnpm install (it installs dependencies in the container); offer one only for local tests or builds
                 2. For Rust projects: Note that cargo build will happen during deployment
                 3. Show me the created structure and manifest files:
                    - JavaScript/TypeScript: package.json created
