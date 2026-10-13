@@ -14,7 +14,7 @@ The FastEdge MCP server now provides intelligent scaffolding that handles multip
   - `template`: Template type (http-base, http-react, etc.)
   - `language`: TypeScript, JavaScript, or Rust
   - `outputDir`: Where to create the project
-  - `packageManager`: npm, pnpm, or yarn
+  - `packageManager`: npm or pnpm (yarn is not in the image)
 - Runs `create-fastedge-app` CLI under the hood
 - Includes Claude skills in generated projects
 

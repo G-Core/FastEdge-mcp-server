@@ -51,7 +51,7 @@ export function registerBuildWasmTools(
         readOnlyHint: false,
         destructiveHint: true,
         idempotentHint: true,
-        openWorldHint: false,
+        openWorldHint: true, // dependency install reaches the npm registry
       },
     },
     async (params) => {

@@ -53,7 +53,7 @@ export function registerScaffoldingResources(server: McpServer) {
               - Manifest file: package.json
               - Source directory: src/
               - Build output: node_modules/, dist/, build/
-              - Dependencies: npm, pnpm, or yarn
+              - Dependencies: npm or pnpm
               - Build: npm run build
 
               **Rust Projects:**

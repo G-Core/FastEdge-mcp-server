@@ -126,7 +126,7 @@ export function registerCreateBoilerPlateCode(
           .string()
           .describe("Relative path where the project should be created"),
         packageManager: z
-          .enum(["npm", "pnpm", "yarn"])
+          .enum(["npm", "pnpm"])
           .optional()
           .describe("Package manager to use (default: npm)"),
       },
@@ -141,7 +141,7 @@ export function registerCreateBoilerPlateCode(
       template: ScaffoldTemplateType;
       language: Language;
       outputDir: string;
-      packageManager?: "npm" | "pnpm" | "yarn";
+      packageManager?: "npm" | "pnpm";
     }) => {
       const startTime = Date.now();
       try {
@@ -169,7 +169,7 @@ export function registerCreateBoilerPlateCode(
         // - npx --yes: Skip install confirmation
         // - --no-verify: Skip "Do you want to continue?" confirmation (validate-config.ts:211)
         // - --{language}: Specify language flag (--javascript, --typescript, etc.)
-        // - --pnpm or --yarn: Use alternative package manager (optional)
+        // - --pnpm: Use alternative package manager (optional; yarn is not in the image)
         const args = [
           "--yes",
           CREATE_APP_PKG,
