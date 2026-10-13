@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 
-import { wasmOutputPermissions, spawnBounded } from "./utils.js";
+import { wasmOutputPermissions, spawnBounded, installProjectDependencies } from "./utils.js";
 import { buildSubprocessEnv, normalizePath, INVALID_PATH } from "../../../../utils/index.js";
 
 const MAX_BUILD_MS = 180_000;
@@ -63,9 +63,12 @@ export async function compileAssemblyScriptBinary(
     ascArgs.push("--outFile", outputFilePath);
   }
 
+  const env = buildSubprocessEnv();
+  await installProjectDependencies(cwd, workspaceRoot, env);
+
   const result = await spawnBounded("npx", ascArgs, {
     cwd,
-    env: buildSubprocessEnv(),
+    env,
     timeoutMs: MAX_BUILD_MS,
     maxOutputBytes: MAX_OUTPUT_BYTES,
   });

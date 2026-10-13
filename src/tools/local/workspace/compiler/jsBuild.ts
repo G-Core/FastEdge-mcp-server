@@ -1,6 +1,6 @@
 import {
   wasmOutputPermissions,
-  setupCrossPlatformEnvironment,
+  installProjectDependencies,
   spawnBounded,
 } from "./utils.js";
 import { buildSubprocessEnv } from "../../../../utils/index.js";
@@ -15,7 +15,8 @@ export async function compileJavascriptBinary(
   workspaceRoot: string,
   tsconfigPath?: string
 ): Promise<string> {
-  setupCrossPlatformEnvironment();
+  const env = buildSubprocessEnv();
+  await installProjectDependencies(cwd, workspaceRoot, env);
 
   const result = await spawnBounded(
     "npx",
@@ -29,7 +30,7 @@ export async function compileJavascriptBinary(
     ],
     {
       cwd,
-      env: buildSubprocessEnv(),
+      env,
       timeoutMs: MAX_BUILD_MS,
       maxOutputBytes: MAX_OUTPUT_BYTES,
     }

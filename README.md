@@ -108,7 +108,7 @@ For more information on how Environment Variables work in `dotenv` files read [h
 
 - **scaffold-fastedge-project** - Create a new FastEdge project from templates.
 - **list-fastedge-templates** - List all available FastEdge templates with descriptions, languages, and application types.
-- **build-wasm** - Build a FastEdge WASM binary from source code within the workspace.
+- **build-wasm** - Build a FastEdge WASM binary from source code within the workspace. For JS/TS and AssemblyScript it installs the project's dependencies inside the container first (npm or pnpm, chosen by the project's lockfile, with install scripts disabled), so no host `npm install` is needed. If `package.json` changed, the lockfile is updated as a local `npm install` would.
 - **deployment-comments** - Generate "Magic Comments" for tracking deployment information within code files.
 - **fastedge-docs** - Search and read FastEdge SDK reference docs, platform guides, error codes, and testing documentation. Three modes: topics (list all), search (keyword match), read (full document).
 

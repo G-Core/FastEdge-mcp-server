@@ -252,6 +252,7 @@ FastEdge-mcp-server/
    - `build-wasm` handler:
      - Detects language (Rust/JS/AssemblyScript)
      - Locates build files (Cargo.toml/package.json)
+     - JS/AS: installs project dependencies in the container first (lockfile's package manager, `--ignore-scripts`)
      - Runs appropriate build command
      - Returns binary path + output
 

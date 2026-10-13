@@ -233,10 +233,9 @@ export function registerCreateBoilerPlateCode(
                   4. Deploy to FastEdge using build-wasm and upload-binary tools
                 `
                 : dedent`
-                  2. npm install
-                  3. npm run build
-                  4. Test locally with fastedge-debugger (recommended)
-                  5. Deploy to FastEdge using build-wasm and upload-binary tools
+                  2. Build with the build-wasm tool (it installs dependencies in the container; no host npm install needed)
+                  3. Test locally with fastedge-debugger (recommended)
+                  4. Deploy to FastEdge using the upload-binary tool
               `
             }
 

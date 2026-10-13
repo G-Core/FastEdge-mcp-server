@@ -14,6 +14,23 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-13] - build-wasm installs JS/AS project dependencies in the container (issue #61)
+
+- **Why:** `build-wasm` ran `npx fastedge-build` / `npx asc` with no install step. A fresh project
+  (no `node_modules`) failed with `E404 fastedge-build`; a tree installed on a macOS host failed
+  with `Cannot find native binding` (darwin `@oxc-minify`/`@esbuild`/wizer bindings in a Linux container).
+- **Change:** `installProjectDependencies` (`compiler/utils.ts`) runs before every JS/AS build, in the
+  directory of the nearest lockfile (up to the workspace root), else the build dir. `pnpm-lock.yaml`
+  → `pnpm install`; npm lockfile or none → `npm install`; yarn/bun lockfile → explicit error (not in
+  the image; npm can't honour their workspace/linker semantics). Installs are mutable on purpose: an
+  agent may edit package.json with no host toolchain to update the lockfile (frozen would force the
+  host install that causes the bug, and `npm ci` wipes node_modules every build). Always `--ignore-scripts`: lifecycle scripts are untrusted and the
+  build does not need them. npm replaces host bindings with Linux ones; pnpm adds them alongside.
+  Up-to-date trees make it a few-second no-op. Removed `setupCrossPlatformEnvironment` (wizer copy
+  into a hardcoded `/workspace/node_modules`), now covered by the install.
+- **Verified:** published 0.3.1 vs branch build over MCP stdio — fresh npm project, macOS-installed
+  npm tree, macOS-installed pnpm tree all fail before, build after. AS path installs and reaches `asc`.
+
 ## [2026-10-09] - login lock message says how to clear an abandoned login
 
 - **Why:** in a test, an abandoned browser login (still waiting for approval) held the lock, so
