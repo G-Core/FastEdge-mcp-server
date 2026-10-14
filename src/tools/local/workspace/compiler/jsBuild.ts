@@ -30,7 +30,8 @@ export async function compileJavascriptBinary(
   if (!versionAtLeast(sdk.version, MIN_SDK_VERSION)) {
     throw new Error(
       `${SDK_PKG} ${sdk.version} found in ${sdk.dir}; build-wasm needs ${MIN_SDK_VERSION} or later. ` +
-        `Run "npm update ${SDK_PKG}" (or "pnpm update ${SDK_PKG}") in the project, then build again.`
+        `Install the latest in the project, then build again: "npm install ${SDK_PKG}@latest" ` +
+        `(pnpm, yarn or bun: "<pm> add ${SDK_PKG}@latest"). "npm update" can't get past an exact or ~ pin.`
     );
   }
   // The project's node_modules may come from another OS: use the image's wizer.
