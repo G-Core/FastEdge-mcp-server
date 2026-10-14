@@ -42,7 +42,7 @@ See `SEARCH_GUIDE.md` for more search patterns.
   it (walking up to the workspace root, so monorepo hoisting counts) and uses that tree as-is. Only
   when it is missing (a fresh project) does `installProjectDependencies` run, in the nearest
   lockfile's directory: `pnpm-lock.yaml` → `pnpm install`, npm lockfile or none → `npm install`,
-  yarn/bun → explicit error; always `--ignore-scripts`. An SDK older than 2.6.0 is a clear error
+  yarn/bun → explicit error saying to install on the host (yarn/bun projects build fine from a host-installed `node_modules`; only the container install is npm/pnpm-only); Yarn Plug'n'Play (`.pnp.cjs`) → error pointing to `nodeLinker: node-modules`; always `--ignore-scripts`. An SDK older than 2.6.0 is a clear error
   telling the user to `npm update` it (an install fallback would keep corrupting host trees).
   The tool runs via `node <package bin>` (no `npx`, so nothing is downloaded), and JS builds get
   `FASTEDGE_WIZER_PATH` from the image's own pinned `@bytecodealliance/wizer` (now a dependency;

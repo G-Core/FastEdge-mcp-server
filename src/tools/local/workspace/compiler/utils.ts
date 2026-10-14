@@ -64,10 +64,16 @@ async function installProjectDependencies(
     dir = dirname(dir);
   }
 
+  if (existsSync(join(installDir, ".pnp.cjs"))) {
+    throw new Error(
+      `Yarn Plug'n'Play project in ${installDir}: build-wasm needs a node_modules tree. ` +
+        'Set "nodeLinker: node-modules" in .yarnrc.yml, run yarn install on the host, then build again.'
+    );
+  }
   if (lockfile && !NPM_LOCKFILES.includes(lockfile) && lockfile !== "pnpm-lock.yaml") {
     throw new Error(
-      `${lockfile} found in ${installDir}: build-wasm installs dependencies with npm or pnpm only. ` +
-        "Use package-lock.json or pnpm-lock.yaml for this project."
+      `${lockfile} found in ${installDir} and dependencies aren't installed: build-wasm can only install ` +
+        "with npm or pnpm. Install them on the host with the project's package manager, then build again."
     );
   }
   // Mutable install on purpose: an agent may edit package.json without a host toolchain

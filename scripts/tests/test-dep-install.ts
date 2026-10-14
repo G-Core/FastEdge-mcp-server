@@ -51,7 +51,12 @@ test("lockfile in an ancestor → install at the ancestor", async () => {
 });
 
 test("yarn.lock → explicit unsupported error, nothing run", async () => {
-  await assert.rejects(run(["yarn.lock"]), /yarn\.lock found in .*npm or pnpm only/);
+  await assert.rejects(run(["yarn.lock"]), /yarn\.lock found in .*can only install with npm or pnpm/);
+  assert.equal(readFileSync(log, "utf8"), "");
+});
+
+test("yarn Plug'n'Play → explicit nodeLinker error, nothing run", async () => {
+  await assert.rejects(run(["yarn.lock", ".pnp.cjs"]), /Plug'n'Play .*nodeLinker: node-modules/);
   assert.equal(readFileSync(log, "utf8"), "");
 });
 
