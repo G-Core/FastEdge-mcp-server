@@ -1,5 +1,5 @@
 import { spawn } from "child_process";
-import { chmodSync, chownSync, statSync, existsSync, realpathSync } from "fs";
+import { chmodSync, chownSync, statSync, existsSync, realpathSync, readFileSync } from "fs";
 import { dirname, join, sep } from "path";
 
 // Fix ownership of the build output so the host user (who owns the bind-mounted
@@ -40,11 +40,9 @@ const LOCKFILES = [
 ];
 const NPM_LOCKFILES = ["package-lock.json", "npm-shrinkwrap.json"];
 
-// Install the project's dependencies inside the container before a JS/AS build.
-// node_modules installed on the host (e.g. macOS) carry the wrong native bindings
-// (esbuild, oxc, wizer), and a fresh project has none at all. Re-running the
-// project's own package manager on Linux fixes both: npm swaps the bindings,
-// pnpm adds the Linux ones alongside. On an up-to-date tree it is a fast no-op.
+// Install the project's dependencies inside the container. Only used when the build
+// tool isn't installed (a fresh project): an existing node_modules may belong to the
+// host OS, and reinstalling on Linux would swap its native bindings for Linux ones.
 // Lifecycle scripts are skipped: they are untrusted code and the build does not need them.
 async function installProjectDependencies(
   cwd: string,
@@ -174,4 +172,73 @@ export function spawnBounded(
   });
 }
 
-export { wasmOutputPermissions, installProjectDependencies };
+interface InstalledPackage {
+  dir: string;
+  version: string;
+  bin?: string | Record<string, string>;
+}
+
+// Find an installed package the way Node resolves it: <dir>/node_modules/<name>,
+// walking up from cwd to the workspace root, so monorepo-hoisted packages count.
+function findInstalledPackage(
+  cwd: string,
+  workspaceRoot: string,
+  name: string
+): InstalledPackage | undefined {
+  const root = realpathSync(workspaceRoot);
+  let dir = realpathSync(cwd);
+  while (dir === root || dir.startsWith(root + sep)) {
+    const pkgDir = join(dir, "node_modules", name);
+    if (existsSync(join(pkgDir, "package.json"))) {
+      const { version, bin } = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8"));
+      return { dir: pkgDir, version, bin };
+    }
+    if (dir === root) break;
+    dir = dirname(dir);
+  }
+  return undefined;
+}
+
+// Resolve the project's own build tool, installing dependencies only when it is
+// missing. An existing node_modules is used as-is, whatever OS installed it.
+async function ensureBuildTool(
+  cwd: string,
+  workspaceRoot: string,
+  env: NodeJS.ProcessEnv,
+  name: string
+): Promise<InstalledPackage> {
+  let found = findInstalledPackage(cwd, workspaceRoot, name);
+  if (!found) {
+    await installProjectDependencies(cwd, workspaceRoot, env);
+    found = findInstalledPackage(cwd, workspaceRoot, name);
+  }
+  if (!found) {
+    throw new Error(`${name} is not installed after installing dependencies: add it to the project's package.json.`);
+  }
+  return found;
+}
+
+function packageBin(pkg: InstalledPackage, binName: string): string {
+  const rel = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.[binName];
+  if (!rel) throw new Error(`${pkg.dir} has no "${binName}" executable`);
+  return join(pkg.dir, rel);
+}
+
+// true when version >= min (major.minor.patch; a prerelease of min counts as min).
+function versionAtLeast(version: string, min: string): boolean {
+  const a = version.split(/[.-]/).map(Number);
+  const b = min.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    if (a[i] !== b[i]) return a[i] > b[i];
+  }
+  return true;
+}
+
+export {
+  wasmOutputPermissions,
+  installProjectDependencies,
+  findInstalledPackage,
+  ensureBuildTool,
+  packageBin,
+  versionAtLeast,
+};

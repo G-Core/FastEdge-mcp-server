@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 
-import { wasmOutputPermissions, spawnBounded, installProjectDependencies } from "./utils.js";
+import { wasmOutputPermissions, spawnBounded, ensureBuildTool, packageBin } from "./utils.js";
 import { buildSubprocessEnv, normalizePath, INVALID_PATH } from "../../../../utils/index.js";
 
 const MAX_BUILD_MS = 180_000;
@@ -58,15 +58,16 @@ export async function compileAssemblyScriptBinary(
   const resolvedOutput =
     outputFilePath ?? readAsConfigOutFile(cwd, "release", workspaceRoot);
 
-  const ascArgs = ["asc", entryFilePath, "--target", "release"];
+  const env = buildSubprocessEnv();
+  // asc is pure JS, so a node_modules installed on any OS works as-is.
+  const assemblyscript = await ensureBuildTool(cwd, workspaceRoot, env, "assemblyscript");
+
+  const ascArgs = [packageBin(assemblyscript, "asc"), entryFilePath, "--target", "release"];
   if (outputFilePath) {
     ascArgs.push("--outFile", outputFilePath);
   }
 
-  const env = buildSubprocessEnv();
-  await installProjectDependencies(cwd, workspaceRoot, env);
-
-  const result = await spawnBounded("npx", ascArgs, {
+  const result = await spawnBounded(process.execPath, ascArgs, {
     cwd,
     env,
     timeoutMs: MAX_BUILD_MS,

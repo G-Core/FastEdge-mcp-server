@@ -1,12 +1,22 @@
 import {
   wasmOutputPermissions,
-  installProjectDependencies,
+  ensureBuildTool,
+  packageBin,
+  versionAtLeast,
   spawnBounded,
 } from "./utils.js";
 import { buildSubprocessEnv } from "../../../../utils/index.js";
 
 const MAX_BUILD_MS = 180_000;
 const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
+
+const SDK_PKG = "@gcoredev/fastedge-sdk-js";
+// First SDK release whose fastedge-build has no native bindings except wizer, and
+// honours FASTEDGE_WIZER_PATH. Older SDKs need Linux bindings in node_modules.
+const MIN_SDK_VERSION = "2.6.0";
+// Variable specifier: the package's types aren't needed, only its default export
+// (absolute path to this platform's wizer binary, from the image's own node_modules).
+const WIZER_PKG: string = "@bytecodealliance/wizer";
 
 export async function compileJavascriptBinary(
   entryFilePath: string,
@@ -16,12 +26,20 @@ export async function compileJavascriptBinary(
   tsconfigPath?: string
 ): Promise<string> {
   const env = buildSubprocessEnv();
-  await installProjectDependencies(cwd, workspaceRoot, env);
+  const sdk = await ensureBuildTool(cwd, workspaceRoot, env, SDK_PKG);
+  if (!versionAtLeast(sdk.version, MIN_SDK_VERSION)) {
+    throw new Error(
+      `${SDK_PKG} ${sdk.version} found in ${sdk.dir}; build-wasm needs ${MIN_SDK_VERSION} or later. ` +
+        `Run "npm update ${SDK_PKG}" (or "pnpm update ${SDK_PKG}") in the project, then build again.`
+    );
+  }
+  // The project's node_modules may come from another OS: use the image's wizer.
+  env.FASTEDGE_WIZER_PATH = (await import(WIZER_PKG)).default;
 
   const result = await spawnBounded(
-    "npx",
+    process.execPath,
     [
-      "fastedge-build",
+      packageBin(sdk, "fastedge-build"),
       "--input",
       entryFilePath,
       "--output",

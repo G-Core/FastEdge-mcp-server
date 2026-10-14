@@ -1,5 +1,6 @@
 /**
- * Tests for installProjectDependencies: picks the package manager from the
+ * Tests for build-tool resolution (installed tool used as-is, install only when
+ * missing) and installProjectDependencies: picks the package manager from the
  * nearest lockfile and installs in that directory, with lifecycle scripts off.
  * Run via: tsx --test scripts/tests/test-dep-install.ts
  */
@@ -8,7 +9,12 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installProjectDependencies } from "../../src/tools/local/workspace/compiler/utils.js";
+import {
+  installProjectDependencies,
+  ensureBuildTool,
+  packageBin,
+  versionAtLeast,
+} from "../../src/tools/local/workspace/compiler/utils.js";
 
 // Stub npm/pnpm on PATH that record "<cmd> <cwd> <args>" instead of installing.
 const bin = mkdtempSync(join(tmpdir(), "dep-install-bin-"));
@@ -58,4 +64,48 @@ test("failed install throws with stderr", async () => {
     installProjectDependencies(ws, ws, { PATH: `${failBin}:/usr/bin:/bin` }),
     /npm install in .* failed \(code 1\): E404 boom/
   );
+});
+
+function writePkg(dir: string, name: string, version: string) {
+  const pkgDir = join(dir, "node_modules", name);
+  mkdirSync(pkgDir, { recursive: true });
+  writeFileSync(join(pkgDir, "package.json"), JSON.stringify({ name, version, bin: { tool: "./bin/tool.js" } }));
+}
+
+test("build tool already installed → used as-is, no install", async () => {
+  const ws = realpathSync(mkdtempSync(join(tmpdir(), "dep-install-ws-")));
+  writePkg(ws, "assemblyscript", "0.28.0");
+  writeFileSync(log, "");
+  const pkg = await ensureBuildTool(ws, ws, env, "assemblyscript");
+  assert.equal(pkg.version, "0.28.0");
+  assert.equal(packageBin(pkg, "tool"), join(ws, "node_modules/assemblyscript/bin/tool.js"));
+  assert.equal(readFileSync(log, "utf8"), "");
+});
+
+test("build tool hoisted to a monorepo root → found, no install", async () => {
+  const ws = realpathSync(mkdtempSync(join(tmpdir(), "dep-install-ws-")));
+  writePkg(ws, "@gcoredev/fastedge-sdk-js", "2.6.0");
+  const app = join(ws, "apps/edge");
+  mkdirSync(app, { recursive: true });
+  writeFileSync(log, "");
+  const pkg = await ensureBuildTool(app, ws, env, "@gcoredev/fastedge-sdk-js");
+  assert.equal(pkg.dir, join(ws, "node_modules/@gcoredev/fastedge-sdk-js"));
+  assert.equal(readFileSync(log, "utf8"), "");
+});
+
+test("build tool missing → install, then error if still missing", async () => {
+  const ws = realpathSync(mkdtempSync(join(tmpdir(), "dep-install-ws-")));
+  writeFileSync(log, "");
+  await assert.rejects(ensureBuildTool(ws, ws, env, "assemblyscript"), /assemblyscript is not installed/);
+  assert.equal(readFileSync(log, "utf8").trim(), `npm ${ws} install --ignore-scripts --no-audit --no-fund`);
+});
+
+test("versionAtLeast", () => {
+  assert.equal(versionAtLeast("2.6.0", "2.6.0"), true);
+  assert.equal(versionAtLeast("2.10.1", "2.6.0"), true);
+  assert.equal(versionAtLeast("3.0.0", "2.6.0"), true);
+  assert.equal(versionAtLeast("2.6.0-beta.1", "2.6.0"), true);
+  assert.equal(versionAtLeast("2.5.9", "2.6.0"), false);
+  assert.equal(versionAtLeast("1.9.0", "2.6.0"), false);
+  assert.equal(versionAtLeast("garbage", "2.6.0"), false);
 });
