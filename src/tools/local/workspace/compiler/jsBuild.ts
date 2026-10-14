@@ -1,12 +1,22 @@
 import {
   wasmOutputPermissions,
-  setupCrossPlatformEnvironment,
+  ensureBuildTool,
+  packageBin,
+  versionAtLeast,
   spawnBounded,
 } from "./utils.js";
 import { buildSubprocessEnv } from "../../../../utils/index.js";
 
 const MAX_BUILD_MS = 180_000;
 const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
+
+const SDK_PKG = "@gcoredev/fastedge-sdk-js";
+// First SDK release whose fastedge-build has no native bindings except wizer, and
+// honours FASTEDGE_WIZER_PATH. Older SDKs need Linux bindings in node_modules.
+const MIN_SDK_VERSION = "2.6.0";
+// Variable specifier: the package's types aren't needed, only its default export
+// (absolute path to this platform's wizer binary, from the image's own node_modules).
+const WIZER_PKG: string = "@bytecodealliance/wizer";
 
 export async function compileJavascriptBinary(
   entryFilePath: string,
@@ -15,12 +25,22 @@ export async function compileJavascriptBinary(
   workspaceRoot: string,
   tsconfigPath?: string
 ): Promise<string> {
-  setupCrossPlatformEnvironment();
+  const env = buildSubprocessEnv();
+  const sdk = await ensureBuildTool(cwd, workspaceRoot, env, SDK_PKG);
+  if (!versionAtLeast(sdk.version, MIN_SDK_VERSION)) {
+    throw new Error(
+      `${SDK_PKG} ${sdk.version} found in ${sdk.dir}; build-wasm needs ${MIN_SDK_VERSION} or later. ` +
+        `Install the latest in the project, then build again: "npm install ${SDK_PKG}@latest" ` +
+        `(pnpm, yarn or bun: "<pm> add ${SDK_PKG}@latest"). "npm update" can't get past an exact or ~ pin.`
+    );
+  }
+  // The project's node_modules may come from another OS: use the image's wizer.
+  env.FASTEDGE_WIZER_PATH = (await import(WIZER_PKG)).default;
 
   const result = await spawnBounded(
-    "npx",
+    process.execPath,
     [
-      "fastedge-build",
+      packageBin(sdk, "fastedge-build"),
       "--input",
       entryFilePath,
       "--output",
@@ -29,7 +49,7 @@ export async function compileJavascriptBinary(
     ],
     {
       cwd,
-      env: buildSubprocessEnv(),
+      env,
       timeoutMs: MAX_BUILD_MS,
       maxOutputBytes: MAX_OUTPUT_BYTES,
     }

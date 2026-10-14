@@ -11,7 +11,7 @@ import { normalizePath, INVALID_PATH, buildSubprocessEnv } from "../../../utils/
 
 // Exact version of create-fastedge-app to use. Update this when the package releases
 // a new version — do not use @beta or @latest (workspace .npmrc can redirect the registry).
-const CREATE_APP_PKG = "create-fastedge-app@0.0.16";
+const CREATE_APP_PKG = "create-fastedge-app@0.0.18";
 
 // Override npm/npx config to prevent a workspace .npmrc from redirecting the
 // registry to an attacker-controlled host. npm_config_userconfig=/dev/null
@@ -126,7 +126,7 @@ export function registerCreateBoilerPlateCode(
           .string()
           .describe("Relative path where the project should be created"),
         packageManager: z
-          .enum(["npm", "pnpm", "yarn"])
+          .enum(["npm", "pnpm"])
           .optional()
           .describe("Package manager to use (default: npm)"),
       },
@@ -141,7 +141,7 @@ export function registerCreateBoilerPlateCode(
       template: ScaffoldTemplateType;
       language: Language;
       outputDir: string;
-      packageManager?: "npm" | "pnpm" | "yarn";
+      packageManager?: "npm" | "pnpm";
     }) => {
       const startTime = Date.now();
       try {
@@ -169,7 +169,7 @@ export function registerCreateBoilerPlateCode(
         // - npx --yes: Skip install confirmation
         // - --no-verify: Skip "Do you want to continue?" confirmation (validate-config.ts:211)
         // - --{language}: Specify language flag (--javascript, --typescript, etc.)
-        // - --pnpm or --yarn: Use alternative package manager (optional)
+        // - --pnpm: Use alternative package manager (optional; yarn is not in the image)
         const args = [
           "--yes",
           CREATE_APP_PKG,
@@ -233,10 +233,9 @@ export function registerCreateBoilerPlateCode(
                   4. Deploy to FastEdge using build-wasm and upload-binary tools
                 `
                 : dedent`
-                  2. npm install
-                  3. npm run build
-                  4. Test locally with fastedge-debugger (recommended)
-                  5. Deploy to FastEdge using build-wasm and upload-binary tools
+                  2. Build with the build-wasm tool (it installs dependencies in the container; no host npm install needed)
+                  3. Test locally with fastedge-debugger (recommended)
+                  4. Deploy to FastEdge using the upload-binary tool
               `
             }
 

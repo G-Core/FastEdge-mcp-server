@@ -51,7 +51,7 @@ export function registerBuildWasmTools(
         readOnlyHint: false,
         destructiveHint: true,
         idempotentHint: true,
-        openWorldHint: false,
+        openWorldHint: true, // a fresh project (no installed SDK) installs from the npm registry
       },
     },
     async (params) => {

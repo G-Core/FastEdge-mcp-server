@@ -133,7 +133,8 @@ The **FastEdge MCP Server** is a Model Context Protocol (MCP) server that provid
 ### Core Technologies
 - **Language**: TypeScript
 - **MCP SDK**: `@modelcontextprotocol/sdk` (^1.25.2)
-- **FastEdge SDK**: `@gcoredev/fastedge-sdk-js` (^2.2.0)
+- **FastEdge SDK**: `@gcoredev/fastedge-sdk-js` (devDependency, types only; projects must use 2.6.0+ for build-wasm)
+- **Wizer**: `@bytecodealliance/wizer` (pinned; the image's Linux wizer, passed to builds as `FASTEDGE_WIZER_PATH`)
 - **Node**: 20+ (defined in .node-version)
 - **Package Manager**: pnpm
 - **Build Tool**: TypeScript compiler + esbuild (for bundling)
@@ -252,6 +253,7 @@ FastEdge-mcp-server/
    - `build-wasm` handler:
      - Detects language (Rust/JS/AssemblyScript)
      - Locates build files (Cargo.toml/package.json)
+     - JS/AS: uses the project's installed SDK/assemblyscript as-is (any host OS); installs in the container only when missing (lockfile's package manager, `--ignore-scripts`)
      - Runs appropriate build command
      - Returns binary path + output
 

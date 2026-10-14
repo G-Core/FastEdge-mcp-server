@@ -14,6 +14,45 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-13] - pin create-fastedge-app 0.0.18 (scaffold landed in container /tmp)
+
+- **Why:** since the tmpdir-cwd hardening (f7fb4d6), `scaffold-fastedge-project` passes an absolute
+  output path; create-fastedge-app <= 0.0.17 prefixed it with `./` and resolved it against `/tmp`,
+  so every scaffold was written inside the container and lost while the tool reported success.
+  0.0.17 also fixed the AssemblyScript cdn-base template (`setLogLevel` import, TS2305).
+- **PR #62 review:** scaffold `packageManager` drops `yarn` (not in the image: the CLI's `yarn install`
+  already exited 1); the scaffolding prompt and guide say build-wasm needs no host install (host install only for local tests/builds); `build-wasm`
+  `openWorldHint` is now `true` (the install reaches the npm registry).
+- **Change:** `CREATE_APP_PKG` → `create-fastedge-app@0.0.18`. Verified over MCP: scaffold →
+  build-wasm succeeds for cdn-base/assemblyscript and http-base/typescript.
+
+## [2026-10-14] - build-wasm builds JS/AS with the project's node_modules as-is; installs only when missing (issue #61)
+
+- **Why:** `build-wasm` ran `npx fastedge-build` / `npx asc` with no install step. A fresh project
+  (no `node_modules`) failed with `E404 fastedge-build`; a tree installed on a macOS host failed
+  with `Cannot find native binding` (darwin `@oxc-minify`/`@esbuild`/wizer bindings in a Linux container).
+- **Rejected first fix:** installing in the container before every build. It works, but on macOS or
+  native Windows npm swaps the host's native bindings for Linux ones through the bind mount, so the
+  developer's next host build (FastEdge VS Code extension, `npm run build`) fails the same way.
+  Copying the project into the container and renaming `node_modules` aside were also rejected
+  (imports from outside the app folder, monorepo install cost, crash leaves the tree renamed).
+- **Change:** paired with `@gcoredev/fastedge-sdk-js` 2.6.0, whose `fastedge-build` has no native
+  bindings except wizer and honours `FASTEDGE_WIZER_PATH`. `ensureBuildTool` (`compiler/utils.ts`)
+  finds the project's installed `@gcoredev/fastedge-sdk-js` / `assemblyscript` the way Node resolves
+  it (walking up to the workspace root, so monorepo hoisting counts) and uses that tree as-is. Only
+  when it is missing (a fresh project) does `installProjectDependencies` run, in the nearest
+  lockfile's directory: `pnpm-lock.yaml` → `pnpm install`, npm lockfile or none → `npm install`,
+  yarn/bun → explicit error saying to install on the host (yarn/bun projects build fine from a host-installed `node_modules`; only the container install is npm/pnpm-only); Yarn Plug'n'Play (`.pnp.cjs`) → error pointing to `nodeLinker: node-modules`; always `--ignore-scripts`. An SDK older than 2.6.0 is a clear error
+  telling the user to install `@latest` with their package manager (an install fallback would keep corrupting host trees; `npm update` can't move past an exact or `~` pin).
+  The tool runs via `node <package bin>` (no `npx`, so nothing is downloaded), and JS builds get
+  `FASTEDGE_WIZER_PATH` from the image's own pinned `@bytecodealliance/wizer` (now a dependency;
+  `@gcoredev/fastedge-sdk-js` moved to devDependencies, used only for types). Removed
+  `setupCrossPlatformEnvironment` (wizer copy into a hardcoded `/workspace/node_modules`).
+- **Verified over MCP stdio** (branch image, SDK 2.6.0 packed locally): tree with every Linux native
+  deleted builds in 2.4s with `node_modules` and lockfile byte-identical; fresh project installs then
+  builds; SDK 2.5.2 gives the upgrade error; AssemblyScript builds from an existing tree untouched
+  and installs when `node_modules` is missing.
+
 ## [2026-10-09] - login lock message says how to clear an abandoned login
 
 - **Why:** in a test, an abandoned browser login (still waiting for approval) held the lock, so
