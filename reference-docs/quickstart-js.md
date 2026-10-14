@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-sdk-js
-      ref: v2.5.2
-      commit: 9c8c7886f0d1ec5ac2296b4080805966a96ca817
-      updated: 2026-10-02
+      ref: v2.6.0
+      commit: 332d5d125cf92e2108ab898fcda29068bcddc40d
+      updated: 2026-10-14
 -->
 
 # FastEdge JavaScript Quickstart
@@ -30,7 +30,7 @@ Run the interactive wizard to create a new project:
 npx fastedge-init
 ```
 
-The wizard asks what you're building (HTTP event handler or Static website), then creates a `.fastedge/` directory with build configuration and generates a `build-config.js` file. See the fastedge-init CLI reference for full wizard details.
+The wizard asks what you're building (HTTP event handler or Static website). For HTTP apps, it prompts for an existing entry file path and exits with an error if that file does not exist — write the entry file first. It creates a `.fastedge/` directory with build configuration and generates a `build-config.js` file. If `.fastedge/build-config.js` already exists, the wizard warns and asks whether to overwrite it. See the fastedge-init CLI reference for full wizard details.
 
 ### Build Directly
 
@@ -44,6 +44,12 @@ Or with explicit flags:
 
 ```bash
 npx fastedge-build --input src/index.ts --output app.wasm --tsconfig tsconfig.json
+```
+
+A single positional argument is treated as a path to a build config file:
+
+```bash
+npx fastedge-build .fastedge/build-config.js
 ```
 
 See the fastedge-build CLI reference for all flags and config options.
@@ -156,9 +162,12 @@ The `fastedge::cache` module provides a POP-local key/value store with TTL and a
 Cache.get(key: string): Promise<CacheEntry | null>
 Cache.set(key: string, value: CacheValue, options?: WriteOptions): Promise<void>
 Cache.getOrSet(key: string, populate: () => CacheValue | Promise<CacheValue>, options?: WriteOptions): Promise<CacheEntry>
+Cache.getOrSet(key: string, populate: () => CacheValue | null | Promise<CacheValue | null>, options?: WriteOptions): Promise<CacheEntry | null>
 Cache.incr(key: string, delta?: number): Promise<number>
 Cache.expire(key: string, options: WriteOptions): Promise<boolean>
 ```
+
+When `populate` resolves with `null`, nothing is written to the cache and `getOrSet` resolves with `null`.
 
 Example — rate limiting with cache:
 
@@ -226,9 +235,71 @@ Key settings:
 - **`types: ["@gcoredev/fastedge-sdk-js"]`** — Brings `FetchEvent` and all FastEdge globals into scope automatically. No triple-slash directive is needed in TypeScript source files when this field is set.
 - **`noEmit: true`** — `tsc` is used for type-checking only. `fastedge-build` handles the actual compilation to WebAssembly.
 
+## fastedge-init: HTTP Handler Wizard Output
+
+With default prompts, the HTTP handler path writes `.fastedge/build-config.js`:
+
+```js
+const config = {
+  "type": "http",
+  "tsConfigPath": "./tsconfig.json",
+  "entryPoint": "src/index.js",
+  "wasmOutput": ".fastedge/dist/main.wasm"
+};
+
+const serverConfig = {
+  "type": "http"
+};
+
+export { config, serverConfig };
+```
+
+Default prompt values:
+
+| Prompt | Default |
+| --- | --- |
+| Path to your entry file | `src/index.js` |
+| Path to your output file (`.wasm`) | `.fastedge/dist/main.wasm` |
+
+## fastedge-init: Static Website Wizard Output
+
+Default prompt values:
+
+| Prompt | Default |
+| --- | --- |
+| Path to your output file (`.wasm`) | `.fastedge/dist/fastedge.wasm` |
+| Path to your public directory | `./build` |
+| Is your site a single page application? | No |
+| Path to your SPA entrypoint (SPA only) | `./index.html` |
+
+The public directory must exist and must not be empty; otherwise the wizard exits with an error. Files written:
+
+| File | Purpose |
+| --- | --- |
+| `.fastedge/build-config.js` | Build configuration and static server configuration |
+| `.fastedge/static-index.js` | Generated entry file that serves the static asset manifest |
+| `.fastedge/package.json` | Marks the `.fastedge/` directory as an ES module project |
+| `.fastedge/jsconfig.json` | Sets the compile target to `ES2023` |
+
+## fastedge-build CLI Flags
+
+| Flag | Alias | Type | Description |
+| --- | --- | --- | --- |
+| `--input` | `-i` | `string` | Entry point file |
+| `--output` | `-o` | `string` | Output `.wasm` file path |
+| `--tsconfig` | `-t` | `string` | Path to `tsconfig.json` |
+| `--config` | `-c` | `string[]` | Path(s) to build config file(s) |
+| `--version` | `-v` | `boolean` | Print version |
+| `--help` | `-h` | `boolean` | Print help |
+
 ## Next Steps
 
 - SDK API reference — full runtime API for env, secrets, KV, cache, and fetch
 - Build CLI reference — all fastedge-build flags and config options
 - Init CLI reference — fastedge-init scaffold wizard details
 - Static sites guide — serve static websites from FastEdge
+
+## See Also
+
+- SDK Runtime API reference — complete `Cache`, `KvStore`, env, and secret reference
+- Examples — real-world patterns in the FastEdge SDK JS repository

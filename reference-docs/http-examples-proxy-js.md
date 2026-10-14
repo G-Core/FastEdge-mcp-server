@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-sdk-js
-      ref: v2.5.2
-      commit: 9c8c7886f0d1ec5ac2296b4080805966a96ca817
-      updated: 2026-10-02
+      ref: v2.6.0
+      commit: 332d5d125cf92e2108ab898fcda29068bcddc40d
+      updated: 2026-10-14
 -->
 
 # Proxy and Response Transform Patterns (JavaScript/TypeScript)
@@ -227,6 +227,7 @@ Returns: `ArrayBuffer | null` — `null` if the key does not exist.
 - **Parallelise outbound calls** with `Promise.all([fetch(...), fetch(...)])` to stay within the call budget and reduce wall-clock time. Sequential `await fetch(...)` chains count against the same budget and are slower.
 - **Slow upstreams** count against the execution budget. An upstream that does not respond within the remaining budget triggers a 532 timeout.
 - **Body size limits** apply to both inbound and outbound bodies. Stream with `upstream.body` rather than buffering with `.arrayBuffer()` / `.text()` / `.json()` when the response is large.
+- **Redirect handling:** set `redirect: "manual"` in `fetch()` init to intercept redirects rather than following them automatically.
 
 ---
 
