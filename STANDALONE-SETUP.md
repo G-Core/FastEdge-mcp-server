@@ -200,7 +200,7 @@ docker run --rm -i --pull=always \
 
 ## Permissions
 
-The container entrypoint automatically detects the owner of the `/workspace` mount and drops privileges to that UID/GID, so generated files are not root-owned. When the mount appears as root-owned (for example on Docker Desktop, where mounts are virtualized), it falls back to UID/GID 10001 rather than running as root.
+The container entrypoint automatically detects the owner of the `/workspace` mount and drops privileges to that UID/GID, so generated files are not root-owned. When the mount appears as root-owned (for example on Docker Desktop, where mounts are virtualized), it falls back to UID/GID 10001 rather than running as root. A root group alone (as in GitHub Codespaces, where the workspace is owned by `vscode:root`) falls back to GID 10001.
 
 If builds fail with "Permission denied", or generated files end up with the wrong owner, add `"-e", "HOST_UID=<uid>", "-e", "HOST_GID=<gid>"` to `args` (on Linux/macOS, `id -u` and `id -g` print them). In a shell, that is `-e HOST_UID=$(id -u) -e HOST_GID=$(id -g)`.
 
