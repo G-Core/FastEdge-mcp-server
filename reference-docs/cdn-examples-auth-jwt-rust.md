@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-sdk-rust
-      ref: main
-      commit: 6eedcca9d5c0ddd4ff79ca475965393891da2d75
-      updated: 2026-09-22
+      ref: v0.4.5
+      commit: e7f446a4b40b791b932ab36b2c7a0c85fd24104d
+      updated: 2026-10-14
 -->
 
 ---
@@ -25,7 +25,7 @@ Validates a Bearer JWT on every incoming CDN request using the proxy-wasm filter
 ```toml
 proxy-wasm = "0.2"
 fastedge = { version = "0.4", features = ["proxywasm"] }
-jsonwebtoken = "9"
+jsonwebtoken = "10"
 serde = { version = "1", features = ["derive"] }
 headers = "0.4"
 ```

@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-sdk-rust
-      ref: main
-      commit: 6eedcca9d5c0ddd4ff79ca475965393891da2d75
-      updated: 2026-09-22
+      ref: v0.4.5
+      commit: e7f446a4b40b791b932ab36b2c7a0c85fd24104d
+      updated: 2026-10-14
 -->
 
 ---
@@ -127,13 +127,6 @@ use fastedge::cache;
 use fastedge::http::{Request, Response, StatusCode};
 ```
 
-## See Also
-
-- fastedge-sdk-rust cache module documentation
-- examples-cache-basic-rust (this file) pairs with the HTTP app deploy reference for upload and wiring steps
-- platform-overview for cache subsystem lifecycle and eviction behavior
-- best-practices for cache key namespacing and TTL selection guidance
-
 ## Source Material
 
 ### FILE: examples/http/basic/cache/src/lib.rs
@@ -213,7 +206,6 @@ fn generate_body(path: &str) -> String {
 }
 ```
 
-
 ### FILE: examples/http/basic/cache/Cargo.toml
 
 ```toml
@@ -231,7 +223,6 @@ crate-type = ["cdylib"]
 fastedge = "0.4"
 anyhow = "1"
 ```
-
 
 ### FILE: examples/http/basic/cache/README.md
 
@@ -279,3 +270,10 @@ cargo build --release
 - `fastedge::cache::get(key)` — retrieve cached bytes by key; returns `Ok(Option<Vec<u8>>)`
 - `fastedge::cache::set(key, bytes, ttl_ms)` — store bytes with optional TTL in milliseconds; `None` means no expiry
 ```
+
+## See Also
+
+- fastedge-sdk-rust cache module documentation
+- examples-cache-basic-rust (this file) pairs with the HTTP app deploy reference for upload and wiring steps
+- platform-overview for cache subsystem lifecycle and eviction behavior
+- best-practices for cache key namespacing and TTL selection guidance

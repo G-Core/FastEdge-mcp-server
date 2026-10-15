@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-sdk-js
-      ref: v2.5.2
-      commit: 9c8c7886f0d1ec5ac2296b4080805966a96ca817
-      updated: 2026-10-02
+      ref: v2.6.0
+      commit: 332d5d125cf92e2108ab898fcda29068bcddc40d
+      updated: 2026-10-14
 -->
 
 ## KV Store — Example Reference
@@ -291,7 +291,7 @@ export const stringifyValueScoreTuples = (tupleList: Array<[ArrayBuffer, number]
   "description": "FastEdge JS example: KV Store operations via query params",
   "type": "module",
   "scripts": { "build": "fastedge-build -c" },
-  "dependencies": { "@gcoredev/fastedge-sdk-js": "^2.5.2" }
+  "dependencies": { "@gcoredev/fastedge-sdk-js": "^2.6.0" }
 }
 ```
 
@@ -326,6 +326,6 @@ TypeScript types for FastEdge globals (`FetchEvent`, etc.) are provided by `@gco
 - `bfExists` returning `true` is probabilistic (Bloom filter); `false` is definitive.
 - `min` and `max` for `zrangeByScore` are parsed from query strings with `Number.parseFloat` — ensure numeric string inputs.
 - `"type": "module"` must be set in `package.json` for ESM compatibility with `fastedge-build`.
-- The SDK dependency version is `^2.5.2`.
+- The SDK dependency version is `^2.6.0`.
 - `tsconfig.json` `target` is `ES2023`; `moduleResolution` is `Bundler`; `lib` is `["ES2023"]`; `types` is `["@gcoredev/fastedge-sdk-js"]`.
 - Empty string values for required query parameters are treated as missing — validation rejects them the same as absent params.

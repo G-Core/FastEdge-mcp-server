@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-sdk-rust
-      ref: main
-      commit: 6eedcca9d5c0ddd4ff79ca475965393891da2d75
-      updated: 2026-09-22
+      ref: v0.4.5
+      commit: e7f446a4b40b791b932ab36b2c7a0c85fd24104d
+      updated: 2026-10-14
 -->
 
 ---
@@ -18,7 +18,7 @@ capabilities: [s3-upload, presigned-url, outbound-fetch, env-config, file-size-l
 
 Edge function that accepts a file upload via `POST` or `PUT`, generates a presigned S3 `PUT` URL on the fly using `rusty_s3`, forwards the file body to the S3-compatible endpoint via `fastedge::send_request`, and returns the clean object URL to the caller.
 
-**Handler type:** `#[fastedge::http]` (sync, `wasm32-wasip1` target). For new apps, prefer the async WASI handler.
+**Handler type:** `#[fastedge::http]` (sync, `wasm32-wasip1` target). Legacy handler — for new apps, prefer the async WASI handler.
 
 **Crate:** `s3upload` — `crate-type = ["cdylib"]`
 
@@ -133,7 +133,7 @@ Request::builder()
 | `400 BAD_REQUEST` | Missing `name` query param or empty body |
 | `405 METHOD_NOT_ALLOWED` | Method is not `POST`, `PUT`, or `OPTIONS` |
 | `413 PAYLOAD_TOO_LARGE` | Body exceeds `MAX_FILE_SIZE` |
-| `500 INTERNAL_SERVER_ERROR` | `prepare_s3` failed (missing env var or parse error), or request builder failed |
+| `500 INTERNAL_SERVER_ERROR` | `prepare_s3` failed (missing env var or parse error), or request builder failed, or `fastedge::send_request` failed |
 | Forwarded from S3 | Any non-200 S3 response — status and body passed through |
 
 ---
@@ -172,6 +172,7 @@ cargo build --release
 - On S3 success, the response body is replaced entirely with the clean object URL — the original S3 response body is discarded.
 - The `UrlStyle::Path` style is used for `Bucket::new` — bucket name appears in the URL path, not the hostname.
 - Query params (`?name=...`) are parsed manually using `split('&')` and `splitn(2, '=')` into a `HashMap<String, String>`.
+- `fastedge::send_request` errors (network/transport failures) return `500 INTERNAL_SERVER_ERROR` with an empty body.
 
 ---
 

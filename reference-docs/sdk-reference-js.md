@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-sdk-js
-      ref: v2.5.2
-      commit: 9c8c7886f0d1ec5ac2296b4080805966a96ca817
-      updated: 2026-10-02
+      ref: v2.6.0
+      commit: 332d5d125cf92e2108ab898fcda29068bcddc40d
+      updated: 2026-10-14
 -->
 
 # JavaScript SDK Reference (`@gcoredev/fastedge-sdk-js`)
@@ -111,7 +111,7 @@ Only available **during request handling**, not at build-time initialization.
 
 **`getSecret`** — Returns the current value of a named secret. Returns `null` if not set.
 
-**`getSecretEffectiveAt`** — Returns the value of a named secret from a specific slot. `effectiveAt` is a Unix timestamp (number). The slot returned is the most recent slot where `slot <= effectiveAt`. Returns `null` if not set. Use for zero-downtime secret rotation.
+**`getSecretEffectiveAt`** — Returns the value of a named secret from a specific slot. `effectiveAt` is the slot index of the secret (`effectiveAt >= secret_slots.slot`). It is converted to a 32-bit integer; negative values are treated as `0`. Slot indices can also be Unix timestamps. The slot returned is the most recent slot where `slot <= effectiveAt`. Returns `null` if not set. Use for zero-downtime secret rotation.
 
 ```js
 /// <reference types="@gcoredev/fastedge-sdk-js" />
@@ -120,6 +120,9 @@ import { getSecret, getSecretEffectiveAt } from "fastedge::secret";
 
 async function app(event) {
   const token   = getSecret("API_TOKEN");
+  // Using a slot index
+  const password = getSecretEffectiveAt("PASSWORD", 1);
+  // Using a Unix timestamp as slot index
   const slotted = getSecretEffectiveAt("API_TOKEN", 1745698356);
   return new Response("ok", { status: 200 });
 }
@@ -234,7 +237,7 @@ import { Cache } from "fastedge::cache";
 | Consistency scope | Strong within a POP; independent across POPs | Eventual; globally replicated |
 | Atomic operations | `incr`, `decr`, `getOrSet` coalescing | Not available |
 | Typical use cases | Rate limits, counters, request coalescing | Configuration, lookup tables, sorted sets |
-| Data persistence | Evicted; no durability guarantee | Durable; persists across deployments |
+| Data persistence | Transient; subject to host eviction | Replicated across data centers |
 
 #### CacheValue
 
@@ -244,11 +247,11 @@ Values accepted by `Cache.set` and the `populate` callback of `Cache.getOrSet`:
 type CacheValue = string | ArrayBuffer | ArrayBufferView | ReadableStream | Response;
 ```
 
-All forms are stored as raw bytes. `string` is encoded as UTF-8. `ReadableStream` is fully consumed before storage. `Response` — `response.arrayBuffer()` is consumed; status and headers are discarded. The cache stores bytes only. To round-trip status or headers, encode them into the value (e.g., as a JSON envelope).
+All forms are stored as raw bytes. `string` is encoded as UTF-8. `ArrayBuffer` / `ArrayBufferView` used directly. `ReadableStream` is fully consumed before storage. `Response` — `response.arrayBuffer()` is consumed; status and headers are discarded. The cache stores bytes only. To round-trip status or headers, encode them into the value (e.g., as a JSON envelope).
 
 #### WriteOptions
 
-Controls how long a cache entry lives. Pass exactly one of `ttl`, `ttlMs`, or `expiresAt`. Passing more than one, or a zero or negative value, throws `TypeError`. Omitting `options` entirely stores the entry with no expiry (subject to host eviction policy).
+Controls how long a cache entry lives. Pass exactly one of `ttl`, `ttlMs`, or `expiresAt`. Passing more than one, an options value that is not an object (`null` and `undefined` mean no options), or a value that resolves to a TTL that is not positive (zero, negative, non-finite, or an `expiresAt` in the past) or not below `Number.MAX_SAFE_INTEGER` ms throws an `Error`. For `set` and `getOrSet`, if the options bag is omitted or empty, the entry has no expiry and persists until explicitly deleted (subject to the host's eviction policy).
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -270,7 +273,9 @@ A handle to a cached value. The bytes are already in memory when you receive a `
 
 #### Cache Methods
 
-All methods are static; `Cache` is never constructed. All methods return `Promise`. Operational errors surface as Promise rejections. Argument validation errors (wrong types, conflicting `WriteOptions` fields) throw synchronously; both are caught the same way by `try`/`catch` around an `await`.
+All methods are static; `Cache` is never constructed. Every method returns a `Promise`.
+
+Operational errors from the host surface as Promise rejections. Invalid `WriteOptions`, a non-function `populate`, and an invalid `delta` (non-finite, non-integer, or beyond ±`Number.MAX_SAFE_INTEGER`) throw an `Error` synchronously. A `set` value of an unsupported type rejects the returned Promise. Keys are converted with `String()`. Both forms are caught the same way by `try`/`catch` around an `await`.
 
 | Method | Signature | Returns |
 |--------|-----------|---------|
@@ -294,9 +299,9 @@ All methods are static; `Cache` is never constructed. All methods return `Promis
 
 **`delete`** — Removes `key` from the cache. A no-op if the key does not exist.
 
-**`expire`** — Updates the expiry of an existing key without changing its value. Resolves to `true` if the expiry was set, `false` if the key does not exist.
+**`expire`** — Updates the expiry of an existing key without changing its value. Resolves to `true` if the expiry was set, `false` if the key does not exist. `options` must set one of `ttl`, `ttlMs`, or `expiresAt`; omitting it, or passing an empty object, throws an `Error`.
 
-**`incr` / `decr`** — Atomically increment or decrement an integer stored at `key`. If the key does not exist, it is initialised to `0` before the operation. Resolves to the new value after the operation. Rejects if the stored value is not an integer. `delta` defaults to `1`. `Cache.decr` is sugar for `Cache.incr(key, -(delta ?? 1))`. `delta` may be any integer; prefer `decr` when subtracting for readability. Strong per-POP consistency makes these reliable for per-POP rate limits.
+**`incr` / `decr`** — Atomically increment or decrement an integer stored at `key`. If the key does not exist, it is initialised to `0` before the operation. Resolves to the new value after the operation. Rejects if the stored value is not an integer. `delta` defaults to `1`. `Cache.decr` is sugar for `Cache.incr(key, -(delta ?? 1))`. `delta` may be any integer; prefer `decr` when subtracting for readability. Integer values larger than `Number.MAX_SAFE_INTEGER` (2^53 − 1) are not represented exactly. Strong per-POP consistency makes these reliable for per-POP rate limits.
 
 **`getOrSet`** — Returns the entry for `key`, or calls `populate` on a cache miss and stores the result. All concurrent callers for the same key within the same WASM instance share a single `populate` execution — the callback is not duplicated for joiners. Concurrent requests handled by other WASM instances race independently and may each call `populate`. If `populate` throws or its Promise rejects, the rejection propagates to all current waiters; the next call after a failure retries `populate` (no negative caching). If `populate` resolves with `null`, the value is not written to the cache and `getOrSet` resolves with `null` (skip-cache signal). Use this to wrap fallible work and only pin successes.
 
@@ -386,10 +391,12 @@ const html = readFileSync("./public/index.html");  // Uint8Array
 Every FastEdge application handles incoming requests by registering a listener for the `"fetch"` event.
 
 ```typescript
-addEventListener("fetch", (event: FetchEvent) => void);
+addEventListener(type: "fetch", listener: (this: typeof globalThis, event: FetchEvent) => any): void
 ```
 
-`respondWith` must be called **synchronously** within the event listener, but may be passed a `Promise<Response>`. The service is kept alive until the response is fully sent.
+`respondWith` must be called **synchronously** within the event listener, but may be passed a `Promise<Response>`. The service is kept alive until the response is fully sent. If the response contains a streaming body created by the service itself, the service is kept alive until that `ReadableStream` has closed or errored. If the body is a stream originating from a backend response, the service is not kept alive until sending the body has finished.
+
+By default, the service shuts down as soon as the response passed to `respondWith` has been sent. Use `waitUntil` to keep the service alive until additional asynchronous work completes.
 
 **`FetchEvent`:**
 
@@ -405,7 +412,7 @@ addEventListener("fetch", (event: FetchEvent) => void);
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `address` | `string` | IPv4 or IPv6 address of the downstream client. Empty string if unavailable. |
+| `address` | `string` | IPv4 or IPv6 address of the downstream client. Empty string if unavailable. Read from platform-set `x-real-ip` header, falling back to `x-forwarded-for`. |
 | `tlsJA3MD5` | `string` | JA3 TLS-handshake fingerprint as an MD5 hex string. Empty string for non-TLS requests or when fingerprinting is unavailable. |
 | `protocol` | `string` | Protocol family — `"https"` or `"http"`. Not the TLS version string. |
 | `geo` | `GeoInfo` | Client geographic information. Populated lazily on first access. |
@@ -480,7 +487,7 @@ FastEdge runs on StarlingMonkey (SpiderMonkey-based Wasm runtime). The following
 
 | API | Standard-conformant | Notes |
 |-----|--------------------|----- |
-| Fetch (`fetch`, `Request`, `Response`, `Headers`) | Mostly — see limitations | Incoming `request.headers` is read-only |
+| Fetch (`fetch`, `Request`, `Response`, `Headers`) | Mostly — see limitations | Incoming `request.headers` is read-only; `Response.error()` not implemented |
 | URL (`URL`, `URLSearchParams`) | Yes | WHATWG URL spec |
 | Streams (`ReadableStream`, `WritableStream`, `TransformStream`) | Yes | WHATWG Streams spec; includes BYOB reader, compression streams |
 | Encoding (`TextEncoder`, `TextDecoder`, `atob`, `btoa`) | Yes | |
@@ -522,12 +529,16 @@ const data = await response.json();
 new Request(input: RequestInfo | URL, init?: RequestInit): Request
 ```
 
+**Note:** `Request` can only be used when processing requests, not during build-time initialization.
+
 | `RequestInit` field | Type | Description |
 |---------------------|------|-------------|
 | `method` | `string` | HTTP method. Defaults to `"GET"`. |
 | `headers` | `HeadersInit` | Request headers. |
 | `body` | `BodyInit \| null` | Request body. |
 | `signal` | `AbortSignal \| null` | Abort signal for the request. |
+
+Other WHATWG `RequestInit` fields (`cache`, `credentials`, `integrity`, `keepalive`, `mode`, `redirect`, `referrer`, `referrerPolicy`, `window`) are not supported and are silently ignored if passed.
 
 | `Request` property / method | Type | Description |
 |-----------------------------|------|-------------|
@@ -552,6 +563,8 @@ Response.redirect(url: string | URL, status?: number): Response
 Response.json(data: any, init?: ResponseInit): Response
 ```
 
+**Note:** `Response` can only be used when processing requests, not during build-time initialization. `Response.error()` is not implemented.
+
 | `ResponseInit` field | Type | Description |
 |----------------------|------|-------------|
 | `status` | `number` | HTTP status code. Defaults to `200`. |
@@ -569,6 +582,7 @@ Response.json(data: any, init?: ResponseInit): Response
 | `headers` | `Headers` | Response headers. |
 | `body` | `ReadableStream<Uint8Array> \| null` | Response body stream. |
 | `bodyUsed` | `boolean` | Whether the body has already been consumed. |
+| `clone()` | `() => Response` | Creates a copy of the response. |
 | `text()` | `() => Promise<string>` | Reads body as a string. |
 | `json()` | `() => Promise<any>` | Reads body and parses as JSON. |
 | `arrayBuffer()` | `() => Promise<ArrayBuffer>` | Reads body as an `ArrayBuffer`. |
@@ -591,14 +605,14 @@ new Headers(init?: HeadersInit): Headers
 | `append(name, value)` | `(name: string, value: string) => void` |
 | `delete(name)` | `(name: string) => void` |
 | `getSetCookie()` | `() => string[]` |
-| `forEach(callback)` | `(callback: (value: string, key: string, parent: Headers) => void) => void` |
+| `forEach(callback, thisArg?)` | `(callback: (value: string, key: string, parent: Headers) => void, thisArg?: any) => void` |
 | `entries()` | `() => IterableIterator<[string, string]>` |
 | `keys()` | `() => IterableIterator<string>` |
 | `values()` | `() => IterableIterator<string>` |
 
 ##### Headers Immutability
 
-The `headers` object on an incoming `event.request` is **read-only**. Calls to `append`, `set`, or `delete` will throw a `TypeError`. To modify headers, construct a new `Headers` object:
+The `headers` object on an incoming `event.request` is **read-only**, and so are the headers of `event.request.clone()`. Calls to `append`, `set`, or `delete` will throw a `TypeError`. To modify headers, construct a new `Headers` object:
 
 ```js
 const newHeaders = new Headers(event.request.headers);
@@ -621,7 +635,7 @@ const proxied = new Request(event.request.url, {
 new URL(url: string, base?: string | URL): URL
 ```
 
-Parses and manipulates URLs per the WHATWG URL specification.
+Parses and manipulates URLs per the WHATWG URL specification. Also provides `toJSON(): string`.
 
 | Property | Type | Mutable |
 |----------|------|---------|
@@ -651,6 +665,8 @@ new URLSearchParams(
 ): URLSearchParams
 ```
 
+Also exposes a read-only `size: number` property containing the number of search parameter entries.
+
 | Method | Signature |
 |--------|-----------|
 | `get(name)` | `(name: string) => string \| null` |
@@ -663,7 +679,7 @@ new URLSearchParams(
 | `entries()` | `() => IterableIterator<[string, string]>` |
 | `keys()` | `() => IterableIterator<string>` |
 | `values()` | `() => IterableIterator<string>` |
-| `forEach(callback)` | `(callback: (value: string, name: string, searchParams: URLSearchParams) => void) => void` |
+| `forEach(callback, thisArg?)` | `(callback: (value: string, name: string, searchParams: URLSearchParams) => void, thisArg?: any) => void` |
 
 ---
 
@@ -677,13 +693,17 @@ The WHATWG Streams API is available for constructing and transforming streaming 
 new ReadableStream<R>(underlyingSource?: UnderlyingSource<R>, strategy?: QueuingStrategy<R>): ReadableStream<R>
 ```
 
+Also exposes a read-only `locked: boolean` property.
+
 | `UnderlyingSource` field | Type |
 |--------------------------|------|
-| `start` | `(controller: ReadableStreamDefaultController<R>) => any` |
-| `pull` | `(controller: ReadableStreamDefaultController<R>) => void \| PromiseLike<void>` |
+| `start` | `(controller: ReadableStreamController<R>) => any` |
+| `pull` | `(controller: ReadableStreamController<R>) => void \| PromiseLike<void>` |
 | `cancel` | `(reason?: any) => void \| PromiseLike<void>` |
 | `type` | `"bytes" \| undefined` |
 | `autoAllocateChunkSize` | `number` |
+
+`ReadableStreamController<R>` is `ReadableStreamDefaultController<R> | ReadableByteStreamController`.
 
 | `ReadableStream` method | Signature |
 |-------------------------|-----------|
@@ -693,7 +713,21 @@ new ReadableStream<R>(underlyingSource?: UnderlyingSource<R>, strategy?: Queuing
 | `tee()` | `() => [ReadableStream<R>, ReadableStream<R>]` |
 | `cancel(reason?)` | `(reason?: any) => Promise<void>` |
 
-To read a byte stream with a caller-supplied buffer, call `getReader({ mode: 'byob' })` which returns a `ReadableStreamBYOBReader`. The BYOB reader's `read(view)` method fills the provided `ArrayBufferView` in-place.
+`StreamPipeOptions` accepts `{ preventAbort?: boolean, preventCancel?: boolean, preventClose?: boolean, signal?: AbortSignal }`.
+
+To read a byte stream with a caller-supplied buffer, call `getReader({ mode: 'byob' })` which returns a `ReadableStreamBYOBReader`. The BYOB reader's `read(view, options?: { min?: number })` method fills the provided `ArrayBufferView` in-place.
+
+**Readers and controllers:**
+
+| Type | Members |
+|------|---------|
+| `ReadableStreamDefaultReader<R>` | `read()`, `releaseLock()`, `cancel(reason?)`, `closed` |
+| `ReadableStreamBYOBReader` | `read(view, options?)`, `releaseLock()`, `cancel(reason?)`, `closed` |
+| `ReadableStreamDefaultController<R>` | `desiredSize`, `close()`, `enqueue(chunk)`, `error(e?)` |
+| `ReadableByteStreamController` | `byobRequest`, `desiredSize`, `close()`, `enqueue(chunk)`, `error(e?)` |
+| `ReadableStreamBYOBRequest` | `view`, `respond(bytesWritten)`, `respondWithNewView(view)` |
+
+`ReadableByteStreamController.enqueue` accepts an `ArrayBufferView`.
 
 ```js
 const stream = new ReadableStream({
@@ -713,10 +747,31 @@ return new Response(stream, { status: 200 });
 new WritableStream<W>(underlyingSink?: UnderlyingSink<W>, strategy?: QueuingStrategy<W>): WritableStream<W>
 ```
 
+Also exposes a read-only `locked: boolean` property.
+
+| `UnderlyingSink` field | Type |
+|------------------------|------|
+| `start` | `(controller: WritableStreamDefaultController) => any` |
+| `write` | `(chunk: W, controller: WritableStreamDefaultController) => void \| PromiseLike<void>` |
+| `close` | `() => void \| PromiseLike<void>` |
+| `abort` | `(reason?: any) => void \| PromiseLike<void>` |
+
 | `WritableStream` method | Signature |
 |-------------------------|-----------|
 | `getWriter()` | `() => WritableStreamDefaultWriter<W>` |
 | `abort(reason?)` | `(reason?: any) => Promise<void>` |
+
+| `WritableStreamDefaultWriter<W>` member | Type / Signature |
+|----------------------------------------|-----------------|
+| `write(chunk)` | `(chunk: W) => Promise<void>` |
+| `close()` | `() => Promise<void>` |
+| `abort(reason?)` | `(reason?: any) => Promise<void>` |
+| `releaseLock()` | `() => void` |
+| `closed` | `Promise<undefined>` |
+| `ready` | `Promise<undefined>` |
+| `desiredSize` | `number \| null` |
+
+`WritableStreamDefaultController` provides `error(e?: any): void`.
 
 ##### `TransformStream`
 
@@ -732,6 +787,14 @@ new TransformStream<I, O>(
 |----------|------|-------------|
 | `readable` | `ReadableStream<O>` | The readable side of the transform. |
 | `writable` | `WritableStream<I>` | The writable side of the transform. |
+
+| `Transformer` field | Type |
+|---------------------|------|
+| `start` | `(controller: TransformStreamDefaultController<O>) => void \| PromiseLike<void>` |
+| `transform` | `(chunk: I, controller: TransformStreamDefaultController<O>) => void \| PromiseLike<void>` |
+| `flush` | `(controller: TransformStreamDefaultController<O>) => void \| PromiseLike<void>` |
+
+`TransformStreamDefaultController<O>` exposes `desiredSize`, `enqueue(chunk?)`, `error(reason?)`, and `terminate()`.
 
 ##### Queuing Strategies
 
@@ -787,7 +850,7 @@ const encoded = new TextEncoder().encode("hello");    // Uint8Array
 const decoded = new TextDecoder().decode(encoded);    // "hello"
 ```
 
-`TextDecoder` accepts an optional encoding label (default `"utf-8"`) and options `{ fatal?: boolean, ignoreBOM?: boolean }`. `TextEncoder` always encodes as UTF-8 and additionally exposes `encodeInto(source, destination)` which writes into a pre-allocated `Uint8Array` and returns `{ read, written }`.
+`TextDecoder` accepts an optional encoding label (default `"utf-8"`) and options `{ fatal?: boolean, ignoreBOM?: boolean }`. Its `decode(input?, options?: { stream?: boolean })` method decodes a `BufferSource` to a string. `TextEncoder` always encodes as UTF-8 and additionally exposes `encodeInto(source, destination)` which writes into a pre-allocated `Uint8Array` and returns `{ read, written }`.
 
 ##### Base64
 
@@ -834,7 +897,7 @@ new Blob(blobParts?: BlobPart[], options?: BlobPropertyBag): Blob
 new File(fileBits: BlobPart[], fileName: string, options?: FilePropertyBag): File
 ```
 
-`File` extends `Blob` and adds:
+`FilePropertyBag` extends `BlobPropertyBag` with `lastModified?: number`. `File` extends `Blob` and adds:
 
 | Property | Type | Description |
 |----------|------|-------------|
@@ -857,7 +920,7 @@ new FormData(): FormData
 | `getAll(name)` | `(name: string) => FormDataEntryValue[]` |
 | `has(name)` | `(name: string) => boolean` |
 | `set(name, value)` | `(name: string, value: string \| Blob, fileName?: string) => void` |
-| `forEach(callback)` | `(callback: (value: FormDataEntryValue, key: string, parent: FormData) => void) => void` |
+| `forEach(callback, thisArg?)` | `(callback: (value: FormDataEntryValue, key: string, parent: FormData) => void, thisArg?: any) => void` |
 | `entries()` | `() => IterableIterator<[string, FormDataEntryValue]>` |
 | `keys()` | `() => IterableIterator<string>` |
 | `values()` | `() => IterableIterator<FormDataEntryValue>` |
@@ -931,8 +994,8 @@ Available as `crypto.subtle`.
 |-----------|---------------------|
 | `digest()` | SHA-1, SHA-256, SHA-384, SHA-512, MD5 |
 | `sign()` / `verify()` | RSASSA-PKCS1-v1_5, ECDSA, HMAC |
-| `importKey()` | JWK, PKCS#8, SPKI, raw (HMAC) |
-| `getRandomValues()` | ✓ |
+| `importKey()` | JWK, PKCS#8, SPKI, raw (HMAC only — ECDSA raw import raises `NotSupportedError`) |
+| `getRandomValues()` | ✓ (on `crypto`, not `crypto.subtle`) |
 | `encrypt()` / `decrypt()` | **Not implemented** |
 | `generateKey()`, `deriveKey()`, `deriveBits()` | **Not implemented** |
 | `exportKey()` | **Not implemented** |
@@ -940,6 +1003,8 @@ Available as `crypto.subtle`.
 These operations support JWT verification (HMAC / ECDSA / RSASSA-PKCS1-v1_5), SAML assertion verification (SHA-256 digest + RSASSA-PKCS1-v1_5 + SPKI importKey), and general signature verification workflows.
 
 `ECDSA` requires `EcdsaParams` (`{ name: 'ECDSA', hash: AlgorithmIdentifier }`) for `sign` and `verify` so that the hash function can be specified.
+
+Import parameter dictionaries: `HmacImportParams` is `{ name, hash, length? }`, `RsaHashedImportParams` is `{ name, hash }`, and `EcKeyImportParams` is `{ name: 'ECDSA', namedCurve: 'P-256' | 'P-384' | 'P-521' }`.
 
 `importKey` overloads:
 
@@ -969,7 +1034,18 @@ Supported `(algorithm, format)` combinations:
 |-----------|------------------|
 | `HMAC` | `'raw'`, `'jwk'` |
 | `RSASSA-PKCS1-v1_5` | `'jwk'`, `'spki'`, `'pkcs8'` |
-| `ECDSA` | `'jwk'`, `'raw'`, `'spki'`, `'pkcs8'` |
+| `ECDSA` | `'jwk'`, `'spki'`, `'pkcs8'` |
+
+##### `CryptoKey`
+
+Returned by `importKey`. Read-only properties:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `algorithm` | `KeyAlgorithm` | Algorithm the key was imported with. |
+| `extractable` | `boolean` | Whether the key is extractable. |
+| `type` | `KeyType` | One of `private`, `public`, or `secret`. |
+| `usages` | `KeyUsage[]` | Permitted operations for the key. |
 
 ```js
 // Compute SHA-256 digest
@@ -1020,9 +1096,12 @@ The global `console` object writes to stdout. Unlike browser or Node.js implemen
 | `console.count` | Logs call count for a label. |
 | `console.countReset` | Resets call count for a label. |
 | `console.group` | Starts an indented group. |
+| `console.groupCollapsed` | Starts a collapsed indented group. |
 | `console.groupEnd` | Ends an indented group. |
 | `console.dir` | Logs object representation. |
+| `console.dirxml` | Logs an XML/HTML-style representation. |
 | `console.table` | Logs tabular data. |
+| `console.clear` | Clears the console. |
 
 ---
 
@@ -1063,11 +1142,11 @@ new EventTarget(): EventTarget
 | Global | Type / Signature | Description |
 |--------|-----------------|-------------|
 | `self` | `typeof globalThis` | Reference to the global object. |
-| `location` | `WorkerLocation` | URL of the current worker script. |
-| `queueMicrotask(callback)` | `(callback: () => void) => void` | Queues a microtask. |
+| `location` | `WorkerLocation` | The incoming request URL during request handling. During build-time initialization it is the configured init location; reading it when no init location was set throws a `TypeError`. |
+| `queueMicrotask(callback)` | `(callback: VoidFunction) => void` | Queues a microtask. |
 | `structuredClone(value, opts?)` | `(value: any, options?: StructuredSerializeOptions) => any` | Deep-clones a value. Transferable: `ArrayBuffer`. |
 
-`WorkerLocation` exposes `href`, `origin`, `protocol`, `host`, `hostname`, `port`, `pathname`, `search`, and `hash` as read-only string properties.
+`WorkerLocation` exposes `href`, `origin`, `protocol`, `host`, `hostname`, `port`, `pathname`, `search`, and `hash` as read-only string properties, and a `toString()` method.
 
 ---
 

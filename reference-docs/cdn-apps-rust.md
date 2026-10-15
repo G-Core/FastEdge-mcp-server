@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-sdk-rust
-      ref: main
-      commit: 6eedcca9d5c0ddd4ff79ca475965393891da2d75
-      updated: 2026-09-22
+      ref: v0.4.5
+      commit: e7f446a4b40b791b932ab36b2c7a0c85fd24104d
+      updated: 2026-10-14
 -->
 
 # FastEdge Rust SDK — CDN Apps (Proxy-Wasm)
@@ -195,12 +195,12 @@ impl HttpContext for HelloWorld {
 
 ## Lifecycle Callbacks
 
-| Callback                                                                                        | Phase            | Description                                         |
-| ----------------------------------------------------------------------------------------------- | ---------------- | --------------------------------------------------- |
-| `on_http_request_headers(num_headers: usize, end_of_stream: bool) -> Action`                   | Request headers  | Inspect or modify request headers before forwarding |
-| `on_http_request_body(body_size: usize, end_of_stream: bool) -> Action`                        | Request body     | Inspect or modify request body before forwarding    |
-| `on_http_response_headers(num_headers: usize, end_of_stream: bool) -> Action`                  | Response headers | Inspect or modify response headers from origin      |
-| `on_http_response_body(body_size: usize, end_of_stream: bool) -> Action`                       | Response body    | Inspect or modify response body from origin         |
+| Callback                                                                                       | Phase            | Description                                         |
+| ---------------------------------------------------------------------------------------------- | ---------------- | --------------------------------------------------- |
+| `on_http_request_headers(num_headers: usize, end_of_stream: bool) -> Action`                  | Request headers  | Inspect or modify request headers before forwarding |
+| `on_http_request_body(body_size: usize, end_of_stream: bool) -> Action`                       | Request body     | Inspect or modify request body before forwarding    |
+| `on_http_response_headers(num_headers: usize, end_of_stream: bool) -> Action`                 | Response headers | Inspect or modify response headers from origin      |
+| `on_http_response_body(body_size: usize, end_of_stream: bool) -> Action`                      | Response body    | Inspect or modify response body from origin         |
 
 All callbacks have default no-op implementations. Override only the phases your app needs to process.
 
