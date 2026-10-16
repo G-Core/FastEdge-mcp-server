@@ -341,6 +341,7 @@ test("choice-mode commands carry the key but don't force ephemeral; --use stays;
   assert.doesNotMatch(codeCommand(API)!, /FASTEDGE_SESSION/);
   assert.match(useCommand(API)!, / login --use <client_id>$/);
   assert.match(manualFallback(API)!, /agent-connect\?seal=1 /);
+  assert.doesNotMatch(manualFallback(API)!, /fastedge-login/, "the helper always forces ephemeral, so only for a forced server");
 });
 
 /** Resolves once `cond()` holds (an explicit barrier, not a timing guess). */

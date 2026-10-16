@@ -987,6 +987,10 @@ test("auth_required offers four choices: browser here, remote with a code, not n
   assert.match(text, /4\. Use an existing API key instead: call fastedge-auth-status/);
   assert.match(text, /follow its api_key_setup/);
   assert.match(text, /never ask them to paste the connect code/);
+  assert.match(text, /including Claude Code's `!`/);
+  assert.match(text, /CODESPACES=\$CODESPACES FASTEDGE_LOGIN=\$FASTEDGE_LOGIN/, "the agent checks where the user is");
+  assert.match(text, /put choice 2 first and mark it recommended/);
+  assert.doesNotMatch(text, /manual option/, "the page has no manual option to choose");
   assert.match(text, /After 1 or 2, retry this request/);
   // Copilot opened the manual link in its own browser once: both links are the user's to open.
   assert.match(text, /Never open a portal link yourself/);
