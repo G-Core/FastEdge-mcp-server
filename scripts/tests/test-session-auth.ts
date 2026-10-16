@@ -893,24 +893,24 @@ test("a valid connect code saves a session exactly like a browser login", async 
   assert.ok(!existsSync(join(dir, ".lock")), "lock released");
 });
 
-const badCodes: Array<[string, string]> = [
-  ["a raw token", TOKEN],
-  ["the wrong prefix", encode(codePayload()).replace("fe1.", "fe2.")],
-  ["not base64url", "fe1.@@@"],
-  ["not JSON", `fe1.${Buffer.from("nope").toString("base64url")}`],
-  ["the wrong version", encode(codePayload({ v: 2 }))],
-  ["another origin", encode(codePayload({ api_origin: "https://api.gcore.com" }))],
-  ["an expired session", encode(codePayload({ expires_at: new Date(Date.now() - 1000).toISOString() }))],
-  ["a lifetime past the 7-day cap", encode(codePayload({ expires_at: new Date(Date.now() + 8 * 24 * HOUR).toISOString() }))],
-  ["a bad token", encode(codePayload({ token: "a b" }))],
-  ["a missing client_id", encode(codePayload({ client_id: undefined }))],
+const badCodes: Array<[string, string, RegExp]> = [
+  ["a raw token", TOKEN, /isn't a whole FastEdge connect code/],
+  ["the wrong prefix", encode(codePayload()).replace("fe1.", "fe2."), /isn't a whole FastEdge connect code/],
+  ["not base64url", "fe1.@@@", /isn't a whole FastEdge connect code/],
+  ["not JSON", `fe1.${Buffer.from("nope").toString("base64url")}`, /isn't a whole FastEdge connect code/],
+  ["the wrong version", encode(codePayload({ v: 2 })), /isn't a whole FastEdge connect code/],
+  ["another origin", encode(codePayload({ api_origin: "https://api.gcore.com" })), /is for https:\/\/api\.gcore\.com, but this login is for/],
+  ["an expired session", encode(codePayload({ expires_at: new Date(Date.now() - 1000).toISOString() })), /expired at/],
+  ["a lifetime past the 7-day cap", encode(codePayload({ expires_at: new Date(Date.now() + 8 * 24 * HOUR).toISOString() })), /longer than this login allows .*Check this computer's clock/],
+  ["a bad token", encode(codePayload({ token: "a b" })), /damaged/],
+  ["a missing client_id", encode(codePayload({ client_id: undefined })), /damaged/],
 ];
-for (const [label, code] of badCodes) {
+for (const [label, code, says] of badCodes) {
   test(`login --code rejects ${label} (exit 8, nothing written)`, () => {
     const dir = tmp();
     assert.throws(
       () => connectWithCode(code, { apiOrigin: API, sessionDir: dir }),
-      (err: unknown) => err instanceof LoginError && err.exitCode === 8 && !String(err.message).includes(TOKEN),
+      (err: unknown) => err instanceof LoginError && err.exitCode === 8 && !String(err.message).includes(TOKEN) && says.test(String(err.message)),
     );
     assert.ok(!existsSync(join(dir, "accounts")));
   });

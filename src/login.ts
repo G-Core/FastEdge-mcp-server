@@ -21,6 +21,7 @@ const MESSAGES = {
   denied: "Access was denied in the portal.",
 } as const;
 const MAX_CODE_CHARS = 8192;
+const STARS = 32;
 const DEFAULT_SAVED = `${GCORE_API_ORIGIN} is now the default for MCP servers started without GCORE_API_BASE. Restart a running one to switch it.`;
 
 function usage(): never {
@@ -30,31 +31,71 @@ function usage(): never {
   process.exit(2);
 }
 
-/** Reads one line from the terminal without echoing it (never from args, env or a pipe). */
+/**
+ * The last 4 characters, only for a portal connect code: the page writes api_origin last, so its
+ * tail is part of the origin. Anything else (a raw token, a reordered code) shows no tail.
+ */
+function originTail(code: string): string | null {
+  if (!/^fe[12]\.[A-Za-z0-9_-]+$/.test(code)) return null;
+  try {
+    const keys = Object.keys(JSON.parse(Buffer.from(code.slice(4), "base64url").toString("utf8")));
+    return keys[keys.length - 1] === "api_origin" ? code.slice(-4) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Reads one line from the terminal, echoing only stars (never from args, env or a pipe). */
 function readHidden(prompt: string): Promise<string> {
   const stdin = process.stdin;
   return new Promise((resolve, reject) => {
     let value = "";
+    // Escape sequences (bracketed-paste markers ESC[200~ … ESC[201~, arrow keys) are dropped
+    // as they arrive, so they never count as code characters: 1 = after ESC, 2 = inside ESC[.
+    let esc = 0;
     const finish = (err?: Error) => {
       stdin.off("data", onData);
       stdin.setRawMode(false);
       stdin.pause();
       process.stderr.write("\n");
-      // Bracketed-paste markers (ESC[200~ … ESC[201~): the ESC is dropped below, the rest here.
+      const code = value.trim();
+      if (!err && code) {
+        const tail = originTail(code);
+        process.stderr.write(`Got a ${code.length}-character code${tail ? ` ending ...${tail}` : ""}\n`);
+      }
       if (err) reject(err);
-      else resolve(value.replace(/\[20[01]~/g, ""));
+      else resolve(code);
     };
     const onData = (chunk: string) => {
       for (const ch of chunk) {
+        if (esc === 1) {
+          esc = 0;
+          if (ch === "[") {
+            esc = 2;
+            continue;
+          }
+          // A lone ESC (the Escape key): handle this character normally.
+        }
+        if (esc === 2) {
+          if (ch >= "@" && ch <= "~") esc = 0; // a CSI sequence ends at its final byte
+          continue;
+        }
+        if (ch === "\u001b") {
+          esc = 1;
+          continue;
+        }
         if (ch === "\r" || ch === "\n") return finish();
         if (ch === "\u0003" || ch === "\u0004") return finish(new Error("Cancelled."));
         if (ch === "\u007f" || ch === "\b") {
+          if (value && value.length <= STARS) process.stderr.write("\b \b");
           value = value.slice(0, -1);
           continue;
         }
-        if (ch < " ") continue; // ignore other control characters, e.g. paste brackets
+        if (ch < " ") continue; // ignore other control characters
         if (value.length >= MAX_CODE_CHARS) return finish(new Error("That code is too long."));
         value += ch;
+        // One star per character, capped so a long code doesn't fill the screen.
+        if (value.length <= STARS) process.stderr.write("*");
       }
     };
     process.stderr.write(prompt);
@@ -161,7 +202,7 @@ async function main() {
       }
       let code: string;
       try {
-        code = await readHidden("Paste the connect code from the portal (it won't be shown), then press Enter: ");
+        code = await readHidden("Paste the connect code from the portal (shown as *), then press Enter: ");
       } catch (err) {
         console.error(err instanceof Error ? err.message : "Cancelled.");
         process.exit(2);
