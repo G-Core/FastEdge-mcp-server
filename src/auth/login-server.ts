@@ -242,7 +242,8 @@ function deliveryProblem(f: Record<string, string>, apiOrigin: string, now: numb
   if (expiresAt <= now) {
     return `This connect code expired at ${new Date(expiresAt).toISOString()}. Approve again on the portal's agent-connect page and copy the new code.`;
   }
-  return `This connect code lasts until ${new Date(expiresAt).toISOString()}, longer than this login allows (${Math.round(maxLifetimeMs / 3_600_000)} hours from now, ${new Date(now).toISOString()}). Check this computer's clock, then approve again with a shorter lifetime.`;
+  const allowedUntil = now + maxLifetimeMs;
+  return `This connect code lasts until ${new Date(expiresAt).toISOString()}, longer than this login allows (${Math.round(maxLifetimeMs / 3_600_000)} hours from now, ${new Date(allowedUntil).toISOString()}). Check this computer's clock, then approve again with a shorter lifetime.`;
 }
 
 /** `login --code`: validate a pasted connect code and save it like a browser login. */
