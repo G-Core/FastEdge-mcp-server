@@ -362,6 +362,8 @@ test("the broker's handshake carries its key; the server's login commands then s
     assert.match(codeCommand(API)!, / -e FASTEDGE_SESSION=ephemeral .* login --code --seal-to /);
     assert.equal(useCommand(API), null, "no --use in ephemeral mode");
     assert.match(manualFallback(API)!, /agent-connect\?ephemeral=1 /, "the manual path tells the page too");
+    assert.match(manualFallback(API)!, new RegExp(`\`fastedge-login --save ${recipient.publicKey} ${API} [0-9A-Za-z_.-]+\``), "the codespace helper gets this key");
+    assert.doesNotMatch(manualFallback(API, 42)!, /fastedge-login/, "no helper for an account-locked login");
   } finally {
     conns.forEach((c) => c.destroy());
     listener.close();

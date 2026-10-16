@@ -893,24 +893,24 @@ test("a valid connect code saves a session exactly like a browser login", async 
   assert.ok(!existsSync(join(dir, ".lock")), "lock released");
 });
 
-const badCodes: Array<[string, string]> = [
-  ["a raw token", TOKEN],
-  ["the wrong prefix", encode(codePayload()).replace("fe1.", "fe2.")],
-  ["not base64url", "fe1.@@@"],
-  ["not JSON", `fe1.${Buffer.from("nope").toString("base64url")}`],
-  ["the wrong version", encode(codePayload({ v: 2 }))],
-  ["another origin", encode(codePayload({ api_origin: "https://api.gcore.com" }))],
-  ["an expired session", encode(codePayload({ expires_at: new Date(Date.now() - 1000).toISOString() }))],
-  ["a lifetime past the 7-day cap", encode(codePayload({ expires_at: new Date(Date.now() + 8 * 24 * HOUR).toISOString() }))],
-  ["a bad token", encode(codePayload({ token: "a b" }))],
-  ["a missing client_id", encode(codePayload({ client_id: undefined }))],
+const badCodes: Array<[string, string, RegExp]> = [
+  ["a raw token", TOKEN, /isn't a whole FastEdge connect code/],
+  ["the wrong prefix", encode(codePayload()).replace("fe1.", "fe2."), /isn't a whole FastEdge connect code/],
+  ["not base64url", "fe1.@@@", /isn't a whole FastEdge connect code/],
+  ["not JSON", `fe1.${Buffer.from("nope").toString("base64url")}`, /isn't a whole FastEdge connect code/],
+  ["the wrong version", encode(codePayload({ v: 2 })), /isn't a whole FastEdge connect code/],
+  ["another origin", encode(codePayload({ api_origin: "https://api.gcore.com" })), /is for https:\/\/api\.gcore\.com, but this login is for/],
+  ["an expired session", encode(codePayload({ expires_at: new Date(Date.now() - 1000).toISOString() })), /expired at/],
+  ["a lifetime past the 7-day cap", encode(codePayload({ expires_at: new Date(Date.now() + 8 * 24 * HOUR).toISOString() })), /longer than this login allows .*Check this computer's clock/],
+  ["a bad token", encode(codePayload({ token: "a b" })), /damaged/],
+  ["a missing client_id", encode(codePayload({ client_id: undefined })), /damaged/],
 ];
-for (const [label, code] of badCodes) {
+for (const [label, code, says] of badCodes) {
   test(`login --code rejects ${label} (exit 8, nothing written)`, () => {
     const dir = tmp();
     assert.throws(
       () => connectWithCode(code, { apiOrigin: API, sessionDir: dir }),
-      (err: unknown) => err instanceof LoginError && err.exitCode === 8 && !String(err.message).includes(TOKEN),
+      (err: unknown) => err instanceof LoginError && err.exitCode === 8 && !String(err.message).includes(TOKEN) && says.test(String(err.message)),
     );
     assert.ok(!existsSync(join(dir, "accounts")));
   });
@@ -987,6 +987,10 @@ test("auth_required offers four choices: browser here, remote with a code, not n
   assert.match(text, /4\. Use an existing API key instead: call fastedge-auth-status/);
   assert.match(text, /follow its api_key_setup/);
   assert.match(text, /never ask them to paste the connect code/);
+  assert.match(text, /including Claude Code's `!`/);
+  assert.match(text, /CODESPACES=\$CODESPACES FASTEDGE_LOGIN=\$FASTEDGE_LOGIN/, "the agent checks where the user is");
+  assert.match(text, /put choice 2 first and mark it recommended/);
+  assert.doesNotMatch(text, /manual option/, "the page has no manual option to choose");
   assert.match(text, /After 1 or 2, retry this request/);
   // Copilot opened the manual link in its own browser once: both links are the user's to open.
   assert.match(text, /Never open a portal link yourself/);
