@@ -106,6 +106,14 @@ check "no broker process with an explicit key" "$(broker_pid)" ""
 check "no broker socket directory with an explicit key" "$(in_c '[ -e /run/fastedge-broker ] && echo yes || echo no')" "no"
 docker rm -f "$CONTAINER" >/dev/null; CONTAINER=""
 
+# A workspace with group root (Codespaces: vscode:root) gets the 10001 group, not a refusal.
+echo "Root-group workspace"
+# A non-root uid, so the root-uid fallback (which also sets the gid) can't make this pass.
+CONTAINER="$(docker run -d -i -v "$WS:/workspace" -v "$VOL_GOOD:/run/fastedge:ro" -e GCORE_API_BASE=$API -e HOST_UID=1000 -e HOST_GID=0 "$IMAGE")"
+sleep 2
+check "a root-group workspace runs the server as uid 1000, gid 10001" "$(in_c "awk '/^Uid:/{u=\$2} /^Gid:/{g=\$2} END{print u\":\"g}' /proc/1/status")" "1000:10001"
+docker rm -f "$CONTAINER" >/dev/null; CONTAINER=""
+
 # --- 3. Session mode under attack -------------------------------------------------------------
 echo "Session mode"
 printf 'console.error("PRELOAD RAN in uid " + process.getuid())\n' > "$WS/evil.cjs"

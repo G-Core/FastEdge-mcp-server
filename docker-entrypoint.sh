@@ -116,6 +116,10 @@ if [ "$target_uid" = "0" ]; then
   target_uid=10001
   target_gid=10001
 fi
+# Same for a root group alone (a Codespaces workspace is owned by vscode:root).
+if [ "$target_gid" = "0" ]; then
+  target_gid=10001
+fi
 
 if [ -z "${GCORE_API_KEY:-${FASTEDGE_API_KEY:-}}" ]; then
   # --- Session mode (no API key) ---------------------------------------------

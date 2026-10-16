@@ -14,6 +14,14 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-15] - entrypoint: root-group workspace falls back to gid 10001 (Codespaces)
+
+- **Why:** a Codespaces workspace is owned by `vscode:root` (1000:0). The entrypoint fell back to
+  10001 only for a root uid, so it dropped to 1000:0 and the keyless server then refused gid 0
+  ("Refusing to start without GCORE_API_KEY as root…"); no MCP server started in a codespace.
+- **Change:** `docker-entrypoint.sh` replaces a resolved gid of 0 with 10001 on its own; the uid is
+  unchanged. Gate row "Root-group workspace" in `scripts/tests/test-broker-isolation.sh`.
+
 ## [2026-10-13] - pin create-fastedge-app 0.0.18 (scaffold landed in container /tmp)
 
 - **Why:** since the tmpdir-cwd hardening (f7fb4d6), `scaffold-fastedge-project` passes an absolute
