@@ -4,6 +4,7 @@ import { GCORE_API_ORIGIN } from "./api-client.js";
 import {
   LoginError,
   connectWithCode,
+  originTail,
   logoutActive,
   logoutSessions,
   requireSealKey,
@@ -29,20 +30,6 @@ function usage(): never {
     "Usage: login [--seal-to <key>] [--account <client_id>] [--set-default-origin] | login --code [--seal-to <key>] [--account <client_id>] [--set-default-origin] | login --use <client_id> [--set-default-origin] | login --logout [<client_id> | all]",
   );
   process.exit(2);
-}
-
-/**
- * The last 4 characters, only for a portal connect code: the page writes api_origin last, so its
- * tail is part of the origin. Anything else (a raw token, a reordered code) shows no tail.
- */
-function originTail(code: string): string | null {
-  if (!/^fe[12]\.[A-Za-z0-9_-]+$/.test(code)) return null;
-  try {
-    const keys = Object.keys(JSON.parse(Buffer.from(code.slice(4), "base64url").toString("utf8")));
-    return keys[keys.length - 1] === "api_origin" ? code.slice(-4) : null;
-  } catch {
-    return null;
-  }
 }
 
 /** Reads one line from the terminal, echoing only stars (never from args, env or a pipe). */

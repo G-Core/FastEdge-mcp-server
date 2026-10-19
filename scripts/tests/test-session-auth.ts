@@ -16,7 +16,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import { authRequiredResult, createAuth, createKeyAuth, type Auth, type AuthRequiredReason } from "../../src/auth/credentials.js";
-import { LoginError, connectWithCode, ensureInstallationId, logoutActive, logoutSessions, startLogin, useCachedAccount } from "../../src/auth/login-server.js";
+import { LoginError, connectWithCode, ensureInstallationId, originTail, logoutActive, logoutSessions, startLogin, useCachedAccount } from "../../src/auth/login-server.js";
 import { readDefaultOrigin, removeExpired, saveSession } from "../../src/auth/store.js";
 import { ALLOWED_API_ORIGINS } from "../../src/api-client.js";
 import { PORTAL_ORIGINS } from "../../src/auth/session.js";
@@ -915,6 +915,28 @@ for (const [label, code, says] of badCodes) {
     assert.ok(!existsSync(join(dir, "accounts")));
   });
 }
+
+test("login --code shows a tail only when the code ends with an allowlisted api_origin", () => {
+  const good = encode(codePayload());
+  assert.equal(originTail(good), good.slice(-4));
+  const { token, ...rest } = codePayload();
+  // A token_id length that leaves spare bits in the last character (decoded length 1 mod 3)
+  const odd = [1, 12, 123].map((token_id) => encode(codePayload({ token_id }))).find((c) => (c.length - 4) % 4 === 2)!;
+  const spareBits = `${odd.slice(0, -1)}${String.fromCharCode(odd.charCodeAt(odd.length - 1) + 1)}`;
+  assert.equal(originTail(odd), odd.slice(-4));
+  assert.deepEqual(Buffer.from(spareBits.slice(4), "base64url"), Buffer.from(odd.slice(4), "base64url"));
+  const notShown: Array<[string, string]> = [
+    ["a raw token", TOKEN],
+    ["the token last", encode({ ...rest, token })],
+    // JSON.parse keeps a duplicate key's first position, so a key-order check would pass this
+    ["a duplicate token last", `fe1.${Buffer.from(`${JSON.stringify(codePayload()).slice(0, -1)},"token":"${TOKEN}"}`).toString("base64url")}`],
+    // Same decoded bytes, but the last character's ignored spare bits are set
+    ["a non-canonical last character", spareBits],
+    ["not JSON", `fe1.${Buffer.from(`nope,"api_origin":"${API}"}`).toString("base64url")}`],
+    ["an origin outside the allowlist", encode(codePayload({ api_origin: "https://evil.example" }))],
+  ];
+  for (const [label, code] of notShown) assert.equal(originTail(code), null, label);
+});
 
 test("login --code refuses to read from a pipe (exit 2)", () => {
   const r = spawnSync(process.execPath, ["--import", "tsx", "src/login.ts", "--code"], {

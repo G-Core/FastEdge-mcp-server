@@ -166,6 +166,29 @@ function decodeConnectCode(code: string): { fields: Record<string, string>; keep
   }
 }
 
+/**
+ * The last 4 characters, only for a portal connect code: the page writes api_origin last, so its
+ * tail is part of the origin. Anything else (a raw token, a reordered code, a duplicate key) shows no tail.
+ */
+export function originTail(code: string): string | null {
+  if (!/^fe[12]\.[A-Za-z0-9_-]+$/.test(code)) return null;
+  // The decoded text itself must end with an allowlisted origin: parsed keys keep a duplicate's
+  // first position, so a key-order check could pass with the token last. The 4 characters cover
+  // at most the last 4 bytes: `"}` and the end of the origin.
+  // Canonical only: spare bits in the last character are ignored by decoding, so they could carry anything.
+  const bytes = Buffer.from(code.slice(4), "base64url");
+  if (bytes.toString("base64url") !== code.slice(4)) return null;
+  const text = bytes.toString("utf8");
+  try {
+    JSON.parse(text);
+  } catch {
+    return null;
+  }
+  return Object.keys(PORTAL_ORIGINS).some((o) => text.endsWith(`,"api_origin":${JSON.stringify(o)}}`))
+    ? code.slice(-4)
+    : null;
+}
+
 type How = "keep" | "seal";
 
 /**
