@@ -4,7 +4,7 @@
     - id: fastedge-sdk-js
       ref: v2.6.0
       commit: 332d5d125cf92e2108ab898fcda29068bcddc40d
-      updated: 2026-10-14
+      updated: 2026-10-19
 -->
 
 # JavaScript SDK Reference (`@gcoredev/fastedge-sdk-js`)
@@ -119,11 +119,11 @@ Only available **during request handling**, not at build-time initialization.
 import { getSecret, getSecretEffectiveAt } from "fastedge::secret";
 
 async function app(event) {
-  const token   = getSecret("API_TOKEN");
+  const token    = getSecret("API_TOKEN");
   // Using a slot index
   const password = getSecretEffectiveAt("PASSWORD", 1);
   // Using a Unix timestamp as slot index
-  const slotted = getSecretEffectiveAt("API_TOKEN", 1745698356);
+  const slotted  = getSecretEffectiveAt("API_TOKEN", 1745698356);
   return new Response("ok", { status: 200 });
 }
 

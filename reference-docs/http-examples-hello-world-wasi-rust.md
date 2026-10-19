@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: v0.4.5
       commit: e7f446a4b40b791b932ab36b2c7a0c85fd24104d
-      updated: 2026-10-14
+      updated: 2026-10-19
 -->
 
 ---
@@ -93,6 +93,11 @@ cargo build --release
 ```
 
 Build target: `wasm32-wasip2`. This target is required for async WASI HTTP handlers. The synchronous `#[fastedge::http]` handler uses `wasm32-wasi` instead.
+
+Prerequisites:
+```sh
+rustup target add wasm32-wasip2
+```
 
 ## Response Shape
 

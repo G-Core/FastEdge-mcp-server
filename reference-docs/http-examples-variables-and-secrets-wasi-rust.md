@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: v0.4.5
       commit: e7f446a4b40b791b932ab36b2c7a0c85fd24104d
-      updated: 2026-10-14
+      updated: 2026-10-19
 -->
 
 ---
@@ -115,22 +115,9 @@ cargo build --release
 # Output: target/wasm32-wasip2/release/variables_and_secrets.wasm
 ```
 
-## Gotchas
+## Full Source
 
-- `fastedge::secret::get` returns `Result<Option<String>>`, not `Option<String>`. The outer `Result` must be handled before the inner `Option`. Matching only on `Some(v)` without the outer `Ok(...)` is a type error.
-- The `fastedge` crate must be declared in `Cargo.toml` explicitly; it is not included transitively via `wstd`.
-- Environment variables are plain-text and visible in the FastEdge app configuration UI. Use secrets for any sensitive values.
-- `std::env` is available in WASI apps. This differs from some other WASM targets where `std::env` is unavailable.
-
-## See Also
-
-- fastedge-sdk-rust secret API reference
-- platform-overview (app configuration and secrets management)
-- examples-hello-world-wasi-rust (minimal HTTP handler baseline)
-
-## Source Material
-
-### FILE: examples/http/wasi/variables_and_secrets/src/lib.rs
+### `src/lib.rs`
 
 ```rust
 use fastedge::secret;
@@ -154,7 +141,7 @@ async fn main(_request: Request<Body>) -> anyhow::Result<Response<Body>> {
 }
 ```
 
-### FILE: examples/http/wasi/variables_and_secrets/Cargo.toml
+### `Cargo.toml`
 
 ```toml
 [workspace]
@@ -173,41 +160,15 @@ fastedge = "0.4"
 anyhow = "1"
 ```
 
-### FILE: examples/http/wasi/variables_and_secrets/README.md
+## Gotchas
 
-```
-[← Back to examples](../../../README.md)
+- `fastedge::secret::get` returns `Result<Option<String>>`, not `Option<String>`. The outer `Result` must be handled before the inner `Option`. Matching only on `Some(v)` without the outer `Ok(...)` is a type error.
+- The `fastedge` crate must be declared in `Cargo.toml` explicitly; it is not included transitively via `wstd`.
+- Environment variables are plain-text and visible in the FastEdge app configuration UI. Use secrets for any sensitive values.
+- `std::env` is available in WASI apps. This differs from some other WASM targets where `std::env` is unavailable.
 
-# Variables and Secrets (WASI)
+## See Also
 
-Demonstrates reading an environment variable (`USERNAME`) and a secret (`PASSWORD`), returning both in the response body.
-
-Environment variables are set via the FastEdge app configuration and accessed with `std::env::var`. Secrets are stored encrypted and accessed with `fastedge::secret::get` — they are never exposed in platform logs or configuration UIs.
-
-## Configuration
-
-| Key | Type | Required | Description |
-|---|---|---|---|
-| `USERNAME` | Environment variable | No | Username to include in response. Empty string if unset. |
-| `PASSWORD` | Secret | No | Password to include in response. Empty string if unset or unavailable. |
-
-## What it returns
-
-```
-HTTP/1.1 200 OK
-
-Username: <USERNAME value>, Password: <PASSWORD value>
-```
-
-## Build
-
-```sh
-cargo build --release
-# Output: target/wasm32-wasip2/release/variables_and_secrets.wasm
-```
-
-## APIs used
-
-- `std::env::var("USERNAME").unwrap_or_default()` — read env var with fallback
-- `fastedge::secret::get("PASSWORD")` — read secret by name; returns `Ok(Some(String))` on success
-```
+- fastedge-sdk-rust secret API reference
+- platform-overview (app configuration and secrets management)
+- examples-hello-world-wasi-rust (minimal HTTP handler baseline)

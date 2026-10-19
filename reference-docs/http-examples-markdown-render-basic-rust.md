@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: v0.4.5
       commit: e7f446a4b40b791b932ab36b2c7a0c85fd24104d
-      updated: 2026-10-14
+      updated: 2026-10-19
 -->
 
 ---
@@ -204,3 +204,248 @@ Build target: `wasm32-wasip1`.
 - sdk-reference-rust (full API surface for `fastedge` crate)
 - host-services-rust (`fastedge::send_request` host service details)
 - best-practices (outbound fetch patterns, error handling)
+
+## Source Material
+
+### FILE: examples/http/basic/markdown_render/src/lib.rs
+
+```rust
+/*
+Example app to demonstrate how to remder Markdown docs to HTML
+App needs following env vars to be set:
+BASE - origin server URL. Whateven passed in URL path for this app is concatenanted to BASE
+*/
+
+use fastedge::{
+    body::Body,
+    http::{header, Error, Method, Request, Response, StatusCode},
+};
+use pulldown_cmark::{Options, Parser};
+use std::env;
+use url::Url;
+
+#[fastedge::http]
+fn main(req: Request<Body>) -> Result<Response<Body>, Error> {
+    match req.method() {
+        &Method::GET | &Method::HEAD => (),
+        _ => {
+            return Response::builder()
+                .status(StatusCode::METHOD_NOT_ALLOWED)
+                .header(header::ALLOW, "GET, HEAD")
+                .body(Body::from("This method is not allowed\n"))
+        }
+    };
+
+    let Ok(base) = env::var("BASE") else {
+        return Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::from("Misconfigured app\n"));
+    };
+    let base = base.trim_end_matches('/').to_string();
+
+    let path = req.uri().path();
+    if path.is_empty() || path == "/" {
+        return Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .body(Body::from("Missing file path\n"));
+    }
+
+    let Ok(sub_req) = Request::builder()
+        .method(Method::GET)
+        .header(header::USER_AGENT, "fastedge")
+        .uri(base + path)
+        .body(Body::empty())
+    else {
+        return Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::empty());
+    };
+
+    let rsp = match request(sub_req) {
+        Err(status) => return Response::builder().status(status).body(Body::empty()),
+        Ok(s) => s,
+    };
+    let Ok(md) = String::from_utf8(rsp.body().to_vec()) else {
+        return Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::empty());
+    };
+
+    let parser = Parser::new_ext(
+        md.as_str(),
+        Options::ENABLE_TABLES | Options::ENABLE_FOOTNOTES,
+    );
+
+    let mut html = String::new();
+    html.push_str("<!DOCTYPE html><html>");
+    match env::var("HEAD").ok() {
+        None => {}
+        Some(h) => {
+            html.push_str("<head>");
+            html.push_str(h.as_str());
+            html.push_str("</head>");
+        }
+    }
+
+    html.push_str("<body>");
+    pulldown_cmark::html::push_html(&mut html, parser);
+    html.push_str("</body></html>");
+
+    let rsp = Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, mime::TEXT_HTML.to_string())
+        .body(Body::from(html))?;
+
+    Ok(rsp)
+}
+
+const MAX_REDIRECTS: u8 = 5;
+
+fn request(req: Request<Body>) -> Result<Response<Body>, StatusCode> {
+    request_inner(req, 0)
+}
+
+fn request_inner(req: Request<Body>, depth: u8) -> Result<Response<Body>, StatusCode> {
+    let rsp = match fastedge::send_request(req) {
+        Err(error) => {
+            let status_code = match error {
+                fastedge::Error::UnsupportedMethod(_) => StatusCode::METHOD_NOT_ALLOWED,
+                fastedge::Error::BindgenHttpError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+                fastedge::Error::HttpError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+                fastedge::Error::InvalidBody => StatusCode::BAD_REQUEST,
+                fastedge::Error::InvalidStatusCode(_) => StatusCode::BAD_REQUEST,
+            };
+            return Err(status_code);
+        }
+        Ok(r) => r,
+    };
+
+    let status = rsp.status();
+    if is_redirect(status) && depth < MAX_REDIRECTS {
+        if let Some(location) = rsp.headers().get(header::LOCATION) {
+            let new_url = Url::parse(
+                location
+                    .to_str()
+                    .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?,
+            )
+            .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
+
+            let sub_req = Request::builder()
+                .method(Method::GET)
+                .uri(new_url.as_str())
+                .body(Body::empty())
+                .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
+
+            return request_inner(sub_req, depth + 1);
+        }
+    }
+    if status == StatusCode::OK {
+        return Ok(rsp);
+    }
+
+    Err(status)
+}
+
+// List of acceptable 300-series redirect codes.
+const REDIRECT_CODES: &[StatusCode] = &[
+    StatusCode::MOVED_PERMANENTLY,
+    StatusCode::FOUND,
+    StatusCode::SEE_OTHER,
+    StatusCode::TEMPORARY_REDIRECT,
+    StatusCode::PERMANENT_REDIRECT,
+];
+
+fn is_redirect(status_code: StatusCode) -> bool {
+    return REDIRECT_CODES.contains(&status_code);
+}
+```
+
+### FILE: examples/http/basic/markdown_render/Cargo.toml
+
+```toml
+[workspace]
+
+[package]
+name = "markdown_render"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+fastedge = "0.4"
+mime = "0.3"
+pulldown-cmark = "0.11"
+url = "2.5"
+```
+
+### FILE: examples/http/basic/markdown_render/README.md
+
+```
+[← Back to examples](../../../README.md)
+
+# Markdown Render
+
+Demonstrates outbound HTTP fetch and content transformation: fetches a file from a configurable origin URL and renders it as an HTML page using [`pulldown-cmark`](https://github.com/raphlinus/pulldown-cmark). Uses the legacy synchronous `#[fastedge::http]` handler (`wasm32-wasip1`). For new apps, prefer the async [`#[wstd::http_server]`](../../wasi/) handler.
+
+## What it teaches
+
+- Making outbound HTTP requests from a FastEdge app with `fastedge::send_request`
+- Following HTTP redirects manually (301, 302, 303, 307, 308)
+- Transforming response bodies (Markdown → HTML)
+- Reading environment variables at request time
+- Method guard (405 for non-GET/HEAD)
+
+## Configuration
+
+| Variable | Required | Description |
+|---|---|---|
+| `BASE` | Yes | Origin base URL. The request path is appended: `BASE + path` |
+| `HEAD` | No | Optional HTML injected into `<head>` (e.g. a `<link>` stylesheet tag) |
+
+## Build
+
+```sh
+# From this directory:
+cargo build --release
+
+# WASM output:
+# target/wasm32-wasip1/release/markdown_render.wasm
+```
+
+## Expected behaviour
+
+| Condition | Response |
+|---|---|
+| `BASE` env var not set | 500 `Misconfigured app\n` |
+| Method is not GET or HEAD | 405 `This method is not allowed\n`, `Allow: GET, HEAD` |
+| Path is empty or `/` | 400 `Missing file path\n` |
+| Origin returns non-200 | Forwards the upstream status, empty body |
+| Origin returns a redirect | Follows the redirect (up to one level) and retries |
+| Normal request | 200 HTML page with rendered Markdown, `Content-Type: text/html` |
+
+## Example
+
+```sh
+# Set BASE to a server that serves Markdown files
+BASE=https://raw.githubusercontent.com/example/repo/main
+
+# Request /README.md -> fetches BASE/README.md -> renders as HTML
+curl http://localhost:<port>/README.md
+# Returns: <!DOCTYPE html><html><body><h1>...</h1>...</body></html>
+
+# With a custom stylesheet injected into <head>
+HEAD='<link rel="stylesheet" href="https://cdn.example.com/style.css">'
+```
+
+## APIs used
+
+| API | Purpose |
+|---|---|
+| `fastedge::send_request(req)` | Outbound HTTP request to origin |
+| `pulldown_cmark::Parser::new_ext` | Parse Markdown with tables and footnotes |
+| `pulldown_cmark::html::push_html` | Render Markdown AST to HTML string |
+| `std::env::var("BASE")` | Read required env var at request time |
+| `url::Url::parse` | Validate redirect `Location` header |
+```
