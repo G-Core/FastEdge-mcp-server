@@ -68,7 +68,7 @@ function checkSession(dir: string, apiOrigin: string, now: number): SessionCheck
 
 /** Status guidance, so an agent offers the same choices as `auth_required` (§4) instead of picking one. */
 const SIGN_IN_HINT =
-  "To sign in, ask the user which way: 1. Browser on this computer (recommended): with their OK, run login_command yourself as a background task with your tool's own background option (Claude Code: run_in_background, not a shell `&`), and give them the URL as soon as it's printed (the command then waits for their approval). If you can't read the command's output, tell them the URL is in the terminal where it runs. Never open a portal link yourself (no built-in or simple browser, no browser automation): only the user opens it, in their own browser. The page connects whichever account the portal is signed in to and shows it before Approve; tell the user to check it. 2. Remote (SSH, Codespaces): give them manual_login. 3. Not now. 4. Use an existing API key instead: follow api_key_setup in this status. Never ask them to paste a token, key or code into this chat.";
+  "To sign in, ask the user which way. First run `echo \"CODESPACES=$CODESPACES FASTEDGE_LOGIN=$FASTEDGE_LOGIN\"` in your own shell: if FASTEDGE_LOGIN is `code`, or CODESPACES is `true` and FASTEDGE_LOGIN isn't `browser`, the user's browser can't reach this computer, so put choice 2 first and mark it recommended instead of 1 (if you can't run commands, keep this order). 1. Browser on this computer (recommended): with their OK, run login_command yourself as a background task with your tool's own background option (Claude Code: run_in_background, not a shell `&`), and give them the URL as soon as it's printed (the command then waits for their approval). If you can't read the command's output, tell them the URL is in the terminal where it runs. Never open a portal link yourself (no built-in or simple browser, no browser automation): only the user opens it, in their own browser. The page connects whichever account the portal is signed in to and shows it before Approve; tell the user to check it. 2. Remote (SSH, a Codespace, or a browser that can't reach this computer): follow manual_login. 3. Not now. 4. Use an existing API key instead: follow api_key_setup in this status. Never ask them to paste a token, key or code into this chat.";
 
 /** Status guidance for "log me out" requests. */
 const SIGN_OUT_HINT =
@@ -498,7 +498,11 @@ export function authRequiredResult(
     lines.push(
       "Sign in through the Gcore portal for a time-limited session (or set GCORE_API_KEY instead).",
       "Ask the user how to sign in. If you can ask a multiple-choice question, offer these four",
-      "choices; otherwise list them:",
+      "choices; otherwise list them. First check where the user is: run",
+      '`echo "CODESPACES=$CODESPACES FASTEDGE_LOGIN=$FASTEDGE_LOGIN"` in your own shell. If',
+      "FASTEDGE_LOGIN is `code`, or CODESPACES is `true` and FASTEDGE_LOGIN isn't `browser`, their",
+      "browser can't reach this computer: put choice 2 first and mark it recommended instead of 1.",
+      "If you can't run commands, keep this order.",
       "1. Browser on this computer (recommended): with their OK, run this command yourself as a",
       "   background task, using your tool's own background option (Claude Code: run_in_background),",
       "   not a shell `&`. It prints a URL, then waits up to 5 minutes on a local port for their",

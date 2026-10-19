@@ -109,9 +109,24 @@ export function manualFallback(apiOrigin: string, account?: number): string | nu
   const command = codeCommand(apiOrigin, account);
   if (!portal || !command) return null;
   const query = [isForcedEphemeral() ? "ephemeral=1" : sealTo ? "seal=1" : "", account ? `account=${account}` : ""].filter(Boolean).join("&");
+  const link = `${portal}/fastedge/agent-connect${query ? `?${query}` : ""}`;
+  // The FastEdge codespace image ships `fastedge-login`, which runs this same command, so the user
+  // doesn't have to copy it out of the agent's output. Fixed name; `--save` accepts only a key, an
+  // allowlisted origin and a tag, so it can only ever run this login.
+  const helper =
+    isForcedEphemeral() && sealTo && account === undefined
+      ? [
+          "If the `fastedge-login` command exists (check with `command -v fastedge-login`), run",
+          `\`fastedge-login --save ${sealTo} ${apiOrigin} ${IMAGE_TAG}\` yourself (it only saves these), then ask the user to open a`,
+          "new terminal and run `fastedge-login`: it shows the link, runs the login and asks for the code.",
+          "Otherwise:",
+        ]
+      : [];
   return [
-    `Ask the user to open ${portal}/fastedge/agent-connect${query ? `?${query}` : ""} themselves, choose the manual option, approve,`,
-    `and run this in their own terminal (not through you): ${command}`,
+    ...helper,
+    `Ask the user to open ${link} themselves and approve; the page then shows a connect code.`,
+    `Ask them to run this in their own terminal and paste the code at its prompt: ${command}`,
+    "Never run the login through you, including Claude Code's `!` (the code would land in this session).",
     "Never open this link yourself (no built-in or simple browser, no browser automation), and never ask them to paste the connect code into this chat.",
   ].join("\n");
 }

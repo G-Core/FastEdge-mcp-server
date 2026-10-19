@@ -166,6 +166,29 @@ function decodeConnectCode(code: string): { fields: Record<string, string>; keep
   }
 }
 
+/**
+ * The last 4 characters, only for a portal connect code: the page writes api_origin last, so its
+ * tail is part of the origin. Anything else (a raw token, a reordered code, a duplicate key) shows no tail.
+ */
+export function originTail(code: string): string | null {
+  if (!/^fe[12]\.[A-Za-z0-9_-]+$/.test(code)) return null;
+  // The decoded text itself must end with an allowlisted origin: parsed keys keep a duplicate's
+  // first position, so a key-order check could pass with the token last. The 4 characters cover
+  // at most the last 4 bytes: `"}` and the end of the origin.
+  // Canonical only: spare bits in the last character are ignored by decoding, so they could carry anything.
+  const bytes = Buffer.from(code.slice(4), "base64url");
+  if (bytes.toString("base64url") !== code.slice(4)) return null;
+  const text = bytes.toString("utf8");
+  try {
+    JSON.parse(text);
+  } catch {
+    return null;
+  }
+  return Object.keys(PORTAL_ORIGINS).some((o) => text.endsWith(`,"api_origin":${JSON.stringify(o)}}`))
+    ? code.slice(-4)
+    : null;
+}
+
 type How = "keep" | "seal";
 
 /**
@@ -226,6 +249,26 @@ function refuseDefaultWithSeal(opts: { setDefaultOrigin?: boolean; sealTo?: stri
   }
 }
 
+/**
+ * Why `validateDelivery` refused a decoded code, in validateDelivery's order. Never the token; the
+ * code's own origin only when it looks like one, since it's printed to the terminal.
+ */
+function deliveryProblem(f: Record<string, string>, apiOrigin: string, now: number, maxLifetimeMs: number): string {
+  const expiresAt = Date.parse(f.expires_at);
+  if (f.api_origin !== apiOrigin) {
+    const other = /^https:\/\/[a-z0-9.-]{1,253}$/.test(f.api_origin) ? f.api_origin : "another API";
+    return `This connect code is for ${other}, but this login is for ${apiOrigin}. Approve on the portal for ${apiOrigin} and copy the new code.`;
+  }
+  if (!TOKEN_PATTERN.test(f.token) || parseId(f.token_id) === null || parseId(f.client_id) === null || Number.isNaN(expiresAt)) {
+    return "This connect code is damaged. Copy the code from the portal page again and paste all of it.";
+  }
+  if (expiresAt <= now) {
+    return `This connect code expired at ${new Date(expiresAt).toISOString()}. Approve again on the portal's agent-connect page and copy the new code.`;
+  }
+  const allowedUntil = now + maxLifetimeMs;
+  return `This connect code lasts until ${new Date(expiresAt).toISOString()}, longer than this login allows (${Math.round(maxLifetimeMs / 3_600_000)} hours from now, ${new Date(allowedUntil).toISOString()}). Check this computer's clock, then approve again with a shorter lifetime.`;
+}
+
 /** `login --code`: validate a pasted connect code and save it like a browser login. */
 export function connectWithCode(
   code: string,
@@ -257,7 +300,9 @@ export function connectWithCode(
   }
   if (!delivered) {
     throw new LoginError(
-      `This connect code isn't valid for ${opts.apiOrigin}, or has expired. Approve again on the portal's agent-connect page and copy the new code.`,
+      decoded
+        ? deliveryProblem(decoded.fields, opts.apiOrigin, Date.now(), capFor(how))
+        : "That isn't a whole FastEdge connect code (it starts with fe1. or fe2.). Copy the code from the portal page again and paste all of it.",
       8,
     );
   }

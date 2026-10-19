@@ -16,7 +16,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import { authRequiredResult, createAuth, createKeyAuth, type Auth, type AuthRequiredReason } from "../../src/auth/credentials.js";
-import { LoginError, connectWithCode, ensureInstallationId, logoutActive, logoutSessions, startLogin, useCachedAccount } from "../../src/auth/login-server.js";
+import { LoginError, connectWithCode, ensureInstallationId, originTail, logoutActive, logoutSessions, startLogin, useCachedAccount } from "../../src/auth/login-server.js";
 import { readDefaultOrigin, removeExpired, saveSession } from "../../src/auth/store.js";
 import { ALLOWED_API_ORIGINS } from "../../src/api-client.js";
 import { PORTAL_ORIGINS } from "../../src/auth/session.js";
@@ -893,28 +893,50 @@ test("a valid connect code saves a session exactly like a browser login", async 
   assert.ok(!existsSync(join(dir, ".lock")), "lock released");
 });
 
-const badCodes: Array<[string, string]> = [
-  ["a raw token", TOKEN],
-  ["the wrong prefix", encode(codePayload()).replace("fe1.", "fe2.")],
-  ["not base64url", "fe1.@@@"],
-  ["not JSON", `fe1.${Buffer.from("nope").toString("base64url")}`],
-  ["the wrong version", encode(codePayload({ v: 2 }))],
-  ["another origin", encode(codePayload({ api_origin: "https://api.gcore.com" }))],
-  ["an expired session", encode(codePayload({ expires_at: new Date(Date.now() - 1000).toISOString() }))],
-  ["a lifetime past the 7-day cap", encode(codePayload({ expires_at: new Date(Date.now() + 8 * 24 * HOUR).toISOString() }))],
-  ["a bad token", encode(codePayload({ token: "a b" }))],
-  ["a missing client_id", encode(codePayload({ client_id: undefined }))],
+const badCodes: Array<[string, string, RegExp]> = [
+  ["a raw token", TOKEN, /isn't a whole FastEdge connect code/],
+  ["the wrong prefix", encode(codePayload()).replace("fe1.", "fe2."), /isn't a whole FastEdge connect code/],
+  ["not base64url", "fe1.@@@", /isn't a whole FastEdge connect code/],
+  ["not JSON", `fe1.${Buffer.from("nope").toString("base64url")}`, /isn't a whole FastEdge connect code/],
+  ["the wrong version", encode(codePayload({ v: 2 })), /isn't a whole FastEdge connect code/],
+  ["another origin", encode(codePayload({ api_origin: "https://api.gcore.com" })), /is for https:\/\/api\.gcore\.com, but this login is for/],
+  ["an expired session", encode(codePayload({ expires_at: new Date(Date.now() - 1000).toISOString() })), /expired at/],
+  ["a lifetime past the 7-day cap", encode(codePayload({ expires_at: new Date(Date.now() + 8 * 24 * HOUR).toISOString() })), /longer than this login allows .*Check this computer's clock/],
+  ["a bad token", encode(codePayload({ token: "a b" })), /damaged/],
+  ["a missing client_id", encode(codePayload({ client_id: undefined })), /damaged/],
 ];
-for (const [label, code] of badCodes) {
+for (const [label, code, says] of badCodes) {
   test(`login --code rejects ${label} (exit 8, nothing written)`, () => {
     const dir = tmp();
     assert.throws(
       () => connectWithCode(code, { apiOrigin: API, sessionDir: dir }),
-      (err: unknown) => err instanceof LoginError && err.exitCode === 8 && !String(err.message).includes(TOKEN),
+      (err: unknown) => err instanceof LoginError && err.exitCode === 8 && !String(err.message).includes(TOKEN) && says.test(String(err.message)),
     );
     assert.ok(!existsSync(join(dir, "accounts")));
   });
 }
+
+test("login --code shows a tail only when the code ends with an allowlisted api_origin", () => {
+  const good = encode(codePayload());
+  assert.equal(originTail(good), good.slice(-4));
+  const { token, ...rest } = codePayload();
+  // A token_id length that leaves spare bits in the last character (decoded length 1 mod 3)
+  const odd = [1, 12, 123].map((token_id) => encode(codePayload({ token_id }))).find((c) => (c.length - 4) % 4 === 2)!;
+  const spareBits = `${odd.slice(0, -1)}${String.fromCharCode(odd.charCodeAt(odd.length - 1) + 1)}`;
+  assert.equal(originTail(odd), odd.slice(-4));
+  assert.deepEqual(Buffer.from(spareBits.slice(4), "base64url"), Buffer.from(odd.slice(4), "base64url"));
+  const notShown: Array<[string, string]> = [
+    ["a raw token", TOKEN],
+    ["the token last", encode({ ...rest, token })],
+    // JSON.parse keeps a duplicate key's first position, so a key-order check would pass this
+    ["a duplicate token last", `fe1.${Buffer.from(`${JSON.stringify(codePayload()).slice(0, -1)},"token":"${TOKEN}"}`).toString("base64url")}`],
+    // Same decoded bytes, but the last character's ignored spare bits are set
+    ["a non-canonical last character", spareBits],
+    ["not JSON", `fe1.${Buffer.from(`nope,"api_origin":"${API}"}`).toString("base64url")}`],
+    ["an origin outside the allowlist", encode(codePayload({ api_origin: "https://evil.example" }))],
+  ];
+  for (const [label, code] of notShown) assert.equal(originTail(code), null, label);
+});
 
 test("login --code refuses to read from a pipe (exit 2)", () => {
   const r = spawnSync(process.execPath, ["--import", "tsx", "src/login.ts", "--code"], {
@@ -987,6 +1009,10 @@ test("auth_required offers four choices: browser here, remote with a code, not n
   assert.match(text, /4\. Use an existing API key instead: call fastedge-auth-status/);
   assert.match(text, /follow its api_key_setup/);
   assert.match(text, /never ask them to paste the connect code/);
+  assert.match(text, /including Claude Code's `!`/);
+  assert.match(text, /CODESPACES=\$CODESPACES FASTEDGE_LOGIN=\$FASTEDGE_LOGIN/, "the agent checks where the user is");
+  assert.match(text, /put choice 2 first and mark it recommended/);
+  assert.doesNotMatch(text, /manual option/, "the page has no manual option to choose");
   assert.match(text, /After 1 or 2, retry this request/);
   // Copilot opened the manual link in its own browser once: both links are the user's to open.
   assert.match(text, /Never open a portal link yourself/);
