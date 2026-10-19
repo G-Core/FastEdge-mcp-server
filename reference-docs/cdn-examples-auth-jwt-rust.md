@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: v0.4.5
       commit: e7f446a4b40b791b932ab36b2c7a0c85fd24104d
-      updated: 2026-10-14
+      updated: 2026-10-19
 -->
 
 ---
@@ -68,6 +68,8 @@ proxy_wasm::main! {{
 
 `HttpHeadersRoot` also implements `get_type`, returning `Some(ContextType::HttpContext)`.
 
+Both `HttpHeadersRoot` and `HttpHeaders` implement `Context` (the base trait required by proxy-wasm).
+
 ---
 
 ## Claims Schema
@@ -105,7 +107,7 @@ Called on every inbound CDN request. Returns `Action::Continue` on success or `A
 | 6. Decode JWT | `jsonwebtoken::decode` returns `Err` | 403 | `Could not decode token <token>: <error>` |
 | 7. Check expiration | `now > claims.exp` | 403 | `Token expired` |
 
-All rejection branches call `self.send_http_response(...)` and return `Action::Pause`. On success, logs `"Token ok"` and returns `Action::Continue`.
+All rejection branches call `self.send_http_response(...)` and return `Action::Pause`. Each rejection branch also calls `println!` with a diagnostic message (logged at trace level). On success, logs `"Token ok"` and returns `Action::Continue`.
 
 ---
 
@@ -118,8 +120,9 @@ let Ok(Some(secret)) = secret::get("secret") else { /* 500 */ };
 ```
 
 - Secret name: `"secret"` — the HMAC signing key stored as a FastEdge secret.
-- `secret::get` returns `Result<Option<Vec<u8>>, _>`.
-- A missing or unset secret causes a 500 response; the app is considered misconfigured.
+- `secret::get` signature: `fn get(name: &str) -> Result<Option<Vec<u8>>, _>`.
+- A missing or unset secret (`Ok(None)`) causes a 500 response; the app is considered misconfigured.
+- An error result (`Err`) also causes a 500 response.
 - Do NOT pass signing keys via environment variables for CDN apps — use the secrets API.
 
 ---
@@ -135,7 +138,7 @@ let Some(bearer) = Bearer::decode(&header) else { /* 403 */ };
 let token: &str = bearer.token();
 ```
 
-Uses the `headers` crate (`0.4`) to parse and decode the `Authorization: Bearer <token>` header. `Bearer::decode` returns `Option<Bearer>`; `None` indicates the scheme is not `Bearer` or the header is malformed.
+Uses the `headers` crate (`0.4`) to parse and decode the `Authorization: Bearer <token>` header. `Bearer::decode` returns `Option<Bearer>`; `None` indicates the scheme is not `Bearer` or the header is malformed. `bearer.token()` returns a `&str` slice of the token portion.
 
 ---
 
@@ -152,10 +155,11 @@ validation.validate_nbf = false;
 validation.validate_exp = false;  // expiration checked manually
 ```
 
-- `DecodingKey::from_secret` — HMAC shared-secret key derived from the fetched secret bytes.
+- `DecodingKey::from_secret(&[u8])` — HMAC shared-secret key derived from the fetched secret bytes.
 - `Validation::default()` uses HS256 by default.
-- `validate_aud` and `validate_nbf` are disabled; `validate_exp` is disabled because expiration is checked manually using the system clock.
-- Required claims: `["exp"]` — the decode call fails if `exp` is absent.
+- `validate_aud` and `validate_nbf` are disabled.
+- `validate_exp` is disabled because expiration is checked manually using the system clock.
+- Required claims: `["exp"]` — the decode call fails if `exp` is absent from the token.
 
 ```rust
 let token_data = match decode::<Claims>(token, &decoding_key, &validation) {
@@ -202,6 +206,8 @@ const INTERNAL_SERVER_ERROR: u32 = 500;
 
 Passed as the first argument to `self.send_http_response(code, headers, body)`.
 
+`send_http_response` signature (proxy-wasm): `fn send_http_response(&self, status_code: u32, headers: Vec<(&str, &str)>, body: Option<&[u8]>)`.
+
 ---
 
 ## Gotchas
@@ -211,6 +217,7 @@ Passed as the first argument to `self.send_http_response(code, headers, body)`.
 - **Clock skew**: No leeway is applied. Add `validation.leeway = N` (seconds) if upstream clocks may drift.
 - **Token size**: Large JWTs (many claims, RS256 public key metadata) may exceed proxy-wasm header buffer limits. Keep tokens small.
 - **Secret rotation**: Rotating `"secret"` immediately invalidates all outstanding tokens signed with the previous key.
+- **Empty header handling**: An empty `Authorization` header value is treated the same as a missing header (401), checked explicitly before parsing.
 
 ---
 

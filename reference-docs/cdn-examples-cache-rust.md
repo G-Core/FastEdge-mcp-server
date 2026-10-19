@@ -4,7 +4,7 @@
     - id: fastedge-sdk-rust
       ref: v0.4.5
       commit: e7f446a4b40b791b932ab36b2c7a0c85fd24104d
-      updated: 2026-10-14
+      updated: 2026-10-19
 -->
 
 # CDN Cache — Rust Example
@@ -52,7 +52,7 @@ Retrieve cached bytes by key.
 
 - **Parameters**: `key` — cache key string
 - **Returns**: `Ok(Some(Vec<u8>))` if the key exists, `Ok(None)` if absent, `Err` on failure
-- **Note**: Values are `Vec<u8>` and must be decoded. Use `String::from_utf8_lossy(&value)` for string values.
+- **Note**: Values are `Vec<u8>` and must be decoded. Use `String::from_utf8_lossy(&value)` for string values. A missing key returning `Ok(None)` is not an error.
 
 **JSON response shape:**
 ```json
@@ -93,6 +93,20 @@ Store bytes under a key with an optional TTL. Overwrites an existing value.
 **JSON response shape:**
 ```json
 { "action": "set", "key": "<key>", "value": "<value>", "ttlMs": <ms>|null, "response": true }
+```
+
+**Example:**
+```rust
+use serde_json::json;
+
+// ttlMs serialises as null when None
+Ok(json!({
+    "action": "set",
+    "key": key,
+    "value": value,
+    "ttlMs": ttl_ms,
+    "response": true
+}).to_string())
 ```
 
 ---
@@ -256,7 +270,7 @@ The demo dispatches any action from any client, including destructive operations
 
 ### Counter with bounded window
 
-Use `incr` for counters and rate limiting. Keys are per-PoP, so limits apply per PoP, not globally. Every `incr` key needs a corresponding `expire`. Refer to the FastEdge storage platform reference for the correct pattern based on key shape.
+Use `incr` for counters and rate limiting. Keys are per-PoP, so limits apply per PoP, not globally. Every `incr` key needs a corresponding `expire`. Refer to the FastEdge storage platform reference for the correct pattern based on key shape — do not call `expire` after every `incr` on a fixed key, as that keeps pushing the deadline forward and the window never resets under steady traffic.
 
 ```rust
 let count = cache::incr("rate:user:123", 1)?;
@@ -305,11 +319,15 @@ cargo build --release
 - There are no named stores or handles; the key is the sole address.
 - `ttl` values are always in **milliseconds**.
 - `delta` for `incr` is a signed 64-bit integer (`i64`); a missing key is treated as `0`.
-- Values are `Vec<u8>`; string conversion requires explicit decoding.
+- Values are `Vec<u8>`; string conversion requires explicit decoding with `String::from_utf8_lossy`.
 - All values are PoP-local — writes in one PoP are not visible in another.
-- The host clamps TTLs to a deployment ceiling (~4 days by default). There is no way to read a key's TTL.
+- The host clamps TTLs to a deployment ceiling (~4 days by default), including when no TTL is passed. There is no way to read a key's TTL.
 - `incr` keys are not indexed and are not purged by `purge` or `purge_prefix`; they require an explicit `expire`.
+- `expire` returns `Ok(false)` when the key is absent and `Err` on failure; these are distinct — do not treat them the same.
+- `incr` errors if the stored value is not a valid integer.
+- Error variants: `AccessDenied`, `InternalError`, `Other(String)`.
 - The TTL and `incr` behaviour described here was measured on HTTP apps. It has not yet been verified for CDN (proxy-wasm) apps; do not treat it as confirmed CDN behaviour.
+- This cache is unrelated to CDN HTTP caching. To control edge caching of HTTP responses, use `Cache-Control` headers (see the CDN cache-control example).
 
 ## See Also
 
