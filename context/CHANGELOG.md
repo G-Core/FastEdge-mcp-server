@@ -14,6 +14,17 @@ See `SEARCH_GUIDE.md` for more search patterns.
 
 ---
 
+## [2026-10-23] - build-wasm: JS projects build from .fastedge/build-config.js (SDK 2.7.0+)
+
+- **Why:** build-wasm always ran `fastedge-build --input <entry> --output <out>`, which skips the
+  config-only steps: Wasm components (`components`; the app failed with `TS2307: Cannot find
+  module '<ns>:<pkg>/<iface>'`), the static asset manifest, and the config's own entry point.
+- **Change:** `fastedgeBuildArgs` in `compiler/jsBuild.ts` runs `--config <cwd>/.fastedge/build-config.js
+  --output <out>` when that file exists (path-confined like other inputs) and the SDK is 2.7.0 or
+  later, the first whose `-c` takes an `--output` override. Otherwise the old `--input` build;
+  `MIN_SDK_VERSION` stays 2.6.0. Tool description says `entryFile` then only locates the project.
+  Tests: `scripts/tests/test-js-build-args.ts`.
+
 ## [2026-10-15] - entrypoint: root-group workspace falls back to gid 10001 (Codespaces)
 
 - **Why:** a Codespaces workspace is owned by `vscode:root` (1000:0). The entrypoint fell back to

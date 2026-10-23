@@ -17,7 +17,11 @@ export function registerBuildWasmTools(
     "build-wasm",
     {
       title: "Build FastEdge WASM Binary",
-      description: "Build a FastEdge WASM binary within the workspace",
+      description:
+        "Build a FastEdge WASM binary within the workspace. " +
+        "A JavaScript/TypeScript project with .fastedge/build-config.js and @gcoredev/fastedge-sdk-js 2.7.0 or later " +
+        "is built from that config (its entry point, static assets and Wasm components); " +
+        "entryFile then only locates the project, and outputFile still sets the output.",
       inputSchema: {
         entryFile: z
           .string()
