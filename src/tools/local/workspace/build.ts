@@ -40,7 +40,8 @@ export function registerBuildWasmTools(
           .string()
           .optional()
           .describe(
-            `Relative path to the tsconfig.json file within the workspace. ( Only provided from "Magic Comments" )`
+            `Relative path to the tsconfig.json file within the workspace. ( Only provided from "Magic Comments" ) ` +
+              `Not used when the project is built from .fastedge/build-config.js, which sets its own tsConfigPath.`
           ),
         buildDirectory: z
           .string()
