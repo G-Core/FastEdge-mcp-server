@@ -23,6 +23,8 @@ See `SEARCH_GUIDE.md` for more search patterns.
   --output <out>` when that file exists (path-confined like other inputs) and the SDK is 2.7.0 or
   later, the first whose `-c` takes an `--output` override. Otherwise the old `--input` build;
   `MIN_SDK_VERSION` stays 2.6.0. Tool description says `entryFile` then only locates the project.
+  `deriveBuildDirectory` skips `.fastedge/`, so a fastedge-init static site (entry
+  `.fastedge/static-index.js`, with its own `.fastedge/package.json`) builds from the project root.
   Tests: `scripts/tests/test-js-build-args.ts`.
 
 ## [2026-10-15] - entrypoint: root-group workspace falls back to gid 10001 (Codespaces)

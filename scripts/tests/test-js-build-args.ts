@@ -9,6 +9,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fastedgeBuildArgs } from "../../src/tools/local/workspace/compiler/jsBuild.js";
+import { deriveBuildDirectory } from "../../src/tools/local/workspace/compiler/index.js";
 
 function workspace(withConfig: boolean) {
   const ws = realpathSync(mkdtempSync(join(tmpdir(), "js-build-args-")));
@@ -44,5 +45,20 @@ test("no config → entry file directly, with tsconfig", () => {
     out,
     "--tsconfig",
     tsconfig,
+  ]);
+});
+
+test("fastedge-init static layout → builds from the project root, not .fastedge/", () => {
+  const { ws, out } = workspace(true);
+  writeFileSync(join(ws, "package.json"), "{}");
+  writeFileSync(join(ws, ".fastedge", "package.json"), '{ "type": "module" }');
+  const entry = join(ws, ".fastedge", "static-index.js");
+  const cwd = deriveBuildDirectory(entry, ws);
+  assert.equal(cwd, ws);
+  assert.deepEqual(fastedgeBuildArgs("2.7.0", entry, out, cwd, ws), [
+    "--config",
+    join(ws, ".fastedge", "build-config.js"),
+    "--output",
+    out,
   ]);
 });
