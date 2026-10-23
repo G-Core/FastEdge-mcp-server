@@ -100,7 +100,7 @@ jobs:
       # The base image is private: log in before the gate's build pulls it.
       - name: Log in to the registry (for the gate's build)
         if: ${{ steps.determine-tag.outputs.has_tag == 'true' }}
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
