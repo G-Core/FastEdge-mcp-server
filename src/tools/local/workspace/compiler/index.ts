@@ -13,21 +13,27 @@ const PROJECT_MARKERS = ["asconfig.json", "Cargo.toml", "package.json"];
 // Walk upward from the entry file's directory to find the nearest project root
 // (first directory containing one of PROJECT_MARKERS). Stops at workspaceRoot.
 // Returns workspaceRoot as fallback if no marker is found.
-function deriveBuildDirectory(
+// .fastedge/ is skipped: fastedge-init puts a package.json there (static sites), but the
+// project, and its build config, is the directory above.
+export function deriveBuildDirectory(
   entryFilePath: string,
   workspaceRoot: string
 ): string {
   let dir = path.dirname(entryFilePath);
-  const root = path.resolve(workspaceRoot);
+  // Real path: entryFilePath comes from normalizePath, which resolves symlinks.
+  const root = fs.realpathSync(workspaceRoot);
   while (dir.startsWith(root) && dir !== path.parse(dir).root) {
-    if (PROJECT_MARKERS.some((m) => fs.existsSync(path.join(dir, m)))) {
+    if (
+      path.basename(dir) !== ".fastedge" &&
+      PROJECT_MARKERS.some((m) => fs.existsSync(path.join(dir, m)))
+    ) {
       return dir;
     }
     const parent = path.dirname(dir);
     if (parent === dir) break;
     dir = parent;
   }
-  return workspaceRoot;
+  return root;
 }
 
 function getActiveFileLanguage(
