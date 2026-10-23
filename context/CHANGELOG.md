@@ -25,6 +25,8 @@ See `SEARCH_GUIDE.md` for more search patterns.
   `MIN_SDK_VERSION` stays 2.6.0. Tool description says `entryFile` then only locates the project.
   `deriveBuildDirectory` skips `.fastedge/`, so a fastedge-init static site (entry
   `.fastedge/static-index.js`, with its own `.fastedge/package.json`) builds from the project root.
+  It also compares against the workspace root's real path, so a symlinked `WORKSPACE_ROOT` no longer
+  skips the search (and the config).
   Tests: `scripts/tests/test-js-build-args.ts`.
 
 ## [2026-10-15] - entrypoint: root-group workspace falls back to gid 10001 (Codespaces)

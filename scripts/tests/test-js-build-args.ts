@@ -5,7 +5,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, realpathSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fastedgeBuildArgs } from "../../src/tools/local/workspace/compiler/jsBuild.js";
@@ -56,6 +56,22 @@ test("fastedge-init static layout → builds from the project root, not .fastedg
   const cwd = deriveBuildDirectory(entry, ws);
   assert.equal(cwd, ws);
   assert.deepEqual(fastedgeBuildArgs("2.7.0", entry, out, cwd, ws), [
+    "--config",
+    join(ws, ".fastedge", "build-config.js"),
+    "--output",
+    out,
+  ]);
+});
+
+test("symlinked workspace root → config still found", () => {
+  const { ws, out } = workspace(true);
+  writeFileSync(join(ws, "package.json"), "{}");
+  const alias = join(realpathSync(mkdtempSync(join(tmpdir(), "js-build-alias-"))), "ws");
+  symlinkSync(ws, alias);
+  const entry = join(ws, "src", "index.ts"); // normalizePath returns the real path
+  const cwd = deriveBuildDirectory(entry, alias);
+  assert.equal(cwd, ws);
+  assert.deepEqual(fastedgeBuildArgs("2.7.0", entry, out, cwd, alias), [
     "--config",
     join(ws, ".fastedge", "build-config.js"),
     "--output",

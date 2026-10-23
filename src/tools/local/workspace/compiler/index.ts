@@ -20,7 +20,8 @@ export function deriveBuildDirectory(
   workspaceRoot: string
 ): string {
   let dir = path.dirname(entryFilePath);
-  const root = path.resolve(workspaceRoot);
+  // Real path: entryFilePath comes from normalizePath, which resolves symlinks.
+  const root = fs.realpathSync(workspaceRoot);
   while (dir.startsWith(root) && dir !== path.parse(dir).root) {
     if (
       path.basename(dir) !== ".fastedge" &&
@@ -32,7 +33,7 @@ export function deriveBuildDirectory(
     if (parent === dir) break;
     dir = parent;
   }
-  return workspaceRoot;
+  return root;
 }
 
 function getActiveFileLanguage(
