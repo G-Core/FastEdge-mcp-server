@@ -2,9 +2,9 @@
   auto-updated: true
   sources:
     - id: fastedge-sdk-js
-      ref: v2.6.0
-      commit: 332d5d125cf92e2108ab898fcda29068bcddc40d
-      updated: 2026-10-19
+      ref: v2.7.0
+      commit: 65909abd5e0da8720eee5166dca4fc559e098eac
+      updated: 2026-10-26
 -->
 
 # FastEdge JavaScript Quickstart
@@ -289,8 +289,11 @@ The public directory must exist and must not be empty; otherwise the wizard exit
 | `--output` | `-o` | `string` | Output `.wasm` file path |
 | `--tsconfig` | `-t` | `string` | Path to `tsconfig.json` |
 | `--config` | `-c` | `string[]` | Path(s) to build config file(s) |
+| `--component` | — | `string[]` | Component import mapping: `<interface>=<path>` (repeatable) |
 | `--version` | `-v` | `boolean` | Print version |
 | `--help` | `-h` | `boolean` | Print help |
+
+`--component` expects a value in the form `<interface>=<path>`. A value without an `=` separator, or with an empty interface name, causes the build to exit with an error. See the Component Imports reference for details.
 
 ## Next Steps
 
@@ -298,8 +301,10 @@ The public directory must exist and must not be empty; otherwise the wizard exit
 - Build CLI reference — all fastedge-build flags and config options
 - Init CLI reference — fastedge-init scaffold wizard details
 - Static sites guide — serve static websites from FastEdge
+- Component Imports reference — import WebAssembly components with `--component`
 
 ## See Also
 
 - SDK Runtime API reference — complete `Cache`, `KvStore`, env, and secret reference
+- Component Imports reference — `--component` usage
 - Examples — real-world patterns in the FastEdge SDK JS repository
