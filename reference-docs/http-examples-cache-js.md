@@ -2,16 +2,16 @@
   auto-updated: true
   sources:
     - id: fastedge-sdk-js
-      ref: v2.6.0
-      commit: 332d5d125cf92e2108ab898fcda29068bcddc40d
-      updated: 2026-10-19
+      ref: v2.7.0
+      commit: 65909abd5e0da8720eee5166dca4fc559e098eac
+      updated: 2026-10-26
 -->
 
 # FastEdge Cache — JavaScript Examples
 
 **Module**: `fastedge::cache`
 **Import**: `import { Cache } from 'fastedge::cache';`
-**SDK**: `@gcoredev/fastedge-sdk-js` `^2.6.0`
+**SDK**: `@gcoredev/fastedge-sdk-js` `^2.7.0`
 **App type**: HTTP
 **Language**: TypeScript / JavaScript
 
@@ -305,7 +305,7 @@ Validation errors (e.g., conflicting `WriteOptions`) are thrown synchronously. H
 {
   "type": "module",
   "scripts": { "build": "fastedge-build -c" },
-  "dependencies": { "@gcoredev/fastedge-sdk-js": "^2.6.0" }
+  "dependencies": { "@gcoredev/fastedge-sdk-js": "^2.7.0" }
 }
 ```
 

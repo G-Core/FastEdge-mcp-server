@@ -3,13 +3,13 @@
   sources:
     - id: fastedge-templates
       ref: main
-      commit: 87b7dc143db5e74cf0e7eb52f67484f6abc51c43
-      updated: 2026-08-28
+      commit: ad2bff37b23d3ed5853c68b386b9cc00a3ec1a9a
+      updated: 2026-10-20
 -->
 
 # FastEdge Bolt-On Templates
 
-Before writing authentication, cookie-hardening, or content-transform logic from scratch, check this catalog. Each entry is a maintained, tested FastEdge application that handles the security-sensitive parts a hand-rolled implementation would need to get right independently. Use or adapt these templates rather than building the same capability from scratch.
+Before writing authentication, cookie-hardening, GraphQL protection, or content-transform logic from scratch, check this catalog. Each entry is a maintained, tested FastEdge application that handles the security-sensitive parts a hand-rolled implementation would need to get right independently. Use or adapt these templates rather than building the same capability from scratch.
 
 ## html2md — HTML-to-Markdown conversion / content transformation / Accept header negotiation
 
@@ -44,6 +44,33 @@ Before writing authentication, cookie-hardening, or content-transform logic from
 **Implementation notes:** Duplicate `Set-Cookie` headers are preserved — the host collapses them to one, so the filter clears the header and re-adds each cookie as its own occurrence. Empty segments from trailing semicolons are dropped when re-joining. Headers are only rewritten when at least one cookie value actually changes.
 
 **Origin integration:** Configured entirely through environment variables (`COOKIE_NAME`, `SECURE`, `HTTPONLY`, `SAMESITE`) — no origin code required.
+
+---
+
+## graphql-protection — GraphQL security / query depth limiting / introspection blocking / batch limiting / field blocking
+
+**What it solves:** A CDN filter that inspects GraphQL `POST` requests and rejects abusive ones — excessive nesting depth, oversized batches, huge string values, and blocked fields such as introspection — before they reach the origin. Building this from scratch requires correctly implementing GraphQL AST traversal, fragment cycle detection, and multi-encoding support; this template has already done that.
+
+**How it deploys:** Single CDN Proxy-WASM app. Deployed via the Gcore portal template gallery (template ID 132). No origin changes required.
+
+**Runtime variants:** None. All behavior is controlled through environment variables.
+
+**Supported request encodings:** `application/json` (single object or batch array), `application/graphql` (raw query document), `application/x-www-form-urlencoded` (`query` and optional `variables` fields). Content types are matched case-insensitively. Any other content type on the endpoint is rejected with `400`. Only `POST` requests are inspected; GraphQL over `GET` is not checked.
+
+**Enforced checks (all optional; unset means not enforced):**
+- `ENDPOINT` — request path to inspect (default `/graphql`). Path is normalised before comparison: query string dropped, percent-encoding decoded, `\` treated as `/`, `.`/`..` segments resolved, trailing slash removed, lowercased — so `/graphql?x=1`, `/GraphQL`, `/%67raphql`, and `/api/../graphql` all match `/graphql`.
+- `MAX_BODY_SIZE` — maximum request body size in bytes.
+- `MAX_QUERY_DEPTH` — maximum selection-set nesting depth; fragment spreads are followed with a cycle guard. Also caps per-level field repetitions within a single selection level.
+- `MAX_BATCH_SIZE` — maximum number of operations in a JSON batch array.
+- `MAX_VALUE_SIZE` — maximum size in bytes of any string literal field argument or string variable value (nested lists/objects included). Does not apply to directive arguments.
+- `BLOCKED_FIELDS` — comma-separated field names rejected anywhere in the document (e.g. `__schema,__type`). Matched on field name; aliases do not bypass it.
+- `BLOCK_DEBUG` — when exactly `true`, rejects a literal field argument `debug: true` or a top-level variable `"debug": true`.
+
+**Response codes:**
+- `400` — body not valid UTF-8/JSON/GraphQL, `query` missing, `variables` not valid JSON, repeated form field, or unsupported content type. `X-Reject-Reason: Invalid GraphQL request`.
+- `403` — `MAX_BODY_SIZE` exceeded (`X-Reject-Reason: Request body size exceeds limit`) or any other configured check fails (`X-Reject-Reason: GraphQL request blocked`). `X-Reject-Reason` is deliberately generic to avoid revealing configured limits; detailed reason is written to the app log.
+
+**Origin integration:** Configured entirely through environment variables — no origin code required.
 
 ---
 
