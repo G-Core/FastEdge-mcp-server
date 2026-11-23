@@ -3,8 +3,8 @@
   sources:
     - id: fastedge-templates
       ref: main
-      commit: ad2bff37b23d3ed5853c68b386b9cc00a3ec1a9a
-      updated: 2026-10-20
+      commit: 6b3ec00c3adcf08078cb1224dbc2165c15a54f56
+      updated: 2026-11-10
 -->
 
 # edge-sso — Origin Integration Reference
